@@ -1,1 +1,1 @@
-# WhatPy
+# Tython
