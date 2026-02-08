@@ -1,0 +1,43 @@
+[package]
+name = "tython"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# CLI and argument parsing
+clap = { version = "4.5", features = ["derive"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0.18"
+
+# Python interop for AST parsing
+pyo3 = { version = "0.28.0", features = ["auto-initialize"] }
+
+# LLVM bindings
+inkwell = { version = "0.8.0", features = ["llvm21-1"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Serialization for AST representation
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Graph algorithms for dependency tracking
+petgraph = "0.8.3"
+
+[dev-dependencies]
+# Testing utilities
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.12"
+
+[lib]
+name = "tython"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tython"
+path = "src/main.rs"
