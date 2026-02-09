@@ -2,8 +2,7 @@ use anyhow::Result;
 use inkwell::values::BasicValueEnum;
 
 use super::context::CodegenContext;
-use crate::ast::BinOpKind;
-use crate::tir::{TirExpr, TirExprKind};
+use crate::tir::{BinOpKind, TirExpr, TirExprKind};
 
 pub struct ExprCodegen<'a, 'ctx> {
     context: &'a mut CodegenContext<'ctx>,

@@ -18,9 +18,15 @@ fn main() -> Result<()> {
     let args = Args::parse();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let mut compiler = Compiler::new(args.input.clone(), args.output)?;
+    let mut compiler = Compiler::new(args.input.clone())?;
 
-    let executable_path = compiler.compile()?;
+    let executable_path = args
+        .output
+        .unwrap_or_else(|| args.input.with_extension(""))
+        .canonicalize()
+        .unwrap();
+    compiler.compile(executable_path.clone())?;
+
     let output = std::process::Command::new(&executable_path).output()?;
 
     std::io::Write::write_all(&mut std::io::stdout(), &output.stdout)?;

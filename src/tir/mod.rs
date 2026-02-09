@@ -1,8 +1,31 @@
-pub mod builder;
+pub mod lower;
 
-use crate::ast::{BinOpKind, FunctionParam, Type};
+use crate::ast::Type;
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+// Types relocated from ast/expr.rs and ast/stmt.rs
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOpKind {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionParam {
+    pub name: String,
+    pub ty: Type,
+}
+
+impl FunctionParam {
+    pub fn new(name: String, ty: Type) -> Self {
+        Self { name, ty }
+    }
+}
 
 /// Typed IR module - fully type-checked representation
 #[derive(Debug, Clone)]
