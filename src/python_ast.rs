@@ -1,9 +1,7 @@
 #[macro_export]
 macro_rules! ast_getattr {
     ($node:expr, $attr:expr) => {
-        $node
-            .getattr($attr)
-            .expect(&format!("AST node missing expected attribute: {}", $attr))
+        $node.getattr($attr).unwrap()
     };
 }
 
@@ -11,10 +9,7 @@ macro_rules! ast_getattr {
 #[macro_export]
 macro_rules! ast_extract {
     ($node:expr, $ty:ty) => {
-        $node.extract::<$ty>().expect(&format!(
-            "Failed to extract {} from AST node",
-            stringify!($ty)
-        ))
+        $node.extract::<$ty>().unwrap()
     };
 }
 
@@ -23,9 +18,7 @@ macro_rules! ast_extract {
 macro_rules! ast_get_list {
     ($node:expr, $attr:expr) => {{
         use pyo3::types::PyList;
-        ast_getattr!($node, $attr)
-            .cast_into::<PyList>()
-            .expect(&format!("Failed to cast {} to PyList", $attr))
+        ast_getattr!($node, $attr).cast_into::<PyList>().unwrap()
     }};
 }
 
@@ -52,10 +45,6 @@ macro_rules! ast_get_int {
 macro_rules! ast_type_name {
     ($node:expr) => {{
         let node_ref: &pyo3::Bound<pyo3::PyAny> = &$node;
-        node_ref
-            .get_type()
-            .name()
-            .expect("Failed to get AST node type name")
-            .to_string()
+        node_ref.get_type().name().unwrap().to_string()
     }};
 }
