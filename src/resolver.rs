@@ -82,7 +82,7 @@ impl Resolver {
         Ok(())
     }
 
-    fn resolve_module(&self, file_dir: &Path, level: usize, module: &str) -> Result<PathBuf> {
+    pub fn resolve_module(&self, file_dir: &Path, level: usize, module: &str) -> Result<PathBuf> {
         if level > 0 {
             self.resolve_module_file_relative(file_dir, level, module)
         } else {
@@ -126,5 +126,30 @@ impl Resolver {
         } else {
             anyhow::bail!("Module file not found: {}", module)
         }
+    }
+
+    pub fn base_dir(&self) -> &Path {
+        &self.search_paths[0]
+    }
+
+    /// Compute the dotted module path from a canonical file path.
+    /// e.g. /tests/imports/module_a.py -> "imports.module_a"
+    pub fn compute_module_path(&self, file_path: &Path) -> String {
+        let base = self.base_dir();
+        let relative = file_path.strip_prefix(base).unwrap();
+        let without_ext = relative.with_extension("");
+        without_ext.to_string_lossy().replace('/', ".")
+    }
+
+    /// Mangle a function name: module.path$func_name
+    pub fn mangle_function_name(&self, file_path: &Path, func_name: &str) -> String {
+        let module_path = self.compute_module_path(file_path);
+        format!("{}${}", module_path, func_name)
+    }
+
+    /// Mangle the synthetic main: module.path$$main$
+    pub fn mangle_synthetic_main(&self, file_path: &Path) -> String {
+        let module_path = self.compute_module_path(file_path);
+        format!("{}$$main$", module_path)
     }
 }

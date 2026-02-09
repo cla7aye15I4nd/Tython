@@ -18,7 +18,9 @@ macro_rules! ast_extract {
 macro_rules! ast_get_list {
     ($node:expr, $attr:expr) => {{
         use pyo3::types::PyList;
-        ast_getattr!($node, $attr).cast_into::<PyList>().unwrap()
+        $crate::ast_getattr!($node, $attr)
+            .cast_into::<PyList>()
+            .unwrap()
     }};
 }
 
@@ -26,8 +28,8 @@ macro_rules! ast_get_list {
 #[macro_export]
 macro_rules! ast_get_string {
     ($node:expr, $attr:expr) => {{
-        let val = ast_getattr!($node, $attr);
-        ast_extract!(val, String)
+        let val = $crate::ast_getattr!($node, $attr);
+        $crate::ast_extract!(val, String)
     }};
 }
 
@@ -35,8 +37,8 @@ macro_rules! ast_get_string {
 #[macro_export]
 macro_rules! ast_get_int {
     ($node:expr, $attr:expr, $ty:ty) => {{
-        let val = ast_getattr!($node, $attr);
-        ast_extract!(val, $ty)
+        let val = $crate::ast_getattr!($node, $attr);
+        $crate::ast_extract!(val, $ty)
     }};
 }
 
