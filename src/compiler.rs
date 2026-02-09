@@ -79,11 +79,4 @@ impl Compiler {
 
         Ok(())
     }
-
-    /// Get a compiled module by path
-    pub fn get_module(&self, path: &Path) -> Option<&CompiledModule> {
-        path.canonicalize()
-            .ok()
-            .and_then(|p| self.compiled_modules.get(&p))
-    }
 }
