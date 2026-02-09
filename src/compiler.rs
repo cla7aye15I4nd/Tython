@@ -1,5 +1,5 @@
 use crate::resolver::Resolver;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -19,8 +19,6 @@ pub struct Compiler {
     resolver: Resolver,
 
     compiled_modules: HashMap<PathBuf, CompiledModule>,
-
-    in_progress: HashSet<PathBuf>,
 }
 
 impl Compiler {
@@ -35,57 +33,47 @@ impl Compiler {
             entry_point,
             resolver,
             compiled_modules: HashMap::new(),
-            in_progress: HashSet::new(),
         })
     }
 
     pub fn compile(&mut self) -> Result<()> {
-        let entry_point = self.entry_point.clone();
-        self.compile_module(&entry_point)?;
+        self.compile_module(&self.entry_point.clone(), &mut HashSet::new())?;
 
         Ok(())
     }
 
-    fn compile_module(&mut self, canonical_path: &Path) -> Result<()> {
+    fn compile_module(
+        &mut self,
+        canonical_path: &Path,
+        in_progress: &mut HashSet<PathBuf>,
+    ) -> Result<()> {
         assert!(canonical_path.is_file());
 
         if self.compiled_modules.contains_key(canonical_path) {
             return Ok(());
         }
 
-        if self.in_progress.contains(canonical_path) {
-            return Ok(());
+        if in_progress.contains(canonical_path) {
+            anyhow::bail!("Circular dependency detected: {}", canonical_path.display());
         }
 
         log::info!("Compiling module: {}", canonical_path.display());
-        self.in_progress.insert(canonical_path.to_path_buf());
-
-        // Step 1: Resolve all dependencies for this file
-        log::debug!("  [1/2] Resolving dependencies...");
-        let base_dir = canonical_path
-            .parent()
-            .context("Failed to get parent directory")?;
+        in_progress.insert(canonical_path.to_path_buf());
 
         let dependencies = self.resolver.resolve_dependencies(canonical_path)?;
-        log::debug!("  Found {} dependencies", dependencies.len());
 
-        // Step 2: Recursively compile all dependencies (depth-first)
-        log::debug!("  [2/2] Compiling dependencies...");
         for dep_path in &dependencies {
-            log::debug!("    Compiling dependency: {}", dep_path.display());
-            self.compile_module(dep_path)?;
+            self.compile_module(dep_path, in_progress)?;
         }
 
-        // Store metadata for dependency tracking
+        in_progress.remove(canonical_path);
+
         let compiled = CompiledModule {
             file_path: canonical_path.to_path_buf(),
             dependencies,
         };
         self.compiled_modules
             .insert(canonical_path.to_path_buf(), compiled);
-
-        // Remove from in-progress
-        self.in_progress.remove(canonical_path);
 
         log::info!("Successfully compiled: {}", canonical_path.display());
 
