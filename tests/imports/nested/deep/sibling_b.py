@@ -1,19 +1,15 @@
-"""Sibling B in deep package - imports from parent and sibling."""
-
-# Import from parent package
 from .. import top_level
-
-# Import from sibling
 from . import sibling_a
-
-# Import from deeper child
 from .deeper import bottom
 
-def sibling_b_func():
-    return "sibling_b_" + top_level.top_func()
+def sibling_b_func() -> int:
+    return 600 + top_level.top_func()
 
-def call_sibling_a():
+def call_sibling_a() -> int:
     return sibling_a.sibling_a_func()
 
-def call_bottom():
-    return bottom.bottom_func() + "_via_sibling_b"
+def call_bottom() -> int:
+    return bottom.bottom_func() + 600
+
+def sibling_b_compute(x: int) -> int:
+    return sibling_a.sibling_a_compute(x) + 100

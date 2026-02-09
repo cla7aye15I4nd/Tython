@@ -1,16 +1,7 @@
-"""Top-level nested module - imports from sibling and child packages."""
+from .deep.mid_level import mid_func, mid_compute
 
-# Relative import from child package
-from .deep.mid_level import mid_func, use_bottom_class
+def top_func() -> int:
+    return 1 + mid_func()
 
-# Relative import from deeper child
-from .deep.deeper.bottom import BOTTOM_CONST
-
-def top_func():
-    return "top_" + mid_func()
-
-def top_use_bottom():
-    return use_bottom_class() + "_from_top"
-
-def top_const():
-    return BOTTOM_CONST + 100
+def top_compute(x: int) -> int:
+    return mid_compute(x) + 1

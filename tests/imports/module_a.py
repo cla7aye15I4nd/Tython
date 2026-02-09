@@ -1,7 +1,5 @@
-"""Module A - no dependencies."""
+def func_a() -> int:
+    return 1
 
-def func_a():
-    return "A"
-
-def compute_a(x):
+def compute_a(x: int) -> int:
     return x + 1

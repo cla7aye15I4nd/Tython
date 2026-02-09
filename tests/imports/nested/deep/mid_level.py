@@ -1,14 +1,7 @@
-"""Mid-level module - imports from deeper level."""
+from .deeper.bottom import bottom_func, bottom_compute
 
-# Relative import from child package
-from .deeper.bottom import bottom_func, BottomClass, BOTTOM_CONST
+def mid_func() -> int:
+    return 10 + bottom_func()
 
-def mid_func():
-    return "mid_" + bottom_func()
-
-def use_bottom_class():
-    obj = BottomClass()
-    return obj.method()
-
-def get_const():
-    return BOTTOM_CONST * 2
+def mid_compute(x: int) -> int:
+    return bottom_compute(x) + 10
