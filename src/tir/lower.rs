@@ -9,15 +9,9 @@ use crate::resolver::Resolver;
 use crate::symbol_table::SymbolTable;
 use crate::{ast_get_int, ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
-// ---------------------------------------------------------------------------
-// Import types (moved from ast/convert.rs)
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportKind {
-    /// `from . import module_a` — imports a module, calls via module_a.func()
     Module,
-    /// `from .module_a import func_a` — imports a function directly
     Function,
 }
 
@@ -30,21 +24,12 @@ pub struct ImportDetail {
     pub level: usize,
 }
 
-// ---------------------------------------------------------------------------
-// Lowering context
-// ---------------------------------------------------------------------------
-
 pub struct LoweringContext {
     module_path: String,
-    /// Module-level function signatures (source name → Type::Function)
     functions: HashMap<String, Type>,
-    /// Direct call names → mangled LLVM names
     call_resolution_map: HashMap<String, String>,
-    /// Module aliases → dotted module paths
     module_import_map: HashMap<String, String>,
-    /// Function-scoped variables (reset per function)
     variables: HashMap<String, Type>,
-    /// Expected return type of current function
     current_return_type: Option<Type>,
 }
 
@@ -60,10 +45,6 @@ impl LoweringContext {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Public entry point
-    // -----------------------------------------------------------------------
-
     pub fn lower_module(
         py_ast: &Bound<PyAny>,
         canonical_path: &Path,
@@ -73,13 +54,9 @@ impl LoweringContext {
         resolver: &Resolver,
     ) -> Result<TirModule> {
         let mut ctx = Self::new(module_path.to_string());
-
         let body_list = ast_get_list!(py_ast, "body");
 
-        // Extract import details
         let import_details = Self::extract_import_info(py_ast)?;
-
-        // Register imported symbols + build resolution maps
         ctx.register_imports(
             canonical_path,
             &import_details,
@@ -88,10 +65,9 @@ impl LoweringContext {
             resolver,
         )?;
 
-        // Phase 1: collect all function signatures (lightweight scan)
+        // Phase 1: collect all function signatures
         for node in body_list.iter() {
-            let node_type = ast_type_name!(node);
-            if node_type == "FunctionDef" {
+            if ast_type_name!(node) == "FunctionDef" {
                 ctx.collect_function_signature(&node)?;
             }
         }
@@ -101,94 +77,67 @@ impl LoweringContext {
         let mut module_level_stmts = Vec::new();
 
         for node in body_list.iter() {
-            let node_type = ast_type_name!(node);
-            match node_type.as_str() {
+            match ast_type_name!(node).as_str() {
                 "FunctionDef" => {
                     let tir_func = ctx.lower_function(&node)?;
                     functions.insert(tir_func.name.clone(), tir_func);
                 }
-                "Import" | "ImportFrom" | "Assert" => {
-                    // Skip imports and asserts
-                }
+                "Import" | "ImportFrom" | "Assert" => {}
                 _ => {
-                    // Module-level statement → collect for synthetic main
-                    let tir_stmt = ctx.lower_stmt(&node)?;
-                    module_level_stmts.push(tir_stmt);
+                    module_level_stmts.push(ctx.lower_stmt(&node)?);
                 }
             }
         }
 
-        // Wrap module-level statements in synthetic main if needed
         if !module_level_stmts.is_empty() {
             let main_func = ctx.build_synthetic_main(module_level_stmts);
             functions.insert(main_func.name.clone(), main_func);
         }
 
-        Ok(TirModule {
-            path: canonical_path.to_path_buf(),
-            functions,
-        })
+        Ok(TirModule { functions })
     }
-
-    // -----------------------------------------------------------------------
-    // Import extraction (from ast/convert.rs)
-    // -----------------------------------------------------------------------
 
     fn extract_import_info(py_ast: &Bound<PyAny>) -> Result<Vec<ImportDetail>> {
         let body_list = ast_get_list!(py_ast, "body");
         let mut imports = Vec::new();
 
         for node in body_list.iter() {
-            let node_type = ast_type_name!(node);
+            if ast_type_name!(node) != "ImportFrom" {
+                continue;
+            }
 
-            if node_type == "ImportFrom" {
-                let level = ast_get_int!(node, "level", usize);
-                let module_val = ast_getattr!(node, "module");
-                let module_name: Option<String> = if module_val.is_none() {
-                    None
+            let level = ast_get_int!(node, "level", usize);
+            let module_val = ast_getattr!(node, "module");
+            let module_name: Option<String> = (!module_val.is_none())
+                .then(|| module_val.extract::<String>())
+                .transpose()?;
+
+            for name_node in ast_get_list!(node, "names").iter() {
+                let name = ast_get_string!(name_node, "name");
+                let asname_node = ast_getattr!(name_node, "asname");
+                let local_name = if asname_node.is_none() {
+                    name.clone()
                 } else {
-                    Some(module_val.extract::<String>()?)
+                    asname_node.extract::<String>()?
                 };
 
-                let names_list = ast_get_list!(node, "names");
+                let (kind, source_module) = match &module_name {
+                    Some(m) => (ImportKind::Function, Some(m.clone())),
+                    None => (ImportKind::Module, None),
+                };
 
-                for name_node in names_list.iter() {
-                    let name = ast_get_string!(name_node, "name");
-                    let asname_node = ast_getattr!(name_node, "asname");
-                    let local_name = if asname_node.is_none() {
-                        name.clone()
-                    } else {
-                        asname_node.extract::<String>()?
-                    };
-
-                    if module_name.is_some() {
-                        imports.push(ImportDetail {
-                            kind: ImportKind::Function,
-                            local_name,
-                            original_name: name,
-                            source_module: module_name.clone(),
-                            level,
-                        });
-                    } else {
-                        imports.push(ImportDetail {
-                            kind: ImportKind::Module,
-                            local_name,
-                            original_name: name,
-                            source_module: None,
-                            level,
-                        });
-                    }
-                }
+                imports.push(ImportDetail {
+                    kind,
+                    local_name,
+                    original_name: name,
+                    source_module,
+                    level,
+                });
             }
         }
 
         Ok(imports)
     }
-
-    // -----------------------------------------------------------------------
-    // Import registration + resolution maps
-    // (from compiler.rs register_dependency_types + build_resolution_maps)
-    // -----------------------------------------------------------------------
 
     fn register_imports(
         &mut self,
@@ -200,7 +149,6 @@ impl LoweringContext {
     ) -> Result<()> {
         let file_dir = canonical_path.parent().unwrap();
 
-        // Register dependency function types (unmangled names)
         for dep_path in dependencies {
             if let Some(mangled_names) = symbol_table.get_functions_for_module(dep_path) {
                 for mangled_name in mangled_names {
@@ -214,7 +162,6 @@ impl LoweringContext {
             }
         }
 
-        // Handle aliased imports
         for detail in import_details {
             if detail.local_name != detail.original_name {
                 for dep_path in dependencies {
@@ -228,7 +175,6 @@ impl LoweringContext {
             }
         }
 
-        // Build resolution maps from import details
         for detail in import_details {
             match detail.kind {
                 ImportKind::Module => {
@@ -266,10 +212,6 @@ impl LoweringContext {
         mangled.rsplit('$').next().unwrap_or(mangled).to_string()
     }
 
-    // -----------------------------------------------------------------------
-    // Phase 1: Collect function signatures
-    // -----------------------------------------------------------------------
-
     fn collect_function_signature(&mut self, node: &Bound<PyAny>) -> Result<()> {
         let name = ast_get_string!(node, "name");
 
@@ -290,37 +232,23 @@ impl LoweringContext {
             param_types.push(Self::convert_type_annotation(&annotation)?);
         }
 
-        let returns = ast_getattr!(node, "returns");
-        let return_type = if returns.is_none() {
-            Type::Unit
-        } else {
-            Self::convert_type_annotation(&returns)?
-        };
-
+        let return_type = Self::convert_return_type(node)?;
         let func_type = Type::Function {
             params: param_types,
-            return_type: Box::new(return_type.clone()),
+            return_type: Box::new(return_type),
         };
 
-        log::debug!("Registering function '{}' in module", name);
         self.functions.insert(name.clone(), func_type);
-
-        // Also add to call_resolution_map
         let mangled = self.mangle_name(&name);
         self.call_resolution_map.insert(name, mangled);
 
         Ok(())
     }
 
-    // -----------------------------------------------------------------------
-    // Phase 2: Lower functions
-    // -----------------------------------------------------------------------
-
     fn lower_function(&mut self, node: &Bound<PyAny>) -> Result<TirFunction> {
         let name = ast_get_string!(node, "name");
         let mangled_name = self.mangle_name(&name);
 
-        // Extract parameters
         let args_node = ast_getattr!(node, "args");
         let py_args = ast_get_list!(&args_node, "args");
         let mut params = Vec::new();
@@ -331,21 +259,14 @@ impl LoweringContext {
             params.push(FunctionParam::new(param_name, ty));
         }
 
-        let returns = ast_getattr!(node, "returns");
-        let return_type = if returns.is_none() {
-            Type::Unit
-        } else {
-            Self::convert_type_annotation(&returns)?
-        };
+        let return_type = Self::convert_return_type(node)?;
 
-        // Set up function scope
         self.variables.clear();
         for param in &params {
             self.variables.insert(param.name.clone(), param.ty.clone());
         }
         self.current_return_type = Some(return_type.clone());
 
-        // Lower body
         let body_list = ast_get_list!(node, "body");
         let mut tir_body = Vec::new();
         for stmt_node in body_list.iter() {
@@ -362,7 +283,6 @@ impl LoweringContext {
             })?);
         }
 
-        // Clean up scope
         self.variables.clear();
         self.current_return_type = None;
 
@@ -388,21 +308,14 @@ impl LoweringContext {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Statement lowering (from infer.rs + builder.rs)
-    // -----------------------------------------------------------------------
-
     fn lower_stmt(&mut self, node: &Bound<PyAny>) -> Result<TirStmt> {
         let node_type = ast_type_name!(node);
         let line = Self::get_line(node);
 
         match node_type.as_str() {
-            "FunctionDef" => {
-                bail!("Nested functions not supported at line {}", line)
-            }
+            "FunctionDef" => bail!("Nested functions not supported at line {}", line),
 
             "AnnAssign" => {
-                // target : annotation = value
                 let target_node = ast_getattr!(node, "target");
                 if ast_type_name!(target_node) != "Name" {
                     bail!(
@@ -413,16 +326,13 @@ impl LoweringContext {
                 let target = ast_get_string!(target_node, "id");
 
                 let annotation = ast_getattr!(node, "annotation");
-                let annotated_ty = if !annotation.is_none() {
-                    Some(Self::convert_type_annotation(&annotation)?)
-                } else {
-                    None
-                };
+                let annotated_ty = (!annotation.is_none())
+                    .then(|| Self::convert_type_annotation(&annotation))
+                    .transpose()?;
 
                 let value_node = ast_getattr!(node, "value");
                 let tir_value = self.lower_expr(&value_node)?;
 
-                // Type check: annotation must match inferred
                 if let Some(ref ann_ty) = annotated_ty {
                     if ann_ty != &tir_value.ty {
                         bail!(
@@ -445,7 +355,6 @@ impl LoweringContext {
             }
 
             "Assign" => {
-                // target = value (no type annotation)
                 let targets_list = ast_get_list!(node, "targets");
                 if targets_list.len() != 1 {
                     bail!("Multiple assignment targets not supported at line {}", line);
@@ -475,9 +384,8 @@ impl LoweringContext {
             "Return" => {
                 let value_node = ast_getattr!(node, "value");
                 if value_node.is_none() {
-                    // Bare return
                     if let Some(ref expected) = self.current_return_type {
-                        if !expected.is_unit() {
+                        if *expected != Type::Unit {
                             bail!(
                                 "Return without value at line {}, but function expects {:?}",
                                 line,
@@ -488,7 +396,6 @@ impl LoweringContext {
                     Ok(TirStmt::Return(None))
                 } else {
                     let tir_expr = self.lower_expr(&value_node)?;
-
                     if let Some(ref expected) = self.current_return_type {
                         if expected != &tir_expr.ty {
                             bail!(
@@ -499,24 +406,18 @@ impl LoweringContext {
                             );
                         }
                     }
-
                     Ok(TirStmt::Return(Some(tir_expr)))
                 }
             }
 
             "Expr" => {
                 let value_node = ast_getattr!(node, "value");
-                let tir_expr = self.lower_expr(&value_node)?;
-                Ok(TirStmt::Expr(tir_expr))
+                Ok(TirStmt::Expr(self.lower_expr(&value_node)?))
             }
 
             _ => bail!("Unsupported statement type: {} at line {}", node_type, line),
         }
     }
-
-    // -----------------------------------------------------------------------
-    // Expression lowering (from infer.rs + convert.rs + builder.rs)
-    // -----------------------------------------------------------------------
 
     fn lower_expr(&mut self, node: &Bound<PyAny>) -> Result<TirExpr> {
         let node_type = ast_type_name!(node);
@@ -577,170 +478,7 @@ impl LoweringContext {
                 })
             }
 
-            "Call" => {
-                let func_node = ast_getattr!(node, "func");
-                let args_list = ast_get_list!(node, "args");
-
-                // Lower arguments
-                let mut tir_args = Vec::new();
-                for arg in args_list.iter() {
-                    tir_args.push(self.lower_expr(&arg)?);
-                }
-
-                // Resolve function name + get type info
-                let func_node_type = ast_type_name!(func_node);
-                match func_node_type.as_str() {
-                    "Name" => {
-                        let func_name = ast_get_string!(func_node, "id");
-
-                        // Special case: print
-                        if func_name == "print" {
-                            let resolved = self
-                                .call_resolution_map
-                                .get(&func_name)
-                                .cloned()
-                                .unwrap_or_else(|| func_name.clone());
-                            return Ok(TirExpr {
-                                kind: TirExprKind::Call {
-                                    func: resolved,
-                                    args: tir_args,
-                                },
-                                ty: Type::Unit,
-                            });
-                        }
-
-                        // Look up function type for type checking
-                        let func_type =
-                            self.functions.get(&func_name).cloned().ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Undefined function: {} at line {}, column {}",
-                                    func_name,
-                                    line,
-                                    col
-                                )
-                            })?;
-
-                        let return_type = match func_type {
-                            Type::Function {
-                                ref params,
-                                ref return_type,
-                            } => {
-                                if tir_args.len() != params.len() {
-                                    bail!(
-                                        "Function '{}' at line {} expects {} arguments, got {}",
-                                        func_name,
-                                        line,
-                                        params.len(),
-                                        tir_args.len()
-                                    );
-                                }
-                                for (i, (arg, expected)) in
-                                    tir_args.iter().zip(params.iter()).enumerate()
-                                {
-                                    if &arg.ty != expected {
-                                        bail!(
-                                            "Argument {} type mismatch in call to '{}' at line {}: expected {:?}, got {:?}",
-                                            i,
-                                            func_name,
-                                            line,
-                                            expected,
-                                            arg.ty
-                                        );
-                                    }
-                                }
-                                *return_type.clone()
-                            }
-                            _ => bail!("Cannot call non-function type at line {}", line),
-                        };
-
-                        let resolved = self
-                            .call_resolution_map
-                            .get(&func_name)
-                            .cloned()
-                            .unwrap_or_else(|| func_name.clone());
-
-                        Ok(TirExpr {
-                            kind: TirExprKind::Call {
-                                func: resolved,
-                                args: tir_args,
-                            },
-                            ty: return_type,
-                        })
-                    }
-
-                    "Attribute" => {
-                        // module.function() style call
-                        let value_node = ast_getattr!(func_node, "value");
-                        let attr = ast_get_string!(func_node, "attr");
-
-                        if ast_type_name!(value_node) != "Name" {
-                            bail!("Complex attribute access not supported at line {}", line);
-                        }
-                        let mod_name = ast_get_string!(value_node, "id");
-
-                        // Resolve the mangled function name
-                        let resolved = if let Some(mod_path) = self.module_import_map.get(&mod_name)
-                        {
-                            format!("{}${}", mod_path, attr)
-                        } else {
-                            bail!("Unknown module: {} at line {}", mod_name, line);
-                        };
-
-                        // Type check using the attr name (which should be in our functions context)
-                        let func_type = self.functions.get(&attr).cloned();
-
-                        let return_type = if let Some(Type::Function {
-                            ref params,
-                            ref return_type,
-                        }) = func_type
-                        {
-                            if tir_args.len() != params.len() {
-                                bail!(
-                                    "Function '{}.{}' at line {} expects {} arguments, got {}",
-                                    mod_name,
-                                    attr,
-                                    line,
-                                    params.len(),
-                                    tir_args.len()
-                                );
-                            }
-                            for (i, (arg, expected)) in
-                                tir_args.iter().zip(params.iter()).enumerate()
-                            {
-                                if &arg.ty != expected {
-                                    bail!(
-                                        "Argument {} type mismatch in call to '{}.{}' at line {}: expected {:?}, got {:?}",
-                                        i,
-                                        mod_name,
-                                        attr,
-                                        line,
-                                        expected,
-                                        arg.ty
-                                    );
-                                }
-                            }
-                            *return_type.clone()
-                        } else {
-                            // If we can't find the type, treat as unknown
-                            // (attribute calls on imported modules may not have their type registered)
-                            Type::Unknown
-                        };
-
-                        Ok(TirExpr {
-                            kind: TirExprKind::Call {
-                                func: resolved,
-                                args: tir_args,
-                            },
-                            ty: return_type,
-                        })
-                    }
-
-                    _ => bail!(
-                        "Only direct function calls and module.function calls supported at line {}",
-                        line
-                    ),
-                }
-            }
+            "Call" => self.lower_call(node, line, col),
 
             "Attribute" => {
                 bail!(
@@ -757,15 +495,149 @@ impl LoweringContext {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
+    fn lower_call(&mut self, node: &Bound<PyAny>, line: usize, col: usize) -> Result<TirExpr> {
+        let func_node = ast_getattr!(node, "func");
+        let args_list = ast_get_list!(node, "args");
+
+        let mut tir_args = Vec::new();
+        for arg in args_list.iter() {
+            tir_args.push(self.lower_expr(&arg)?);
+        }
+
+        let func_node_type = ast_type_name!(func_node);
+        match func_node_type.as_str() {
+            "Name" => {
+                let func_name = ast_get_string!(func_node, "id");
+
+                if func_name == "print" {
+                    return Ok(TirExpr {
+                        kind: TirExprKind::Call {
+                            func: "print".to_string(),
+                            args: tir_args,
+                        },
+                        ty: Type::Unit,
+                    });
+                }
+
+                let func_type = self.functions.get(&func_name).cloned().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Undefined function: {} at line {}, column {}",
+                        func_name,
+                        line,
+                        col
+                    )
+                })?;
+
+                let return_type = self.check_call_args(&func_name, &func_type, &tir_args, line)?;
+
+                let resolved = self
+                    .call_resolution_map
+                    .get(&func_name)
+                    .cloned()
+                    .unwrap_or(func_name);
+
+                Ok(TirExpr {
+                    kind: TirExprKind::Call {
+                        func: resolved,
+                        args: tir_args,
+                    },
+                    ty: return_type,
+                })
+            }
+
+            "Attribute" => {
+                let value_node = ast_getattr!(func_node, "value");
+                let attr = ast_get_string!(func_node, "attr");
+
+                if ast_type_name!(value_node) != "Name" {
+                    bail!("Complex attribute access not supported at line {}", line);
+                }
+                let mod_name = ast_get_string!(value_node, "id");
+
+                let mod_path = self.module_import_map.get(&mod_name).ok_or_else(|| {
+                    anyhow::anyhow!("Unknown module: {} at line {}", mod_name, line)
+                })?;
+                let resolved = format!("{}${}", mod_path, attr);
+
+                let return_type = match self.functions.get(&attr).cloned() {
+                    Some(func_type) => {
+                        let label = format!("{}.{}", mod_name, attr);
+                        self.check_call_args(&label, &func_type, &tir_args, line)?
+                    }
+                    None => bail!(
+                        "Undefined function: {}.{} at line {}, column {}",
+                        mod_name,
+                        attr,
+                        line,
+                        col
+                    ),
+                };
+
+                Ok(TirExpr {
+                    kind: TirExprKind::Call {
+                        func: resolved,
+                        args: tir_args,
+                    },
+                    ty: return_type,
+                })
+            }
+
+            _ => bail!(
+                "Only direct function calls and module.function calls supported at line {}",
+                line
+            ),
+        }
+    }
+
+    fn check_call_args(
+        &self,
+        func_name: &str,
+        func_type: &Type,
+        args: &[TirExpr],
+        line: usize,
+    ) -> Result<Type> {
+        match func_type {
+            Type::Function {
+                params,
+                return_type,
+            } => {
+                if args.len() != params.len() {
+                    bail!(
+                        "Function '{}' at line {} expects {} arguments, got {}",
+                        func_name,
+                        line,
+                        params.len(),
+                        args.len()
+                    );
+                }
+                for (i, (arg, expected)) in args.iter().zip(params.iter()).enumerate() {
+                    if &arg.ty != expected {
+                        bail!(
+                            "Argument {} type mismatch in call to '{}' at line {}: expected {:?}, got {:?}",
+                            i, func_name, line, expected, arg.ty
+                        );
+                    }
+                }
+                Ok(*return_type.clone())
+            }
+            _ => bail!("Cannot call non-function type at line {}", line),
+        }
+    }
 
     fn mangle_name(&self, name: &str) -> String {
         if name == "main" {
             format!("{}$$main$", self.module_path)
         } else {
             format!("{}${}", self.module_path, name)
+        }
+    }
+
+    fn convert_return_type(node: &Bound<PyAny>) -> Result<Type> {
+        let returns = ast_getattr!(node, "returns");
+        if returns.is_none() {
+            Ok(Type::Unit)
+        } else {
+            Self::convert_type_annotation(&returns)
         }
     }
 

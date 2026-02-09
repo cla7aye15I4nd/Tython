@@ -1,5 +1,4 @@
-use crate::codegen::context::CodegenContext;
-use crate::codegen::function::FunctionCodegen;
+use crate::codegen::Codegen;
 use crate::resolver::Resolver;
 use crate::symbol_table::SymbolTable;
 use crate::tir::lower::LoweringContext;
@@ -35,30 +34,25 @@ impl Compiler {
 
     pub fn compile(&mut self, output_path: PathBuf) -> Result<()> {
         let llvm_context = LlvmContext::create();
-        let mut codegen_ctx = CodegenContext::new(&llvm_context, "__main__");
+        let mut codegen = Codegen::new(&llvm_context, "__main__");
 
         self.compile_module(
             &self.entry_point.clone(),
             &mut HashSet::new(),
             &mut HashSet::new(),
-            &mut codegen_ctx,
+            &mut codegen,
         )?;
 
         let entry_main_mangled = self.resolver.mangle_synthetic_main(&self.entry_point);
+        assert!(codegen.module.get_function(&entry_main_mangled).is_some());
 
-        assert!(codegen_ctx
-            .module
-            .get_function(&entry_main_mangled)
-            .is_some());
-
-        crate::codegen::add_c_main_wrapper(&mut codegen_ctx, &entry_main_mangled)?;
-
-        assert!(codegen_ctx.module.verify().is_ok());
+        codegen.add_c_main_wrapper(&entry_main_mangled)?;
+        assert!(codegen.module.verify().is_ok());
 
         let bc_path = self.entry_point.with_extension("bc");
         let ll_path = self.entry_point.with_extension("ll");
-        let _ = codegen_ctx.module.print_to_file(&ll_path);
-        codegen_ctx.module.write_bitcode_to_path(&bc_path);
+        let _ = codegen.module.print_to_file(&ll_path);
+        codegen.module.write_bitcode_to_path(&bc_path);
 
         Self::link_with_clang(&bc_path, &output_path)?;
 
@@ -70,7 +64,7 @@ impl Compiler {
         canonical_path: &Path,
         in_progress: &mut HashSet<PathBuf>,
         compiled: &mut HashSet<PathBuf>,
-        codegen_ctx: &mut CodegenContext,
+        codegen: &mut Codegen,
     ) -> Result<()> {
         assert!(canonical_path.is_file());
 
@@ -88,7 +82,7 @@ impl Compiler {
         let dependencies = self.resolver.resolve_dependencies(canonical_path)?;
 
         for dep_path in &dependencies {
-            self.compile_module(dep_path, in_progress, compiled, codegen_ctx)?;
+            self.compile_module(dep_path, in_progress, compiled, codegen)?;
         }
 
         in_progress.remove(canonical_path);
@@ -121,12 +115,10 @@ impl Compiler {
 
         // Declare all signatures before generating bodies (forward references)
         for func in tir.functions.values() {
-            let mut func_codegen = FunctionCodegen::new(codegen_ctx);
-            func_codegen.declare_function(func)?;
+            codegen.declare_function(func)?;
         }
         for func in tir.functions.values() {
-            let mut func_codegen = FunctionCodegen::new(codegen_ctx);
-            func_codegen.generate_function_body(func)?;
+            codegen.generate_function_body(func)?;
         }
 
         compiled.insert(canonical_path.to_path_buf());

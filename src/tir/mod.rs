@@ -2,9 +2,6 @@ pub mod lower;
 
 use crate::ast::Type;
 use std::collections::HashMap;
-use std::path::PathBuf;
-
-// Types relocated from ast/expr.rs and ast/stmt.rs
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOpKind {
@@ -27,10 +24,8 @@ impl FunctionParam {
     }
 }
 
-/// Typed IR module - fully type-checked representation
 #[derive(Debug, Clone)]
 pub struct TirModule {
-    pub path: PathBuf,
     pub functions: HashMap<String, TirFunction>,
 }
 
@@ -44,24 +39,19 @@ pub struct TirFunction {
 
 #[derive(Debug, Clone)]
 pub enum TirStmt {
-    /// Local variable binding
     Let {
         name: String,
         ty: Type,
         value: TirExpr,
     },
-
-    /// Return statement
     Return(Option<TirExpr>),
-
-    /// Expression statement (for side effects like print)
     Expr(TirExpr),
 }
 
 #[derive(Debug, Clone)]
 pub struct TirExpr {
     pub kind: TirExprKind,
-    pub ty: Type, // Always present in TIR
+    pub ty: Type,
 }
 
 #[derive(Debug, Clone)]

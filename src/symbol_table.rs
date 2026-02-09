@@ -2,12 +2,8 @@ use crate::ast::Type;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Global symbol table: tracks all functions across all compiled modules.
-#[derive(Debug)]
 pub struct SymbolTable {
-    /// mangled_name -> Type::Function
     symbols: HashMap<String, Type>,
-    /// module file path -> list of mangled function names in that module
     modules: HashMap<PathBuf, Vec<String>>,
 }
 
