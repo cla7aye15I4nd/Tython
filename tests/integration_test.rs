@@ -1,7 +1,7 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use tython::ast::Type;
 use tython::tir::type_rules;
-use tython::tir::{BinOpKind, UnaryOpKind};
+use tython::tir::{ArithBinOp, BitwiseBinOp, TypedBinOp, UnaryOpKind};
 
 #[test]
 fn test_tython_python_compatibility() {
@@ -108,19 +108,19 @@ fn test_invalid_programs_produce_compilation_errors() {
     }
 }
 
-const ALL_BINOPS: &[BinOpKind] = &[
-    BinOpKind::Add,
-    BinOpKind::Sub,
-    BinOpKind::Mul,
-    BinOpKind::Div,
-    BinOpKind::FloorDiv,
-    BinOpKind::Mod,
-    BinOpKind::Pow,
-    BinOpKind::BitAnd,
-    BinOpKind::BitOr,
-    BinOpKind::BitXor,
-    BinOpKind::LShift,
-    BinOpKind::RShift,
+const ALL_BINOPS: &[TypedBinOp] = &[
+    TypedBinOp::Arith(ArithBinOp::Add),
+    TypedBinOp::Arith(ArithBinOp::Sub),
+    TypedBinOp::Arith(ArithBinOp::Mul),
+    TypedBinOp::Arith(ArithBinOp::Div),
+    TypedBinOp::Arith(ArithBinOp::FloorDiv),
+    TypedBinOp::Arith(ArithBinOp::Mod),
+    TypedBinOp::Arith(ArithBinOp::Pow),
+    TypedBinOp::Bitwise(BitwiseBinOp::BitAnd),
+    TypedBinOp::Bitwise(BitwiseBinOp::BitOr),
+    TypedBinOp::Bitwise(BitwiseBinOp::BitXor),
+    TypedBinOp::Bitwise(BitwiseBinOp::LShift),
+    TypedBinOp::Bitwise(BitwiseBinOp::RShift),
 ];
 
 const ALL_UNARYOPS: &[UnaryOpKind] = &[
@@ -130,13 +130,14 @@ const ALL_UNARYOPS: &[UnaryOpKind] = &[
     UnaryOpKind::BitNot,
 ];
 
-const TESTABLE_TYPES: &[Type] = &[Type::Int, Type::Float, Type::Bool];
+const TESTABLE_TYPES: &[Type] = &[Type::Int, Type::Float, Type::Bool, Type::Unit];
 
 fn type_to_python(ty: &Type) -> (&str, &str) {
     match ty {
         Type::Int => ("int", "1"),
         Type::Float => ("float", "1.0"),
         Type::Bool => ("bool", "True"),
+        Type::Unit => ("None", "None"),
         _ => unreachable!(),
     }
 }

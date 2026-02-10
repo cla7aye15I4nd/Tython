@@ -1,4 +1,4 @@
-use super::{BinOpKind, UnaryOpKind};
+use super::{ArithBinOp, TypedBinOp, UnaryOpKind};
 use crate::ast::Type;
 
 /// Describes what coercion to apply to an operand before the operation.
@@ -10,7 +10,7 @@ pub enum Coercion {
     ToFloat,
 }
 
-/// Result of looking up a valid (BinOpKind, left_type, right_type) combination.
+/// Result of looking up a valid (TypedBinOp, left_type, right_type) combination.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BinOpRule {
     pub left_coercion: Coercion,
@@ -60,35 +60,40 @@ impl BinOpRule {
 
 /// Look up the type rule for a binary operation.
 /// Returns `None` if the (op, left, right) combination is invalid.
-pub fn lookup_binop(op: BinOpKind, left: &Type, right: &Type) -> Option<BinOpRule> {
-    use BinOpKind::*;
+pub fn lookup_binop(op: TypedBinOp, left: &Type, right: &Type) -> Option<BinOpRule> {
     use Type::*;
 
-    match (op, left, right) {
+    match op {
         // ── Bitwise: Int × Int → Int only ────────────────────────────
-        (BitAnd | BitOr | BitXor | LShift | RShift, Int, Int) => Some(BinOpRule::same(Int)),
-        (BitAnd | BitOr | BitXor | LShift | RShift, _, _) => None,
+        TypedBinOp::Bitwise(_) => match (left, right) {
+            (Int, Int) => Some(BinOpRule::same(Int)),
+            _ => None,
+        },
 
-        // ── True division: always produces Float ─────────────────────
-        (Div, Int, Int) => Some(BinOpRule::promote_both_to_float()),
-        (Div, Float, Float) => Some(BinOpRule::same(Float)),
-        (Div, Int, Float) => Some(BinOpRule::promote_left_to_float()),
-        (Div, Float, Int) => Some(BinOpRule::promote_right_to_float()),
-
-        // ── Arithmetic: same type → same type ────────────────────────
-        (Add | Sub | Mul | FloorDiv | Mod | Pow, Int, Int) => Some(BinOpRule::same(Int)),
-        (Add | Sub | Mul | FloorDiv | Mod | Pow, Float, Float) => Some(BinOpRule::same(Float)),
-
-        // ── Arithmetic: mixed Int/Float → promote to Float ───────────
-        (Add | Sub | Mul | FloorDiv | Mod | Pow, Int, Float) => {
-            Some(BinOpRule::promote_left_to_float())
-        }
-        (Add | Sub | Mul | FloorDiv | Mod | Pow, Float, Int) => {
-            Some(BinOpRule::promote_right_to_float())
-        }
-
-        // ── Everything else: invalid ─────────────────────────────────
-        _ => None,
+        // ── Arithmetic ───────────────────────────────────────────────
+        TypedBinOp::Arith(arith) => match arith {
+            // True division: always produces Float
+            ArithBinOp::Div => match (left, right) {
+                (Int, Int) => Some(BinOpRule::promote_both_to_float()),
+                (Float, Float) => Some(BinOpRule::same(Float)),
+                (Int, Float) => Some(BinOpRule::promote_left_to_float()),
+                (Float, Int) => Some(BinOpRule::promote_right_to_float()),
+                _ => None,
+            },
+            // Other arithmetic: same type → same type, mixed → Float
+            ArithBinOp::Add
+            | ArithBinOp::Sub
+            | ArithBinOp::Mul
+            | ArithBinOp::FloorDiv
+            | ArithBinOp::Mod
+            | ArithBinOp::Pow => match (left, right) {
+                (Int, Int) => Some(BinOpRule::same(Int)),
+                (Float, Float) => Some(BinOpRule::same(Float)),
+                (Int, Float) => Some(BinOpRule::promote_left_to_float()),
+                (Float, Int) => Some(BinOpRule::promote_right_to_float()),
+                _ => None,
+            },
+        },
     }
 }
 
@@ -117,17 +122,15 @@ pub fn lookup_unaryop(op: UnaryOpKind, operand: &Type) -> Option<UnaryOpRule> {
 }
 
 /// Generate a descriptive error message for an invalid BinOp type combination.
-pub fn binop_type_error_message(op: BinOpKind, left: &Type, right: &Type) -> String {
-    use BinOpKind::*;
-
+pub fn binop_type_error_message(op: TypedBinOp, left: &Type, right: &Type) -> String {
     match op {
-        BitAnd | BitOr | BitXor | LShift | RShift => {
+        TypedBinOp::Bitwise(_) => {
             format!(
                 "bitwise operator `{}` requires `int` operands, got `{}` and `{}`",
                 op, left, right
             )
         }
-        _ => {
+        TypedBinOp::Arith(_) => {
             format!(
                 "operator `{}` requires numeric operands, got `{}` and `{}`",
                 op, left, right

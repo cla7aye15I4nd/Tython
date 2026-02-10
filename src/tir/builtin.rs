@@ -1,4 +1,4 @@
-use crate::ast::Type;
+use super::ValueType;
 
 macro_rules! define_builtins {
     ($($variant:ident => $symbol:literal, params: [$($param:expr),*], ret: $ret:expr);* $(;)?) => {
@@ -14,13 +14,13 @@ macro_rules! define_builtins {
                 }
             }
 
-            pub fn param_types(&self) -> Vec<Type> {
+            pub fn param_types(&self) -> Vec<ValueType> {
                 match self {
                     $(Self::$variant => vec![$($param),*],)*
                 }
             }
 
-            pub fn return_type(&self) -> Type {
+            pub fn return_type(&self) -> Option<ValueType> {
                 match self {
                     $(Self::$variant => $ret,)*
                 }
@@ -30,26 +30,26 @@ macro_rules! define_builtins {
 }
 
 define_builtins! {
-    PrintInt      => "__tython_print_int",      params: [Type::Int],                    ret: Type::Unit;
-    PrintFloat    => "__tython_print_float",    params: [Type::Float],                  ret: Type::Unit;
-    PrintBool     => "__tython_print_bool",     params: [Type::Bool],                   ret: Type::Unit;
-    PrintSpace    => "__tython_print_space",    params: [],                             ret: Type::Unit;
-    PrintNewline  => "__tython_print_newline",  params: [],                             ret: Type::Unit;
-    Assert        => "__tython_assert",         params: [Type::Bool],                   ret: Type::Unit;
-    PowInt        => "__tython_pow_int",        params: [Type::Int, Type::Int],         ret: Type::Int;
-    AbsInt        => "__tython_abs_int",        params: [Type::Int],                    ret: Type::Int;
-    AbsFloat      => "__tython_abs_float",      params: [Type::Float],                  ret: Type::Float;
-    MinInt        => "__tython_min_int",        params: [Type::Int, Type::Int],         ret: Type::Int;
-    MinFloat      => "__tython_min_float",      params: [Type::Float, Type::Float],     ret: Type::Float;
-    MaxInt        => "__tython_max_int",        params: [Type::Int, Type::Int],         ret: Type::Int;
-    MaxFloat      => "__tython_max_float",      params: [Type::Float, Type::Float],     ret: Type::Float;
-    RoundFloat    => "__tython_round_float",    params: [Type::Float],                  ret: Type::Int;
+    PrintInt      => "__tython_print_int",      params: [ValueType::Int],                          ret: None;
+    PrintFloat    => "__tython_print_float",    params: [ValueType::Float],                        ret: None;
+    PrintBool     => "__tython_print_bool",     params: [ValueType::Bool],                         ret: None;
+    PrintSpace    => "__tython_print_space",    params: [],                                        ret: None;
+    PrintNewline  => "__tython_print_newline",  params: [],                                        ret: None;
+    Assert        => "__tython_assert",         params: [ValueType::Bool],                         ret: None;
+    PowInt        => "__tython_pow_int",        params: [ValueType::Int, ValueType::Int],           ret: Some(ValueType::Int);
+    AbsInt        => "__tython_abs_int",        params: [ValueType::Int],                          ret: Some(ValueType::Int);
+    AbsFloat      => "__tython_abs_float",      params: [ValueType::Float],                        ret: Some(ValueType::Float);
+    MinInt        => "__tython_min_int",        params: [ValueType::Int, ValueType::Int],           ret: Some(ValueType::Int);
+    MinFloat      => "__tython_min_float",      params: [ValueType::Float, ValueType::Float],       ret: Some(ValueType::Float);
+    MaxInt        => "__tython_max_int",        params: [ValueType::Int, ValueType::Int],           ret: Some(ValueType::Int);
+    MaxFloat      => "__tython_max_float",      params: [ValueType::Float, ValueType::Float],       ret: Some(ValueType::Float);
+    RoundFloat    => "__tython_round_float",    params: [ValueType::Float],                        ret: Some(ValueType::Int);
 }
 
-pub fn resolve_print(arg_ty: &Type) -> BuiltinFn {
+pub fn resolve_print(arg_ty: &ValueType) -> BuiltinFn {
     match arg_ty {
-        Type::Float => BuiltinFn::PrintFloat,
-        Type::Bool => BuiltinFn::PrintBool,
-        _ => BuiltinFn::PrintInt,
+        ValueType::Float => BuiltinFn::PrintFloat,
+        ValueType::Bool => BuiltinFn::PrintBool,
+        ValueType::Int => BuiltinFn::PrintInt,
     }
 }

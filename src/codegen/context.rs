@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
-use crate::ast::Type;
 use crate::tir::{
-    BinOpKind, CmpOp, LogicalOp, TirExpr, TirExprKind, TirFunction, TirStmt, UnaryOpKind,
+    ArithBinOp, BitwiseBinOp, CallTarget, CastKind, CmpOp, LogicalOp, TirExpr, TirExprKind,
+    TirFunction, TirStmt, TypedBinOp, UnaryOpKind, ValueType,
 };
 
 pub struct Codegen<'ctx> {
@@ -76,11 +76,10 @@ impl<'ctx> Codegen<'ctx> {
             .unwrap();
     }
 
-    fn get_llvm_type(&self, ty: &Type) -> inkwell::types::BasicTypeEnum<'ctx> {
+    fn get_llvm_type(&self, ty: &ValueType) -> inkwell::types::BasicTypeEnum<'ctx> {
         match ty {
-            Type::Int | Type::Bool => self.context.i64_type().into(),
-            Type::Float => self.context.f64_type().into(),
-            _ => panic!("Unsupported type for LLVM conversion: {:?}", ty),
+            ValueType::Int | ValueType::Bool => self.context.i64_type().into(),
+            ValueType::Float => self.context.f64_type().into(),
         }
     }
 
@@ -125,12 +124,24 @@ impl<'ctx> Codegen<'ctx> {
     fn build_truthiness_check_for_value(
         &self,
         value: BasicValueEnum<'ctx>,
-        ty: &Type,
+        ty: &ValueType,
         label: &str,
     ) -> inkwell::values::IntValue<'ctx> {
         match ty {
-            Type::Float => self.build_float_truthiness_check(value.into_float_value(), label),
+            ValueType::Float => self.build_float_truthiness_check(value.into_float_value(), label),
             _ => self.build_int_truthiness_check(value.into_int_value(), label),
+        }
+    }
+
+    /// Extract the return value from a call to a function known to return non-void.
+    /// This is an LLVM API contract — the function has a non-void return type in IR.
+    fn extract_call_value(
+        &self,
+        call_site: inkwell::values::CallSiteValue<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        match call_site.try_as_basic_value() {
+            ValueKind::Basic(val) => val,
+            ValueKind::Instruction(_) => unreachable!("call to non-void function returned void"),
         }
     }
 
@@ -150,8 +161,8 @@ impl<'ctx> Codegen<'ctx> {
     fn get_or_declare_function(
         &self,
         name: &str,
-        param_types: &[Type],
-        return_type: &Type,
+        param_types: &[ValueType],
+        return_type: Option<ValueType>,
     ) -> FunctionValue<'ctx> {
         self.module.get_function(name).unwrap_or_else(|| {
             let llvm_params: Vec<BasicMetadataTypeEnum> = param_types
@@ -160,8 +171,8 @@ impl<'ctx> Codegen<'ctx> {
                 .collect();
 
             let fn_type = match return_type {
-                Type::Unit => self.context.void_type().fn_type(&llvm_params, false),
-                other => self.get_llvm_type(other).fn_type(&llvm_params, false),
+                None => self.context.void_type().fn_type(&llvm_params, false),
+                Some(ty) => self.get_llvm_type(&ty).fn_type(&llvm_params, false),
             };
 
             self.module.add_function(name, fn_type, None)
@@ -169,8 +180,8 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     pub fn generate(&mut self, func: &TirFunction) {
-        let param_types: Vec<Type> = func.params.iter().map(|p| p.ty.clone()).collect();
-        let function = self.get_or_declare_function(&func.name, &param_types, &func.return_type);
+        let param_types: Vec<ValueType> = func.params.iter().map(|p| p.ty).collect();
+        let function = self.get_or_declare_function(&func.name, &param_types, func.return_type);
 
         let entry_bb = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_bb);
@@ -190,7 +201,7 @@ impl<'ctx> Codegen<'ctx> {
             self.codegen_stmt(stmt);
         }
 
-        if func.return_type == Type::Unit
+        if func.return_type.is_none()
             && self
                 .builder
                 .get_insert_block()
@@ -230,6 +241,32 @@ impl<'ctx> Codegen<'ctx> {
 
             TirStmt::Expr(expr) => {
                 self.codegen_expr(expr);
+            }
+
+            TirStmt::VoidCall { target, args } => {
+                let arg_values: Vec<BasicValueEnum> =
+                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
+                let arg_metadata: Vec<_> = arg_values.iter().map(|v| (*v).into()).collect();
+
+                match target {
+                    CallTarget::Named(func_name) => {
+                        let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty).collect();
+                        let function = self.get_or_declare_function(func_name, &arg_types, None);
+                        self.builder
+                            .build_call(function, &arg_metadata, "void_call")
+                            .unwrap();
+                    }
+                    CallTarget::Builtin(builtin_fn) => {
+                        let function = self.get_or_declare_function(
+                            builtin_fn.symbol(),
+                            &builtin_fn.param_types(),
+                            builtin_fn.return_type(),
+                        );
+                        self.builder
+                            .build_call(function, &arg_metadata, "void_ext_call")
+                            .unwrap();
+                    }
+                }
             }
 
             TirStmt::If {
@@ -354,184 +391,199 @@ impl<'ctx> Codegen<'ctx> {
                 let left_val = self.codegen_expr(left);
                 let right_val = self.codegen_expr(right);
 
-                if expr.ty == Type::Float {
-                    let left_float = left_val.into_float_value();
-                    let right_float = right_val.into_float_value();
+                match op {
+                    TypedBinOp::Arith(arith_op) => {
+                        if expr.ty == ValueType::Float {
+                            let left_float = left_val.into_float_value();
+                            let right_float = right_val.into_float_value();
 
-                    let result = match op {
-                        BinOpKind::Add => self
-                            .builder
-                            .build_float_add(left_float, right_float, "fadd")
-                            .unwrap(),
-                        BinOpKind::Sub => self
-                            .builder
-                            .build_float_sub(left_float, right_float, "fsub")
-                            .unwrap(),
-                        BinOpKind::Mul => self
-                            .builder
-                            .build_float_mul(left_float, right_float, "fmul")
-                            .unwrap(),
-                        BinOpKind::Div => self
-                            .builder
-                            .build_float_div(left_float, right_float, "fdiv")
-                            .unwrap(),
-                        BinOpKind::Mod => self
-                            .builder
-                            .build_float_rem(left_float, right_float, "fmod")
-                            .unwrap(),
-                        BinOpKind::FloorDiv => {
-                            let div = self
-                                .builder
-                                .build_float_div(left_float, right_float, "fdiv")
-                                .unwrap();
-                            let floor_fn = self
-                                .module
-                                .get_function("llvm.floor.f64")
-                                .unwrap_or_else(|| {
-                                    let f64_type = self.context.f64_type();
-                                    let fn_type = f64_type.fn_type(&[f64_type.into()], false);
-                                    self.module.add_function("llvm.floor.f64", fn_type, None)
-                                });
-                            match self
-                                .builder
-                                .build_call(floor_fn, &[div.into()], "floordiv")
-                                .unwrap()
-                                .try_as_basic_value()
-                            {
-                                ValueKind::Basic(val) => val.into_float_value(),
-                                _ => panic!("llvm.floor.f64 must return a value"),
-                            }
-                        }
-                        BinOpKind::Pow => {
-                            let pow_fn =
-                                self.module.get_function("llvm.pow.f64").unwrap_or_else(|| {
-                                    let f64_type = self.context.f64_type();
-                                    let fn_type = f64_type
-                                        .fn_type(&[f64_type.into(), f64_type.into()], false);
-                                    self.module.add_function("llvm.pow.f64", fn_type, None)
-                                });
-                            match self
-                                .builder
-                                .build_call(pow_fn, &[left_float.into(), right_float.into()], "pow")
-                                .unwrap()
-                                .try_as_basic_value()
-                            {
-                                ValueKind::Basic(val) => val.into_float_value(),
-                                _ => panic!("llvm.pow.f64 must return a value"),
-                            }
-                        }
-                        BinOpKind::BitAnd
-                        | BinOpKind::BitOr
-                        | BinOpKind::BitXor
-                        | BinOpKind::LShift
-                        | BinOpKind::RShift => {
-                            panic!("Bitwise operations not supported on floats")
-                        }
-                    };
-                    result.into()
-                } else {
-                    let left_int = left_val.into_int_value();
-                    let right_int = right_val.into_int_value();
+                            let result = match arith_op {
+                                ArithBinOp::Add => self
+                                    .builder
+                                    .build_float_add(left_float, right_float, "fadd")
+                                    .unwrap(),
+                                ArithBinOp::Sub => self
+                                    .builder
+                                    .build_float_sub(left_float, right_float, "fsub")
+                                    .unwrap(),
+                                ArithBinOp::Mul => self
+                                    .builder
+                                    .build_float_mul(left_float, right_float, "fmul")
+                                    .unwrap(),
+                                ArithBinOp::Div => self
+                                    .builder
+                                    .build_float_div(left_float, right_float, "fdiv")
+                                    .unwrap(),
+                                ArithBinOp::Mod => self
+                                    .builder
+                                    .build_float_rem(left_float, right_float, "fmod")
+                                    .unwrap(),
+                                ArithBinOp::FloorDiv => {
+                                    let div = self
+                                        .builder
+                                        .build_float_div(left_float, right_float, "fdiv")
+                                        .unwrap();
+                                    let floor_fn = self
+                                        .module
+                                        .get_function("llvm.floor.f64")
+                                        .unwrap_or_else(|| {
+                                            let f64_type = self.context.f64_type();
+                                            let fn_type =
+                                                f64_type.fn_type(&[f64_type.into()], false);
+                                            self.module.add_function(
+                                                "llvm.floor.f64",
+                                                fn_type,
+                                                None,
+                                            )
+                                        });
+                                    let call = self
+                                        .builder
+                                        .build_call(floor_fn, &[div.into()], "floordiv")
+                                        .unwrap();
+                                    self.extract_call_value(call).into_float_value()
+                                }
+                                ArithBinOp::Pow => {
+                                    let pow_fn = self
+                                        .module
+                                        .get_function("llvm.pow.f64")
+                                        .unwrap_or_else(|| {
+                                            let f64_type = self.context.f64_type();
+                                            let fn_type = f64_type.fn_type(
+                                                &[f64_type.into(), f64_type.into()],
+                                                false,
+                                            );
+                                            self.module.add_function("llvm.pow.f64", fn_type, None)
+                                        });
+                                    let call = self
+                                        .builder
+                                        .build_call(
+                                            pow_fn,
+                                            &[left_float.into(), right_float.into()],
+                                            "pow",
+                                        )
+                                        .unwrap();
+                                    self.extract_call_value(call).into_float_value()
+                                }
+                            };
+                            result.into()
+                        } else {
+                            let left_int = left_val.into_int_value();
+                            let right_int = right_val.into_int_value();
 
-                    let result = match op {
-                        BinOpKind::Add => self
-                            .builder
-                            .build_int_add(left_int, right_int, "add")
-                            .unwrap(),
-                        BinOpKind::Sub => self
-                            .builder
-                            .build_int_sub(left_int, right_int, "sub")
-                            .unwrap(),
-                        BinOpKind::Mul => self
-                            .builder
-                            .build_int_mul(left_int, right_int, "mul")
-                            .unwrap(),
-                        BinOpKind::Div => self
-                            .builder
-                            .build_int_signed_div(left_int, right_int, "div")
-                            .unwrap(),
-                        BinOpKind::Mod => self
-                            .builder
-                            .build_int_signed_rem(left_int, right_int, "mod")
-                            .unwrap(),
-                        BinOpKind::FloorDiv => {
-                            // Python floor division: floor toward -infinity
-                            // floor_div(a,b) = a/b - ((a%b != 0) & ((a^b) < 0))
-                            let div = self
-                                .builder
-                                .build_int_signed_div(left_int, right_int, "div_tmp")
-                                .unwrap();
-                            let rem = self
-                                .builder
-                                .build_int_signed_rem(left_int, right_int, "rem_tmp")
-                                .unwrap();
-                            let zero = self.i64_type().const_int(0, false);
-                            let rem_nonzero = self
-                                .builder
-                                .build_int_compare(IntPredicate::NE, rem, zero, "rem_nz")
-                                .unwrap();
-                            let xor_val = self
-                                .builder
-                                .build_xor(left_int, right_int, "xor_signs")
-                                .unwrap();
-                            let signs_differ = self
-                                .builder
-                                .build_int_compare(IntPredicate::SLT, xor_val, zero, "signs_diff")
-                                .unwrap();
-                            let need_adjust = self
-                                .builder
-                                .build_and(rem_nonzero, signs_differ, "need_adj")
-                                .unwrap();
-                            let adjust = self
-                                .builder
-                                .build_int_z_extend(need_adjust, self.i64_type(), "adj_ext")
-                                .unwrap();
-                            self.builder.build_int_sub(div, adjust, "floordiv").unwrap()
+                            let result = match arith_op {
+                                ArithBinOp::Add => self
+                                    .builder
+                                    .build_int_add(left_int, right_int, "add")
+                                    .unwrap(),
+                                ArithBinOp::Sub => self
+                                    .builder
+                                    .build_int_sub(left_int, right_int, "sub")
+                                    .unwrap(),
+                                ArithBinOp::Mul => self
+                                    .builder
+                                    .build_int_mul(left_int, right_int, "mul")
+                                    .unwrap(),
+                                ArithBinOp::Div => self
+                                    .builder
+                                    .build_int_signed_div(left_int, right_int, "div")
+                                    .unwrap(),
+                                ArithBinOp::Mod => self
+                                    .builder
+                                    .build_int_signed_rem(left_int, right_int, "mod")
+                                    .unwrap(),
+                                ArithBinOp::FloorDiv => {
+                                    // Python floor division: floor toward -infinity
+                                    let div = self
+                                        .builder
+                                        .build_int_signed_div(left_int, right_int, "div_tmp")
+                                        .unwrap();
+                                    let rem = self
+                                        .builder
+                                        .build_int_signed_rem(left_int, right_int, "rem_tmp")
+                                        .unwrap();
+                                    let zero = self.i64_type().const_int(0, false);
+                                    let rem_nonzero = self
+                                        .builder
+                                        .build_int_compare(IntPredicate::NE, rem, zero, "rem_nz")
+                                        .unwrap();
+                                    let xor_val = self
+                                        .builder
+                                        .build_xor(left_int, right_int, "xor_signs")
+                                        .unwrap();
+                                    let signs_differ = self
+                                        .builder
+                                        .build_int_compare(
+                                            IntPredicate::SLT,
+                                            xor_val,
+                                            zero,
+                                            "signs_diff",
+                                        )
+                                        .unwrap();
+                                    let need_adjust = self
+                                        .builder
+                                        .build_and(rem_nonzero, signs_differ, "need_adj")
+                                        .unwrap();
+                                    let adjust = self
+                                        .builder
+                                        .build_int_z_extend(need_adjust, self.i64_type(), "adj_ext")
+                                        .unwrap();
+                                    self.builder.build_int_sub(div, adjust, "floordiv").unwrap()
+                                }
+                                ArithBinOp::Pow => {
+                                    let pow_fn = self.get_or_declare_function(
+                                        "__tython_pow_int",
+                                        &[ValueType::Int, ValueType::Int],
+                                        Some(ValueType::Int),
+                                    );
+                                    let call = self
+                                        .builder
+                                        .build_call(
+                                            pow_fn,
+                                            &[left_int.into(), right_int.into()],
+                                            "ipow",
+                                        )
+                                        .unwrap();
+                                    self.extract_call_value(call).into_int_value()
+                                }
+                            };
+                            result.into()
                         }
-                        BinOpKind::Pow => {
-                            // Call __tython_pow_int runtime function
-                            let pow_fn = self.get_or_declare_function(
-                                "__tython_pow_int",
-                                &[Type::Int, Type::Int],
-                                &Type::Int,
-                            );
-                            match self
+                    }
+
+                    TypedBinOp::Bitwise(bitwise_op) => {
+                        // Bitwise operations are always on integers
+                        let left_int = left_val.into_int_value();
+                        let right_int = right_val.into_int_value();
+
+                        let result = match bitwise_op {
+                            BitwiseBinOp::BitAnd => self
                                 .builder
-                                .build_call(pow_fn, &[left_int.into(), right_int.into()], "ipow")
-                                .unwrap()
-                                .try_as_basic_value()
-                            {
-                                ValueKind::Basic(val) => val.into_int_value(),
-                                _ => panic!("__tython_pow_int must return a value"),
+                                .build_and(left_int, right_int, "bitand")
+                                .unwrap(),
+                            BitwiseBinOp::BitOr => {
+                                self.builder.build_or(left_int, right_int, "bitor").unwrap()
                             }
-                        }
-                        BinOpKind::BitAnd => self
-                            .builder
-                            .build_and(left_int, right_int, "bitand")
-                            .unwrap(),
-                        BinOpKind::BitOr => {
-                            self.builder.build_or(left_int, right_int, "bitor").unwrap()
-                        }
-                        BinOpKind::BitXor => self
-                            .builder
-                            .build_xor(left_int, right_int, "bitxor")
-                            .unwrap(),
-                        BinOpKind::LShift => self
-                            .builder
-                            .build_left_shift(left_int, right_int, "lshift")
-                            .unwrap(),
-                        BinOpKind::RShift => self
-                            .builder
-                            .build_right_shift(left_int, right_int, true, "rshift")
-                            .unwrap(),
-                    };
-                    result.into()
+                            BitwiseBinOp::BitXor => self
+                                .builder
+                                .build_xor(left_int, right_int, "bitxor")
+                                .unwrap(),
+                            BitwiseBinOp::LShift => self
+                                .builder
+                                .build_left_shift(left_int, right_int, "lshift")
+                                .unwrap(),
+                            BitwiseBinOp::RShift => self
+                                .builder
+                                .build_right_shift(left_int, right_int, true, "rshift")
+                                .unwrap(),
+                        };
+                        result.into()
+                    }
                 }
             }
 
             TirExprKind::Call { func, args } => {
-                let arg_types: Vec<Type> = args.iter().map(|a| a.ty.clone()).collect();
-                let function = self.get_or_declare_function(func, &arg_types, &expr.ty);
+                let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty).collect();
+                let function = self.get_or_declare_function(func, &arg_types, Some(expr.ty));
 
                 let arg_values: Vec<BasicValueEnum> =
                     args.iter().map(|arg| self.codegen_expr(arg)).collect();
@@ -543,17 +595,14 @@ impl<'ctx> Codegen<'ctx> {
                     .build_call(function, &arg_metadata, "call")
                     .unwrap();
 
-                match call_site.try_as_basic_value() {
-                    ValueKind::Basic(return_val) => return_val,
-                    ValueKind::Instruction(_) => self.i64_type().const_int(0, false).into(),
-                }
+                self.extract_call_value(call_site)
             }
 
             TirExprKind::ExternalCall { func, args } => {
                 let function = self.get_or_declare_function(
                     func.symbol(),
                     &func.param_types(),
-                    &func.return_type(),
+                    func.return_type(),
                 );
 
                 let arg_values: Vec<BasicValueEnum> =
@@ -565,26 +614,13 @@ impl<'ctx> Codegen<'ctx> {
                     .build_call(function, &arg_metadata, "ext_call")
                     .unwrap();
 
-                match func.return_type() {
-                    Type::Unit => self.i64_type().const_int(0, false).into(),
-                    _ => match call_site.try_as_basic_value() {
-                        ValueKind::Basic(val) => val,
-                        ValueKind::Instruction(_) => {
-                            panic!("Expected return value from {}", func.symbol())
-                        }
-                    },
-                }
+                self.extract_call_value(call_site)
             }
 
-            TirExprKind::Cast { target, arg } => {
+            TirExprKind::Cast { kind, arg } => {
                 let arg_val = self.codegen_expr(arg);
-                match (&arg.ty, target) {
-                    (Type::Int, Type::Int)
-                    | (Type::Float, Type::Float)
-                    | (Type::Bool, Type::Bool)
-                    | (Type::Bool, Type::Int) => arg_val,
-
-                    (Type::Float, Type::Int) => self
+                match kind {
+                    CastKind::FloatToInt => self
                         .builder
                         .build_float_to_signed_int(
                             arg_val.into_float_value(),
@@ -594,7 +630,7 @@ impl<'ctx> Codegen<'ctx> {
                         .unwrap()
                         .into(),
 
-                    (Type::Int, Type::Float) => self
+                    CastKind::IntToFloat => self
                         .builder
                         .build_signed_int_to_float(
                             arg_val.into_int_value(),
@@ -604,7 +640,7 @@ impl<'ctx> Codegen<'ctx> {
                         .unwrap()
                         .into(),
 
-                    (Type::Bool, Type::Float) => self
+                    CastKind::BoolToFloat => self
                         .builder
                         .build_signed_int_to_float(
                             arg_val.into_int_value(),
@@ -614,7 +650,7 @@ impl<'ctx> Codegen<'ctx> {
                         .unwrap()
                         .into(),
 
-                    (Type::Int, Type::Bool) => {
+                    CastKind::IntToBool => {
                         let cmp = self.build_int_truthiness_check(arg_val.into_int_value(), "itob");
                         self.builder
                             .build_int_z_extend(cmp, self.i64_type(), "zext_bool")
@@ -622,7 +658,7 @@ impl<'ctx> Codegen<'ctx> {
                             .into()
                     }
 
-                    (Type::Float, Type::Bool) => {
+                    CastKind::FloatToBool => {
                         let cmp =
                             self.build_float_truthiness_check(arg_val.into_float_value(), "ftob");
                         self.builder
@@ -631,7 +667,7 @@ impl<'ctx> Codegen<'ctx> {
                             .into()
                     }
 
-                    _ => panic!("Unsupported cast: {:?} -> {:?}", arg.ty, target),
+                    CastKind::BoolToInt => arg_val, // same representation
                 }
             }
 
@@ -639,7 +675,7 @@ impl<'ctx> Codegen<'ctx> {
                 let left_val = self.codegen_expr(left);
                 let right_val = self.codegen_expr(right);
 
-                let cmp_result = if left.ty == Type::Float {
+                let cmp_result = if left.ty == ValueType::Float {
                     let predicate = match op {
                         CmpOp::Eq => FloatPredicate::OEQ,
                         CmpOp::NotEq => FloatPredicate::ONE,
@@ -685,7 +721,7 @@ impl<'ctx> Codegen<'ctx> {
                 let operand_val = self.codegen_expr(operand);
                 match op {
                     UnaryOpKind::Neg => {
-                        if operand.ty == Type::Float {
+                        if operand.ty == ValueType::Float {
                             let zero = self.f64_type().const_float(0.0);
                             self.builder
                                 .build_float_sub(zero, operand_val.into_float_value(), "fneg")
@@ -773,29 +809,39 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     pub fn add_c_main_wrapper(&mut self, entry_main_name: &str) {
-        let entry_fn = self.module.get_function(entry_main_name).unwrap();
-
         let c_main_type = self.context.i32_type().fn_type(&[], false);
         let c_main = self.module.add_function("main", c_main_type, None);
-
         let entry = self.context.append_basic_block(c_main, "entry");
         self.builder.position_at_end(entry);
 
-        let result = self.builder.build_call(entry_fn, &[], "call_main").unwrap();
-        let return_val = match result.try_as_basic_value() {
-            ValueKind::Basic(val) => val,
-            ValueKind::Instruction(_) => panic!("Main function must return a value"),
-        };
+        match self.module.get_function(entry_main_name) {
+            Some(entry_fn) => {
+                let result = self.builder.build_call(entry_fn, &[], "call_main").unwrap();
 
-        let i32_result = self
-            .builder
-            .build_int_cast(
-                return_val.into_int_value(),
-                self.context.i32_type(),
-                "cast_to_i32",
-            )
-            .unwrap();
-
-        self.builder.build_return(Some(&i32_result)).unwrap();
+                // Check if the entry function returns void via LLVM type
+                if entry_fn.get_type().get_return_type().is_none() {
+                    self.builder
+                        .build_return(Some(&self.context.i32_type().const_int(0, false)))
+                        .unwrap();
+                } else {
+                    let return_val = self.extract_call_value(result);
+                    let i32_result = self
+                        .builder
+                        .build_int_cast(
+                            return_val.into_int_value(),
+                            self.context.i32_type(),
+                            "cast_to_i32",
+                        )
+                        .unwrap();
+                    self.builder.build_return(Some(&i32_result)).unwrap();
+                }
+            }
+            None => {
+                // No entry function — return 0
+                self.builder
+                    .build_return(Some(&self.context.i32_type().const_int(0, false)))
+                    .unwrap();
+            }
+        }
     }
 }

@@ -7,7 +7,7 @@
 Tython is a programming language that maintains **full compatibility with Python 3 syntax** while introducing two key constraints that enable compilation to highly optimized machine code:
 
 - **Static Type Inference**: All variable types must be inferrable at compile time
-- **Immutable References**: References cannot be modified after initialization
+- **Immutable References**: References cannot be modified after initialization. It is worth noting that references located at stack scope are mutable, because tython treat them as renaming of variables.
 
 By enforcing these constraints, Tython achieves the performance of compiled languages while preserving the elegant syntax and semantics that make Python beloved by developers.
 

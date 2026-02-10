@@ -187,6 +187,12 @@ def test_if_neq() -> int:
     assert result == 1
     return result
 
+def test_if_else_return() -> int:
+    x: int = 10
+    if x > 5:
+        return 1
+    else:
+        return 2
 
 def run_tests() -> None:
     test_if_true()
@@ -205,3 +211,4 @@ def run_tests() -> None:
     test_if_gte()
     test_if_lte()
     test_if_neq()
+    test_if_else_return()
