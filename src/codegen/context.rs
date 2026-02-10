@@ -68,6 +68,7 @@ impl<'ctx> Codegen<'ctx> {
         self.module.write_bitcode_to_path(&bc_path);
 
         Command::new("clang")
+            .arg("-static")
             .arg("-flto")
             .arg("-O2")
             .arg("-o")

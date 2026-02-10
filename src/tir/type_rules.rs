@@ -1,4 +1,5 @@
-use super::{ArithBinOp, TypedBinOp, UnaryOpKind};
+use super::builtin::BuiltinFn;
+use super::{ArithBinOp, TypedBinOp, UnaryOpKind, ValueType};
 use crate::ast::Type;
 
 /// Describes what coercion to apply to an operand before the operation.
@@ -148,5 +149,112 @@ pub fn unaryop_type_error_message(op: UnaryOpKind, operand: &Type) -> String {
         Pos => format!("unary `+` requires a numeric operand, got `{}`", operand),
         Not => format!("unary `not` is not supported for `{}`", operand),
         BitNot => format!("bitwise `~` requires an `int` operand, got `{}`", operand),
+    }
+}
+
+// ── Built-in function type rules ────────────────────────────────────
+
+/// Result of resolving a built-in function call to its type-checked form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuiltinCallRule {
+    /// Resolves to a runtime function call.
+    ExternalCall {
+        func: BuiltinFn,
+        return_type: ValueType,
+    },
+    /// `pow(float, float)` lowers to a `BinOp(**)` instead of a runtime call.
+    PowFloat,
+}
+
+/// Return the expected arity of a built-in numeric function,
+/// or `None` if the name is not a built-in.
+pub fn builtin_fn_arity(name: &str) -> Option<usize> {
+    match name {
+        "abs" | "round" => Some(1),
+        "pow" | "min" | "max" => Some(2),
+        _ => None,
+    }
+}
+
+/// Look up the type rule for a built-in function call.
+/// Returns `None` if the argument types are invalid for the function.
+/// Caller should check arity with [`builtin_fn_arity`] first.
+pub fn lookup_builtin_fn(name: &str, arg_types: &[&ValueType]) -> Option<BuiltinCallRule> {
+    match name {
+        "abs" => match arg_types {
+            [ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::AbsInt,
+                return_type: ValueType::Int,
+            }),
+            [ValueType::Float] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::AbsFloat,
+                return_type: ValueType::Float,
+            }),
+            _ => None,
+        },
+        "pow" => match arg_types {
+            [ValueType::Int, ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::PowInt,
+                return_type: ValueType::Int,
+            }),
+            [ValueType::Float, ValueType::Float] => Some(BuiltinCallRule::PowFloat),
+            _ => None,
+        },
+        "min" => match arg_types {
+            [ValueType::Int, ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::MinInt,
+                return_type: ValueType::Int,
+            }),
+            [ValueType::Float, ValueType::Float] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::MinFloat,
+                return_type: ValueType::Float,
+            }),
+            _ => None,
+        },
+        "max" => match arg_types {
+            [ValueType::Int, ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::MaxInt,
+                return_type: ValueType::Int,
+            }),
+            [ValueType::Float, ValueType::Float] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::MaxFloat,
+                return_type: ValueType::Float,
+            }),
+            _ => None,
+        },
+        "round" => match arg_types {
+            [ValueType::Float] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::RoundFloat,
+                return_type: ValueType::Int,
+            }),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Generate a descriptive error message for a built-in function call
+/// that has correct arity but invalid argument types.
+pub fn builtin_fn_type_error_message(name: &str, arg_types: &[&ValueType]) -> String {
+    match name {
+        "abs" => format!("abs() requires a numeric argument, got `{}`", arg_types[0]),
+        "round" => format!(
+            "round() requires a `float` argument, got `{}`",
+            arg_types[0]
+        ),
+        "pow" | "min" | "max" => {
+            if arg_types[0] != arg_types[1] {
+                format!(
+                    "{}() arguments must have the same type: got `{}` and `{}`",
+                    name, arg_types[0], arg_types[1]
+                )
+            } else {
+                format!(
+                    "{}() requires numeric arguments, got `{}`",
+                    name, arg_types[0]
+                )
+            }
+        }
+        _ => unreachable!("not a built-in function: {}", name),
     }
 }

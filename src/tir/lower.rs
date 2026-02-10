@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::builtin;
+use super::type_rules;
 use super::{
     ArithBinOp, BitwiseBinOp, CallResult, CallTarget, CastKind, CmpOp, FunctionParam, LogicalOp,
     TirExpr, TirExprKind, TirFunction, TirModule, TirStmt, TypedBinOp, UnaryOpKind, ValueType,
@@ -1159,14 +1160,11 @@ impl Lowering {
 
                 let op = Self::convert_unaryop(&op_type)?;
 
-                let rule = super::type_rules::lookup_unaryop(op, &operand.ty.to_type())
-                    .ok_or_else(|| {
+                let rule =
+                    type_rules::lookup_unaryop(op, &operand.ty.to_type()).ok_or_else(|| {
                         self.type_error(
                             line,
-                            super::type_rules::unaryop_type_error_message(
-                                op,
-                                &operand.ty.to_type(),
-                            ),
+                            type_rules::unaryop_type_error_message(op, &operand.ty.to_type()),
                         )
                     })?;
 
@@ -1399,157 +1397,51 @@ impl Lowering {
                     }));
                 }
 
-                // Built-in numeric functions
-                if func_name == "abs" {
-                    if tir_args.len() != 1 {
-                        return Err(self.type_error(
-                            line,
-                            format!("abs() expects 1 argument, got {}", tir_args.len()),
-                        ));
-                    }
-                    let (builtin_fn, ret_vty) = match &tir_args[0].ty {
-                        ValueType::Int => (builtin::BuiltinFn::AbsInt, ValueType::Int),
-                        ValueType::Float => (builtin::BuiltinFn::AbsFloat, ValueType::Float),
-                        _ => {
-                            return Err(self.type_error(
-                                line,
-                                format!(
-                                    "abs() requires a numeric argument, got `{}`",
-                                    tir_args[0].ty
-                                ),
-                            ))
-                        }
-                    };
-                    return Ok(CallResult::Expr(TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin_fn,
-                            args: tir_args,
-                        },
-                        ty: ret_vty,
-                    }));
-                }
-
-                if func_name == "pow" {
-                    if tir_args.len() != 2 {
-                        return Err(self.type_error(
-                            line,
-                            format!("pow() expects 2 arguments, got {}", tir_args.len()),
-                        ));
-                    }
-                    if tir_args[0].ty != tir_args[1].ty {
+                // Built-in numeric functions (abs, pow, min, max, round)
+                if let Some(arity) = type_rules::builtin_fn_arity(&func_name) {
+                    if tir_args.len() != arity {
                         return Err(self.type_error(
                             line,
                             format!(
-                                "pow() arguments must have the same type: got `{}` and `{}`",
-                                tir_args[0].ty, tir_args[1].ty
+                                "{}() expects {} argument{}, got {}",
+                                func_name,
+                                arity,
+                                if arity == 1 { "" } else { "s" },
+                                tir_args.len()
                             ),
                         ));
                     }
-                    match &tir_args[0].ty {
-                        ValueType::Int => {
-                            return Ok(CallResult::Expr(TirExpr {
+                    let arg_types: Vec<&ValueType> = tir_args.iter().map(|a| &a.ty).collect();
+                    let rule =
+                        type_rules::lookup_builtin_fn(&func_name, &arg_types).ok_or_else(|| {
+                            self.type_error(
+                                line,
+                                type_rules::builtin_fn_type_error_message(&func_name, &arg_types),
+                            )
+                        })?;
+                    return match rule {
+                        type_rules::BuiltinCallRule::ExternalCall { func, return_type } => {
+                            Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::ExternalCall {
-                                    func: builtin::BuiltinFn::PowInt,
+                                    func,
                                     args: tir_args,
                                 },
-                                ty: ValueType::Int,
-                            }));
+                                ty: return_type,
+                            }))
                         }
-                        ValueType::Float => {
+                        type_rules::BuiltinCallRule::PowFloat => {
                             let right = tir_args.remove(1);
                             let left = tir_args.remove(0);
-                            return Ok(CallResult::Expr(TirExpr {
+                            Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::BinOp {
                                     op: TypedBinOp::Arith(ArithBinOp::Pow),
                                     left: Box::new(left),
                                     right: Box::new(right),
                                 },
                                 ty: ValueType::Float,
-                            }));
-                        }
-                        _ => {
-                            return Err(self.type_error(
-                                line,
-                                format!(
-                                    "pow() requires numeric arguments, got `{}`",
-                                    tir_args[0].ty
-                                ),
-                            ))
-                        }
-                    }
-                }
-
-                if func_name == "min" || func_name == "max" {
-                    if tir_args.len() != 2 {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "{}() expects 2 arguments, got {}",
-                                func_name,
-                                tir_args.len()
-                            ),
-                        ));
-                    }
-                    if tir_args[0].ty != tir_args[1].ty {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "{}() arguments must have the same type: got `{}` and `{}`",
-                                func_name, tir_args[0].ty, tir_args[1].ty
-                            ),
-                        ));
-                    }
-                    let (builtin_fn, ret_vty) = match (&tir_args[0].ty, func_name.as_str()) {
-                        (ValueType::Int, "min") => (builtin::BuiltinFn::MinInt, ValueType::Int),
-                        (ValueType::Int, "max") => (builtin::BuiltinFn::MaxInt, ValueType::Int),
-                        (ValueType::Float, "min") => {
-                            (builtin::BuiltinFn::MinFloat, ValueType::Float)
-                        }
-                        (ValueType::Float, "max") => {
-                            (builtin::BuiltinFn::MaxFloat, ValueType::Float)
-                        }
-                        _ => {
-                            return Err(self.type_error(
-                                line,
-                                format!(
-                                    "{}() requires numeric arguments, got `{}`",
-                                    func_name, tir_args[0].ty
-                                ),
-                            ))
+                            }))
                         }
                     };
-                    return Ok(CallResult::Expr(TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin_fn,
-                            args: tir_args,
-                        },
-                        ty: ret_vty,
-                    }));
-                }
-
-                if func_name == "round" {
-                    if tir_args.len() != 1 {
-                        return Err(self.type_error(
-                            line,
-                            format!("round() expects 1 argument, got {}", tir_args.len()),
-                        ));
-                    }
-                    if tir_args[0].ty != ValueType::Float {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "round() requires a `float` argument, got `{}`",
-                                tir_args[0].ty
-                            ),
-                        ));
-                    }
-                    return Ok(CallResult::Expr(TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::RoundFloat,
-                            args: tir_args,
-                        },
-                        ty: ValueType::Int,
-                    }));
                 }
 
                 let scope_type = self.lookup(&func_name).cloned().ok_or_else(|| {
@@ -1917,10 +1809,10 @@ impl Lowering {
     ) -> Result<(TirExpr, TirExpr, Type)> {
         let left_ast = left.ty.to_type();
         let right_ast = right.ty.to_type();
-        let rule = super::type_rules::lookup_binop(op, &left_ast, &right_ast).ok_or_else(|| {
+        let rule = type_rules::lookup_binop(op, &left_ast, &right_ast).ok_or_else(|| {
             self.type_error(
                 line,
-                super::type_rules::binop_type_error_message(op, &left_ast, &right_ast),
+                type_rules::binop_type_error_message(op, &left_ast, &right_ast),
             )
         })?;
 
@@ -1930,10 +1822,10 @@ impl Lowering {
         Ok((final_left, final_right, rule.result_type))
     }
 
-    fn apply_coercion(expr: TirExpr, coercion: super::type_rules::Coercion) -> TirExpr {
+    fn apply_coercion(expr: TirExpr, coercion: type_rules::Coercion) -> TirExpr {
         match coercion {
-            super::type_rules::Coercion::None => expr,
-            super::type_rules::Coercion::ToFloat => {
+            type_rules::Coercion::None => expr,
+            type_rules::Coercion::ToFloat => {
                 if expr.ty == ValueType::Float {
                     expr
                 } else {

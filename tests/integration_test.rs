@@ -39,6 +39,19 @@ fn test_tython_python_compatibility() {
         tython_out,
         python_out
     );
+
+    // Verify the compiled binary is statically linked
+    let exe_path = test_dir.join("main");
+    let file_output = std::process::Command::new("file")
+        .arg(&exe_path)
+        .output()
+        .expect("Failed to run 'file' command");
+    let file_desc = String::from_utf8_lossy(&file_output.stdout);
+    assert!(
+        file_desc.contains("statically linked"),
+        "Expected a statically linked binary, but got:\n{}",
+        file_desc
+    );
 }
 
 #[test]
