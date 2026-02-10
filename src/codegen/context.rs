@@ -10,13 +10,19 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::ast::Type;
-use crate::tir::{BinOpKind, CmpOp, TirExpr, TirExprKind, TirFunction, TirStmt};
+use crate::tir::{
+    BinOpKind, CmpOp, LogicalOp, TirExpr, TirExprKind, TirFunction, TirStmt, UnaryOpKind,
+};
 
 pub struct Codegen<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     variables: HashMap<String, PointerValue<'ctx>>,
+    loop_stack: Vec<(
+        inkwell::basic_block::BasicBlock<'ctx>,
+        inkwell::basic_block::BasicBlock<'ctx>,
+    )>,
 }
 
 impl<'ctx> Codegen<'ctx> {
@@ -47,6 +53,7 @@ impl<'ctx> Codegen<'ctx> {
             module,
             builder,
             variables: HashMap::new(),
+            loop_stack: Vec::new(),
         }
     }
 
@@ -64,6 +71,7 @@ impl<'ctx> Codegen<'ctx> {
             .arg(output_path)
             .arg(&bc_path)
             .arg(Self::RUNTIME_BC)
+            .arg("-lm")
             .output()
             .unwrap();
     }
@@ -289,12 +297,42 @@ impl<'ctx> Codegen<'ctx> {
                     .unwrap();
 
                 self.builder.position_at_end(body_bb);
+                self.loop_stack.push((header_bb, after_bb));
                 for s in body {
                     self.codegen_stmt(s);
                 }
+                self.loop_stack.pop();
                 self.branch_if_unterminated(header_bb);
 
                 self.builder.position_at_end(after_bb);
+            }
+
+            TirStmt::Break => {
+                let (_, after_bb) = self.loop_stack.last().unwrap();
+                self.builder.build_unconditional_branch(*after_bb).unwrap();
+                // Create dead block for any unreachable code after break
+                let function = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+                let dead_bb = self.context.append_basic_block(function, "break.dead");
+                self.builder.position_at_end(dead_bb);
+            }
+
+            TirStmt::Continue => {
+                let (header_bb, _) = self.loop_stack.last().unwrap();
+                self.builder.build_unconditional_branch(*header_bb).unwrap();
+                // Create dead block for any unreachable code after continue
+                let function = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+                let dead_bb = self.context.append_basic_block(function, "cont.dead");
+                self.builder.position_at_end(dead_bb);
             }
         }
     }
@@ -341,6 +379,54 @@ impl<'ctx> Codegen<'ctx> {
                             .builder
                             .build_float_rem(left_float, right_float, "fmod")
                             .unwrap(),
+                        BinOpKind::FloorDiv => {
+                            let div = self
+                                .builder
+                                .build_float_div(left_float, right_float, "fdiv")
+                                .unwrap();
+                            let floor_fn = self
+                                .module
+                                .get_function("llvm.floor.f64")
+                                .unwrap_or_else(|| {
+                                    let f64_type = self.context.f64_type();
+                                    let fn_type = f64_type.fn_type(&[f64_type.into()], false);
+                                    self.module.add_function("llvm.floor.f64", fn_type, None)
+                                });
+                            match self
+                                .builder
+                                .build_call(floor_fn, &[div.into()], "floordiv")
+                                .unwrap()
+                                .try_as_basic_value()
+                            {
+                                ValueKind::Basic(val) => val.into_float_value(),
+                                _ => panic!("llvm.floor.f64 must return a value"),
+                            }
+                        }
+                        BinOpKind::Pow => {
+                            let pow_fn =
+                                self.module.get_function("llvm.pow.f64").unwrap_or_else(|| {
+                                    let f64_type = self.context.f64_type();
+                                    let fn_type = f64_type
+                                        .fn_type(&[f64_type.into(), f64_type.into()], false);
+                                    self.module.add_function("llvm.pow.f64", fn_type, None)
+                                });
+                            match self
+                                .builder
+                                .build_call(pow_fn, &[left_float.into(), right_float.into()], "pow")
+                                .unwrap()
+                                .try_as_basic_value()
+                            {
+                                ValueKind::Basic(val) => val.into_float_value(),
+                                _ => panic!("llvm.pow.f64 must return a value"),
+                            }
+                        }
+                        BinOpKind::BitAnd
+                        | BinOpKind::BitOr
+                        | BinOpKind::BitXor
+                        | BinOpKind::LShift
+                        | BinOpKind::RShift => {
+                            panic!("Bitwise operations not supported on floats")
+                        }
                     };
                     result.into()
                 } else {
@@ -367,6 +453,76 @@ impl<'ctx> Codegen<'ctx> {
                         BinOpKind::Mod => self
                             .builder
                             .build_int_signed_rem(left_int, right_int, "mod")
+                            .unwrap(),
+                        BinOpKind::FloorDiv => {
+                            // Python floor division: floor toward -infinity
+                            // floor_div(a,b) = a/b - ((a%b != 0) & ((a^b) < 0))
+                            let div = self
+                                .builder
+                                .build_int_signed_div(left_int, right_int, "div_tmp")
+                                .unwrap();
+                            let rem = self
+                                .builder
+                                .build_int_signed_rem(left_int, right_int, "rem_tmp")
+                                .unwrap();
+                            let zero = self.i64_type().const_int(0, false);
+                            let rem_nonzero = self
+                                .builder
+                                .build_int_compare(IntPredicate::NE, rem, zero, "rem_nz")
+                                .unwrap();
+                            let xor_val = self
+                                .builder
+                                .build_xor(left_int, right_int, "xor_signs")
+                                .unwrap();
+                            let signs_differ = self
+                                .builder
+                                .build_int_compare(IntPredicate::SLT, xor_val, zero, "signs_diff")
+                                .unwrap();
+                            let need_adjust = self
+                                .builder
+                                .build_and(rem_nonzero, signs_differ, "need_adj")
+                                .unwrap();
+                            let adjust = self
+                                .builder
+                                .build_int_z_extend(need_adjust, self.i64_type(), "adj_ext")
+                                .unwrap();
+                            self.builder.build_int_sub(div, adjust, "floordiv").unwrap()
+                        }
+                        BinOpKind::Pow => {
+                            // Call __tython_pow_int runtime function
+                            let pow_fn = self.get_or_declare_function(
+                                "__tython_pow_int",
+                                &[Type::Int, Type::Int],
+                                &Type::Int,
+                            );
+                            match self
+                                .builder
+                                .build_call(pow_fn, &[left_int.into(), right_int.into()], "ipow")
+                                .unwrap()
+                                .try_as_basic_value()
+                            {
+                                ValueKind::Basic(val) => val.into_int_value(),
+                                _ => panic!("__tython_pow_int must return a value"),
+                            }
+                        }
+                        BinOpKind::BitAnd => self
+                            .builder
+                            .build_and(left_int, right_int, "bitand")
+                            .unwrap(),
+                        BinOpKind::BitOr => {
+                            self.builder.build_or(left_int, right_int, "bitor").unwrap()
+                        }
+                        BinOpKind::BitXor => self
+                            .builder
+                            .build_xor(left_int, right_int, "bitxor")
+                            .unwrap(),
+                        BinOpKind::LShift => self
+                            .builder
+                            .build_left_shift(left_int, right_int, "lshift")
+                            .unwrap(),
+                        BinOpKind::RShift => self
+                            .builder
+                            .build_right_shift(left_int, right_int, true, "rshift")
                             .unwrap(),
                     };
                     result.into()
@@ -404,11 +560,20 @@ impl<'ctx> Codegen<'ctx> {
                     args.iter().map(|arg| self.codegen_expr(arg)).collect();
                 let arg_metadata: Vec<_> = arg_values.iter().map(|v| (*v).into()).collect();
 
-                self.builder
-                    .build_call(function, &arg_metadata, "")
+                let call_site = self
+                    .builder
+                    .build_call(function, &arg_metadata, "ext_call")
                     .unwrap();
 
-                self.i64_type().const_int(0, false).into()
+                match func.return_type() {
+                    Type::Unit => self.i64_type().const_int(0, false).into(),
+                    _ => match call_site.try_as_basic_value() {
+                        ValueKind::Basic(val) => val,
+                        ValueKind::Instruction(_) => {
+                            panic!("Expected return value from {}", func.symbol())
+                        }
+                    },
+                }
             }
 
             TirExprKind::Cast { target, arg } => {
@@ -514,6 +679,95 @@ impl<'ctx> Codegen<'ctx> {
                     .build_int_z_extend(cmp_result, self.i64_type(), "zext_bool")
                     .unwrap()
                     .into()
+            }
+
+            TirExprKind::UnaryOp { op, operand } => {
+                let operand_val = self.codegen_expr(operand);
+                match op {
+                    UnaryOpKind::Neg => {
+                        if operand.ty == Type::Float {
+                            let zero = self.f64_type().const_float(0.0);
+                            self.builder
+                                .build_float_sub(zero, operand_val.into_float_value(), "fneg")
+                                .unwrap()
+                                .into()
+                        } else {
+                            let zero = self.i64_type().const_int(0, false);
+                            self.builder
+                                .build_int_sub(zero, operand_val.into_int_value(), "neg")
+                                .unwrap()
+                                .into()
+                        }
+                    }
+                    UnaryOpKind::Pos => operand_val,
+                    UnaryOpKind::Not => {
+                        let truth = self.build_truthiness_check_for_value(
+                            operand_val,
+                            &operand.ty,
+                            "not_truth",
+                        );
+                        let inverted = self.builder.build_not(truth, "not").unwrap();
+                        self.builder
+                            .build_int_z_extend(inverted, self.i64_type(), "not_zext")
+                            .unwrap()
+                            .into()
+                    }
+                    UnaryOpKind::BitNot => {
+                        let val = operand_val.into_int_value();
+                        let all_ones = self.i64_type().const_all_ones();
+                        self.builder
+                            .build_xor(val, all_ones, "bitnot")
+                            .unwrap()
+                            .into()
+                    }
+                }
+            }
+
+            TirExprKind::LogicalOp { op, left, right } => {
+                let function = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+
+                // Evaluate left side
+                let left_val = self.codegen_expr(left);
+                let left_truth =
+                    self.build_truthiness_check_for_value(left_val, &left.ty, "log_left");
+                let left_bb = self.builder.get_insert_block().unwrap();
+
+                let right_bb = self.context.append_basic_block(function, "log_right");
+                let merge_bb = self.context.append_basic_block(function, "log_merge");
+
+                match op {
+                    LogicalOp::And => {
+                        // If left is falsy, short-circuit; else evaluate right
+                        self.builder
+                            .build_conditional_branch(left_truth, right_bb, merge_bb)
+                            .unwrap();
+                    }
+                    LogicalOp::Or => {
+                        // If left is truthy, short-circuit; else evaluate right
+                        self.builder
+                            .build_conditional_branch(left_truth, merge_bb, right_bb)
+                            .unwrap();
+                    }
+                }
+
+                // Evaluate right in right_bb
+                self.builder.position_at_end(right_bb);
+                let right_val = self.codegen_expr(right);
+                let right_end_bb = self.builder.get_insert_block().unwrap();
+                self.builder.build_unconditional_branch(merge_bb).unwrap();
+
+                // Merge: phi node selects left_val or right_val
+                self.builder.position_at_end(merge_bb);
+                let llvm_type = self.get_llvm_type(&expr.ty);
+                let phi = self.builder.build_phi(llvm_type, "log_result").unwrap();
+                phi.add_incoming(&[(&left_val, left_bb), (&right_val, right_end_bb)]);
+
+                phi.as_basic_value()
             }
         }
     }

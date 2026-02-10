@@ -30,12 +30,20 @@ macro_rules! define_builtins {
 }
 
 define_builtins! {
-    PrintInt      => "__tython_print_int",      params: [Type::Int],   ret: Type::Unit;
-    PrintFloat    => "__tython_print_float",    params: [Type::Float], ret: Type::Unit;
-    PrintBool     => "__tython_print_bool",     params: [Type::Bool],  ret: Type::Unit;
-    PrintSpace    => "__tython_print_space",    params: [],            ret: Type::Unit;
-    PrintNewline  => "__tython_print_newline",  params: [],            ret: Type::Unit;
-    Assert        => "__tython_assert",         params: [Type::Bool],  ret: Type::Unit;
+    PrintInt      => "__tython_print_int",      params: [Type::Int],                    ret: Type::Unit;
+    PrintFloat    => "__tython_print_float",    params: [Type::Float],                  ret: Type::Unit;
+    PrintBool     => "__tython_print_bool",     params: [Type::Bool],                   ret: Type::Unit;
+    PrintSpace    => "__tython_print_space",    params: [],                             ret: Type::Unit;
+    PrintNewline  => "__tython_print_newline",  params: [],                             ret: Type::Unit;
+    Assert        => "__tython_assert",         params: [Type::Bool],                   ret: Type::Unit;
+    PowInt        => "__tython_pow_int",        params: [Type::Int, Type::Int],         ret: Type::Int;
+    AbsInt        => "__tython_abs_int",        params: [Type::Int],                    ret: Type::Int;
+    AbsFloat      => "__tython_abs_float",      params: [Type::Float],                  ret: Type::Float;
+    MinInt        => "__tython_min_int",        params: [Type::Int, Type::Int],         ret: Type::Int;
+    MinFloat      => "__tython_min_float",      params: [Type::Float, Type::Float],     ret: Type::Float;
+    MaxInt        => "__tython_max_int",        params: [Type::Int, Type::Int],         ret: Type::Int;
+    MaxFloat      => "__tython_max_float",      params: [Type::Float, Type::Float],     ret: Type::Float;
+    RoundFloat    => "__tython_round_float",    params: [Type::Float],                  ret: Type::Int;
 }
 
 pub fn resolve_print(arg_ty: &Type) -> BuiltinFn {

@@ -10,7 +10,14 @@ pub enum BinOpKind {
     Sub,
     Mul,
     Div,
+    FloorDiv,
     Mod,
+    Pow,
+    BitAnd,
+    BitOr,
+    BitXor,
+    LShift,
+    RShift,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +28,20 @@ pub enum CmpOp {
     LtEq,
     Gt,
     GtEq,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOpKind {
+    Neg,
+    Pos,
+    Not,
+    BitNot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogicalOp {
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +87,8 @@ pub enum TirStmt {
         condition: TirExpr,
         body: Vec<TirStmt>,
     },
+    Break,
+    Continue,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +121,15 @@ pub enum TirExprKind {
     },
     Compare {
         op: CmpOp,
+        left: Box<TirExpr>,
+        right: Box<TirExpr>,
+    },
+    UnaryOp {
+        op: UnaryOpKind,
+        operand: Box<TirExpr>,
+    },
+    LogicalOp {
+        op: LogicalOp,
         left: Box<TirExpr>,
         right: Box<TirExpr>,
     },

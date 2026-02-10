@@ -6,7 +6,8 @@ use std::path::Path;
 
 use super::builtin;
 use super::{
-    BinOpKind, CmpOp, FunctionParam, TirExpr, TirExprKind, TirFunction, TirModule, TirStmt,
+    BinOpKind, CmpOp, FunctionParam, LogicalOp, TirExpr, TirExprKind, TirFunction, TirModule,
+    TirStmt, UnaryOpKind,
 };
 use crate::ast::Type;
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
@@ -290,6 +291,58 @@ impl Lowering {
                 }])
             }
 
+            "AugAssign" => {
+                let target_node = ast_getattr!(node, "target");
+                if ast_type_name!(target_node) != "Name" {
+                    bail!(
+                        "Only simple variable augmented assignments supported at line {}",
+                        line
+                    );
+                }
+                let target = ast_get_string!(target_node, "id");
+
+                let target_ty = self.lookup(&target).cloned().ok_or_else(|| {
+                    anyhow::anyhow!("Undefined variable: {} at line {}", target, line)
+                })?;
+
+                let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
+                let value_expr = self.lower_expr(&ast_getattr!(node, "value"))?;
+
+                // Disallow /= on int variables (would change type)
+                if op == BinOpKind::Div && target_ty == Type::Int {
+                    bail!(
+                        "/= on int variable '{}' at line {} would change type to float; use //= for integer division",
+                        target,
+                        line
+                    );
+                }
+
+                let target_ref = TirExpr {
+                    kind: TirExprKind::Var(target.clone()),
+                    ty: target_ty,
+                };
+
+                let (final_left, final_right, result_ty) =
+                    Self::resolve_binop_types(op, target_ref, value_expr, line)?;
+
+                let binop_expr = TirExpr {
+                    kind: TirExprKind::BinOp {
+                        op,
+                        left: Box::new(final_left),
+                        right: Box::new(final_right),
+                    },
+                    ty: result_ty.clone(),
+                };
+
+                self.declare(target.clone(), result_ty.clone());
+
+                Ok(vec![TirStmt::Let {
+                    name: target,
+                    ty: result_ty,
+                    value: binop_expr,
+                }])
+            }
+
             "Return" => {
                 let value_node = ast_getattr!(node, "value");
                 if value_node.is_none() {
@@ -377,6 +430,10 @@ impl Lowering {
                 Ok(vec![TirStmt::While { condition, body }])
             }
 
+            "Break" => Ok(vec![TirStmt::Break]),
+
+            "Continue" => Ok(vec![TirStmt::Continue]),
+
             "Assert" => {
                 let test_node = ast_getattr!(node, "test");
                 let condition = self.lower_expr(&test_node)?;
@@ -450,25 +507,14 @@ impl Lowering {
                 let right = self.lower_expr(&ast_getattr!(node, "right"))?;
                 let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
 
-                let result_ty = if left.ty == Type::Int && right.ty == Type::Int {
-                    Type::Int
-                } else if left.ty == Type::Float && right.ty == Type::Float {
-                    Type::Float
-                } else {
-                    bail!(
-                        "Binary operator {:?} at line {} requires matching numeric operands, got {:?} and {:?}",
-                        op,
-                        line,
-                        left.ty,
-                        right.ty
-                    );
-                };
+                let (final_left, final_right, result_ty) =
+                    Self::resolve_binop_types(op, left, right, line)?;
 
                 Ok(TirExpr {
                     kind: TirExprKind::BinOp {
                         op,
-                        left: Box::new(left),
-                        right: Box::new(right),
+                        left: Box::new(final_left),
+                        right: Box::new(final_right),
                     },
                     ty: result_ty,
                 })
@@ -479,31 +525,158 @@ impl Lowering {
                 let ops_list = ast_get_list!(node, "ops");
                 let comparators_list = ast_get_list!(node, "comparators");
 
-                if ops_list.len() != 1 {
-                    bail!("Chained comparisons not yet supported at line {}", line);
+                if ops_list.len() == 1 {
+                    // Single comparison
+                    let op_node = ops_list.get_item(0)?;
+                    let cmp_op = Self::convert_cmpop(&op_node)?;
+                    let right = self.lower_expr(&comparators_list.get_item(0)?)?;
+                    let (fl, fr) = Self::promote_for_comparison(left, right, line)?;
+                    return Ok(TirExpr {
+                        kind: TirExprKind::Compare {
+                            op: cmp_op,
+                            left: Box::new(fl),
+                            right: Box::new(fr),
+                        },
+                        ty: Type::Bool,
+                    });
                 }
 
-                let op_node = ops_list.get_item(0)?;
-                let cmp_op = Self::convert_cmpop(&op_node)?;
-                let right = self.lower_expr(&comparators_list.get_item(0)?)?;
+                // Chained comparison: a < b < c => (a < b) and (b < c)
+                let mut comparisons: Vec<TirExpr> = Vec::new();
+                let mut current_left = left;
 
-                if left.ty != right.ty {
-                    bail!(
-                        "Comparison operands must have same type at line {}: got {:?} and {:?}",
-                        line,
-                        left.ty,
-                        right.ty
-                    );
+                for i in 0..ops_list.len() {
+                    let op_node = ops_list.get_item(i)?;
+                    let cmp_op = Self::convert_cmpop(&op_node)?;
+                    let right = self.lower_expr(&comparators_list.get_item(i)?)?;
+
+                    let (fl, fr) =
+                        Self::promote_for_comparison(current_left.clone(), right.clone(), line)?;
+
+                    comparisons.push(TirExpr {
+                        kind: TirExprKind::Compare {
+                            op: cmp_op,
+                            left: Box::new(fl),
+                            right: Box::new(fr),
+                        },
+                        ty: Type::Bool,
+                    });
+
+                    current_left = right;
                 }
 
-                Ok(TirExpr {
-                    kind: TirExprKind::Compare {
-                        op: cmp_op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    ty: Type::Bool,
-                })
+                // Chain with LogicalOp::And
+                let mut result = comparisons.remove(0);
+                for cmp in comparisons {
+                    result = TirExpr {
+                        kind: TirExprKind::LogicalOp {
+                            op: LogicalOp::And,
+                            left: Box::new(result),
+                            right: Box::new(cmp),
+                        },
+                        ty: Type::Bool,
+                    };
+                }
+
+                Ok(result)
+            }
+
+            "UnaryOp" => {
+                let op_node = ast_getattr!(node, "op");
+                let op_type = ast_type_name!(op_node);
+                let operand = self.lower_expr(&ast_getattr!(node, "operand"))?;
+
+                match op_type.as_str() {
+                    "USub" => {
+                        if operand.ty != Type::Int && operand.ty != Type::Float {
+                            bail!("Unary negation requires numeric operand at line {}", line);
+                        }
+                        let result_ty = operand.ty.clone();
+                        Ok(TirExpr {
+                            kind: TirExprKind::UnaryOp {
+                                op: UnaryOpKind::Neg,
+                                operand: Box::new(operand),
+                            },
+                            ty: result_ty,
+                        })
+                    }
+                    "UAdd" => {
+                        if operand.ty != Type::Int && operand.ty != Type::Float {
+                            bail!("Unary positive requires numeric operand at line {}", line);
+                        }
+                        let result_ty = operand.ty.clone();
+                        Ok(TirExpr {
+                            kind: TirExprKind::UnaryOp {
+                                op: UnaryOpKind::Pos,
+                                operand: Box::new(operand),
+                            },
+                            ty: result_ty,
+                        })
+                    }
+                    "Not" => Ok(TirExpr {
+                        kind: TirExprKind::UnaryOp {
+                            op: UnaryOpKind::Not,
+                            operand: Box::new(operand),
+                        },
+                        ty: Type::Bool,
+                    }),
+                    "Invert" => {
+                        if operand.ty != Type::Int {
+                            bail!("Bitwise NOT requires int operand at line {}", line);
+                        }
+                        Ok(TirExpr {
+                            kind: TirExprKind::UnaryOp {
+                                op: UnaryOpKind::BitNot,
+                                operand: Box::new(operand),
+                            },
+                            ty: Type::Int,
+                        })
+                    }
+                    _ => bail!("Unsupported unary operator: {} at line {}", op_type, line),
+                }
+            }
+
+            "BoolOp" => {
+                let op_node = ast_getattr!(node, "op");
+                let op_type = ast_type_name!(op_node);
+                let values_list = ast_get_list!(node, "values");
+
+                let logical_op = match op_type.as_str() {
+                    "And" => LogicalOp::And,
+                    "Or" => LogicalOp::Or,
+                    _ => bail!("Unsupported logical operator: {} at line {}", op_type, line),
+                };
+
+                let mut exprs: Vec<TirExpr> = Vec::new();
+                for val in values_list.iter() {
+                    exprs.push(self.lower_expr(&val)?);
+                }
+
+                // All values must have the same type
+                let result_ty = exprs[0].ty.clone();
+                for (i, e) in exprs.iter().enumerate().skip(1) {
+                    if e.ty != result_ty {
+                        bail!(
+                            "All operands of '{}' must have the same type at line {}: operand {} is {:?}, expected {:?}",
+                            op_type, line, i, e.ty, result_ty
+                        );
+                    }
+                }
+
+                // Chain: a and b and c => (a and b) and c
+                let mut result = exprs.remove(0);
+                for operand in exprs {
+                    result = TirExpr {
+                        kind: TirExprKind::LogicalOp {
+                            op: logical_op,
+                            left: Box::new(result),
+                            right: Box::new(operand),
+                        },
+                        ty: result_ty.clone(),
+                    };
+                }
+
+                Ok(result)
             }
 
             "Call" => self.lower_call(node, line, col),
@@ -630,6 +803,105 @@ impl Lowering {
                             arg: Box::new(arg),
                         },
                         ty: target_ty,
+                    });
+                }
+
+                // Built-in numeric functions
+                if func_name == "abs" {
+                    if tir_args.len() != 1 {
+                        bail!("abs() expects 1 argument at line {}", line);
+                    }
+                    let (builtin_fn, ret_ty) = match tir_args[0].ty {
+                        Type::Int => (builtin::BuiltinFn::AbsInt, Type::Int),
+                        Type::Float => (builtin::BuiltinFn::AbsFloat, Type::Float),
+                        _ => bail!("abs() requires numeric argument at line {}", line),
+                    };
+                    return Ok(TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin_fn,
+                            args: tir_args,
+                        },
+                        ty: ret_ty,
+                    });
+                }
+
+                if func_name == "pow" {
+                    if tir_args.len() != 2 {
+                        bail!("pow() expects 2 arguments at line {}", line);
+                    }
+                    if tir_args[0].ty != tir_args[1].ty {
+                        bail!("pow() arguments must have same type at line {}", line);
+                    }
+                    match tir_args[0].ty {
+                        Type::Int => {
+                            return Ok(TirExpr {
+                                kind: TirExprKind::ExternalCall {
+                                    func: builtin::BuiltinFn::PowInt,
+                                    args: tir_args,
+                                },
+                                ty: Type::Int,
+                            });
+                        }
+                        Type::Float => {
+                            let right = tir_args.remove(1);
+                            let left = tir_args.remove(0);
+                            return Ok(TirExpr {
+                                kind: TirExprKind::BinOp {
+                                    op: BinOpKind::Pow,
+                                    left: Box::new(left),
+                                    right: Box::new(right),
+                                },
+                                ty: Type::Float,
+                            });
+                        }
+                        _ => bail!("pow() requires numeric arguments at line {}", line),
+                    }
+                }
+
+                if func_name == "min" || func_name == "max" {
+                    if tir_args.len() != 2 {
+                        bail!("{}() expects 2 arguments at line {}", func_name, line);
+                    }
+                    if tir_args[0].ty != tir_args[1].ty {
+                        bail!(
+                            "{}() arguments must have same type at line {}",
+                            func_name,
+                            line
+                        );
+                    }
+                    let (builtin_fn, ret_ty) = match (&tir_args[0].ty, func_name.as_str()) {
+                        (Type::Int, "min") => (builtin::BuiltinFn::MinInt, Type::Int),
+                        (Type::Int, "max") => (builtin::BuiltinFn::MaxInt, Type::Int),
+                        (Type::Float, "min") => (builtin::BuiltinFn::MinFloat, Type::Float),
+                        (Type::Float, "max") => (builtin::BuiltinFn::MaxFloat, Type::Float),
+                        _ => bail!(
+                            "{}() requires numeric arguments at line {}",
+                            func_name,
+                            line
+                        ),
+                    };
+                    return Ok(TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin_fn,
+                            args: tir_args,
+                        },
+                        ty: ret_ty,
+                    });
+                }
+
+                if func_name == "round" {
+                    if tir_args.len() != 1 {
+                        bail!("round() expects 1 argument at line {}", line);
+                    }
+                    if tir_args[0].ty != Type::Float {
+                        bail!("round() requires float argument at line {}", line);
+                    }
+                    return Ok(TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::RoundFloat,
+                            args: tir_args,
+                        },
+                        ty: Type::Int,
                     });
                 }
 
@@ -775,6 +1047,139 @@ impl Lowering {
         format!("{}${}", self.current_module_name, name)
     }
 
+    fn resolve_binop_types(
+        op: BinOpKind,
+        left: TirExpr,
+        right: TirExpr,
+        line: usize,
+    ) -> Result<(TirExpr, TirExpr, Type)> {
+        // Bitwise ops require int
+        match op {
+            BinOpKind::BitAnd
+            | BinOpKind::BitOr
+            | BinOpKind::BitXor
+            | BinOpKind::LShift
+            | BinOpKind::RShift => {
+                if left.ty != Type::Int || right.ty != Type::Int {
+                    bail!(
+                        "Bitwise operators require int operands at line {}: got {:?} and {:?}",
+                        line,
+                        left.ty,
+                        right.ty
+                    );
+                }
+                return Ok((left, right, Type::Int));
+            }
+            _ => {}
+        }
+
+        if left.ty == right.ty {
+            // Same type
+            match op {
+                BinOpKind::Div if left.ty == Type::Int => {
+                    // Python true division: int / int => float
+                    let left_cast = TirExpr {
+                        kind: TirExprKind::Cast {
+                            target: Type::Float,
+                            arg: Box::new(left),
+                        },
+                        ty: Type::Float,
+                    };
+                    let right_cast = TirExpr {
+                        kind: TirExprKind::Cast {
+                            target: Type::Float,
+                            arg: Box::new(right),
+                        },
+                        ty: Type::Float,
+                    };
+                    Ok((left_cast, right_cast, Type::Float))
+                }
+                _ => {
+                    let ty = left.ty.clone();
+                    Ok((left, right, ty))
+                }
+            }
+        } else if (left.ty == Type::Int && right.ty == Type::Float)
+            || (left.ty == Type::Float && right.ty == Type::Int)
+        {
+            // Mixed int/float: promote int to float
+            let promoted_left = if left.ty == Type::Int {
+                TirExpr {
+                    kind: TirExprKind::Cast {
+                        target: Type::Float,
+                        arg: Box::new(left),
+                    },
+                    ty: Type::Float,
+                }
+            } else {
+                left
+            };
+            let promoted_right = if right.ty == Type::Int {
+                TirExpr {
+                    kind: TirExprKind::Cast {
+                        target: Type::Float,
+                        arg: Box::new(right),
+                    },
+                    ty: Type::Float,
+                }
+            } else {
+                right
+            };
+            Ok((promoted_left, promoted_right, Type::Float))
+        } else {
+            bail!(
+                "Binary operator {:?} at line {} requires numeric operands, got {:?} and {:?}",
+                op,
+                line,
+                left.ty,
+                right.ty
+            )
+        }
+    }
+
+    fn promote_for_comparison(
+        left: TirExpr,
+        right: TirExpr,
+        line: usize,
+    ) -> Result<(TirExpr, TirExpr)> {
+        if left.ty == right.ty {
+            Ok((left, right))
+        } else if (left.ty == Type::Int && right.ty == Type::Float)
+            || (left.ty == Type::Float && right.ty == Type::Int)
+        {
+            let pl = if left.ty == Type::Int {
+                TirExpr {
+                    kind: TirExprKind::Cast {
+                        target: Type::Float,
+                        arg: Box::new(left),
+                    },
+                    ty: Type::Float,
+                }
+            } else {
+                left
+            };
+            let pr = if right.ty == Type::Int {
+                TirExpr {
+                    kind: TirExprKind::Cast {
+                        target: Type::Float,
+                        arg: Box::new(right),
+                    },
+                    ty: Type::Float,
+                }
+            } else {
+                right
+            };
+            Ok((pl, pr))
+        } else {
+            bail!(
+                "Comparison operands must have compatible types at line {}: {:?} vs {:?}",
+                line,
+                left.ty,
+                right.ty
+            )
+        }
+    }
+
     fn convert_return_type(node: &Bound<PyAny>) -> Result<Type> {
         let returns = ast_getattr!(node, "returns");
         if returns.is_none() {
@@ -828,7 +1233,14 @@ impl Lowering {
             "Sub" => Ok(BinOpKind::Sub),
             "Mult" => Ok(BinOpKind::Mul),
             "Div" => Ok(BinOpKind::Div),
+            "FloorDiv" => Ok(BinOpKind::FloorDiv),
             "Mod" => Ok(BinOpKind::Mod),
+            "Pow" => Ok(BinOpKind::Pow),
+            "BitAnd" => Ok(BinOpKind::BitAnd),
+            "BitOr" => Ok(BinOpKind::BitOr),
+            "BitXor" => Ok(BinOpKind::BitXor),
+            "LShift" => Ok(BinOpKind::LShift),
+            "RShift" => Ok(BinOpKind::RShift),
             _ => bail!("Unsupported binary operator: {}", op_type),
         }
     }
