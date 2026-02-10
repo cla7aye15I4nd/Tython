@@ -22,6 +22,7 @@ from . import test_float_cmp
 from . import test_casting
 import basic.test_truthiness as test_truthiness
 import basic.test_class as test_class
+import basic.test_nested_class as test_nested_class
 
 
 def run_all_tests() -> None:
@@ -49,3 +50,4 @@ def run_all_tests() -> None:
     test_casting.run_tests()
     test_truthiness.run_tests()
     test_class.run_tests()
+    test_nested_class.run_tests()

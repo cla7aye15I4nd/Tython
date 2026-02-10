@@ -16,6 +16,8 @@ from .nested.deep.deeper.bottom import bottom_func, bottom_compute
 from .nested.deep import mid_level
 from .nested.deep import cross_level_imports
 from .nested import top_level
+from . import class_provider_a
+from . import class_provider_b
 
 
 def test_module_a() -> None:
@@ -228,6 +230,50 @@ def test_from_import_nested() -> None:
     assert bottom_compute(5) == 105
 
 
+def test_cross_module_class_construct() -> None:
+    p: class_provider_a.Vec2 = class_provider_a.Vec2(3, 4)
+    print(p.x)
+    assert p.x == 3
+    print(p.y)
+    assert p.y == 4
+    print(p.sum())
+    assert p.sum() == 7
+
+
+def test_cross_module_class_method() -> None:
+    a: class_provider_a.Vec2 = class_provider_a.Vec2(1, 2)
+    b: class_provider_a.Vec2 = class_provider_a.Vec2(3, 4)
+    d: int = class_provider_a.dot_vec2(a, b)
+    print(d)
+    assert d == 11
+
+
+def test_cross_module_class_field_mutation() -> None:
+    p: class_provider_a.Vec2 = class_provider_a.Vec2(5, 6)
+    p.x = 50
+    print(p.x)
+    assert p.x == 50
+    print(p.sum())
+    assert p.sum() == 56
+
+
+def test_cross_module_factory_function() -> None:
+    p: class_provider_a.Vec2 = class_provider_a.make_vec2(10, 20)
+    print(p.x)
+    assert p.x == 10
+    print(p.y)
+    assert p.y == 20
+
+
+def test_cross_module_same_name_no_collision() -> None:
+    a: class_provider_a.Vec2 = class_provider_a.Vec2(1, 2)
+    b: class_provider_b.Vec2 = class_provider_b.Vec2(1, 2, 3)
+    print(a.sum())
+    assert a.sum() == 3
+    print(b.sum())
+    assert b.sum() == 6
+
+
 def run_all_tests() -> None:
     test_module_a()
     test_module_b()
@@ -264,3 +310,8 @@ def run_all_tests() -> None:
     test_import_aliases()
     test_from_import_specific()
     test_from_import_nested()
+    test_cross_module_class_construct()
+    test_cross_module_class_method()
+    test_cross_module_class_field_mutation()
+    test_cross_module_factory_function()
+    test_cross_module_same_name_no_collision()

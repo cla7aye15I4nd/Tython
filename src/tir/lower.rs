@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use pyo3::prelude::*;
-use pyo3::types::PyModule;
+use pyo3::types::{PyList, PyModule};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -25,6 +25,10 @@ pub struct Lowering {
 
     class_registry: HashMap<String, ClassInfo>,
     current_class: Option<String>,
+
+    // Accumulated from classes defined inside function/method bodies
+    deferred_functions: Vec<TirFunction>,
+    deferred_classes: Vec<ClassInfo>,
 }
 
 impl Default for Lowering {
@@ -45,6 +49,8 @@ impl Lowering {
             current_function_name: None,
             class_registry: HashMap::new(),
             current_class: None,
+            deferred_functions: Vec::new(),
+            deferred_classes: Vec::new(),
         }
     }
 
@@ -154,31 +160,10 @@ impl Lowering {
         let body_list = ast_get_list!(py_ast, "body");
 
         // Pass 1: Collect class definitions (two sub-phases for cross-referencing)
-        // Phase 1a: Register all class names (with module-qualified names)
-        for node in body_list.iter() {
-            if ast_type_name!(node) == "ClassDef" {
-                let raw_name = ast_get_string!(node, "name");
-                let qualified = format!("{}${}", self.current_module_name, raw_name);
-                self.class_registry.insert(
-                    qualified.clone(),
-                    ClassInfo {
-                        name: qualified.clone(),
-                        fields: Vec::new(),
-                        methods: HashMap::new(),
-                        field_map: HashMap::new(),
-                    },
-                );
-                self.declare(raw_name, Type::Class(qualified));
-            }
-        }
-        // Phase 1b: Fill in fields and methods
-        for node in body_list.iter() {
-            if ast_type_name!(node) == "ClassDef" {
-                let raw_name = ast_get_string!(node, "name");
-                let qualified = format!("{}${}", self.current_module_name, raw_name);
-                self.collect_class_definition(&node, &qualified)?;
-            }
-        }
+        // Phase 1a: Register all class names (with module-qualified names), recursing into nested
+        self.discover_classes(&body_list, &self.current_module_name.clone())?;
+        // Phase 1b: Fill in fields and methods, recursing into nested
+        self.collect_classes(&body_list, &self.current_module_name.clone())?;
 
         // Pass 2: Collect function signatures
         for node in body_list.iter() {
@@ -197,11 +182,13 @@ impl Lowering {
                 "ClassDef" => {
                     let raw_name = ast_get_string!(node, "name");
                     let qualified = format!("{}${}", self.current_module_name, raw_name);
-                    let (class_info, class_functions) = self.lower_class_def(&node, &qualified)?;
+                    let (class_infos, class_functions) = self.lower_class_def(&node, &qualified)?;
                     for func in class_functions {
                         functions.insert(func.name.clone(), func);
                     }
-                    classes.insert(class_info.name.clone(), class_info);
+                    for ci in class_infos {
+                        classes.insert(ci.name.clone(), ci);
+                    }
                 }
                 "FunctionDef" => {
                     let tir_func = self.lower_function(&node)?;
@@ -217,6 +204,14 @@ impl Lowering {
         if !module_level_stmts.is_empty() {
             let main_func = self.build_synthetic_main(module_level_stmts);
             functions.insert(main_func.name.clone(), main_func);
+        }
+
+        // Drain classes/functions discovered inside function/method bodies
+        for ci in self.deferred_classes.drain(..) {
+            classes.insert(ci.name.clone(), ci);
+        }
+        for func in self.deferred_functions.drain(..) {
+            functions.insert(func.name.clone(), func);
         }
 
         for func in functions.values() {
@@ -236,6 +231,43 @@ impl Lowering {
     }
 
     // ── class lowering ────────────────────────────────────────────────
+
+    fn discover_classes(&mut self, body_list: &Bound<PyList>, parent_prefix: &str) -> Result<()> {
+        for node in body_list.iter() {
+            if ast_type_name!(node) == "ClassDef" {
+                let raw_name = ast_get_string!(node, "name");
+                let qualified = format!("{}${}", parent_prefix, raw_name);
+                self.class_registry.insert(
+                    qualified.clone(),
+                    ClassInfo {
+                        name: qualified.clone(),
+                        fields: Vec::new(),
+                        methods: HashMap::new(),
+                        field_map: HashMap::new(),
+                    },
+                );
+                self.declare(raw_name, Type::Class(qualified.clone()));
+                // Recurse into nested classes
+                let nested_body = ast_get_list!(node, "body");
+                self.discover_classes(&nested_body, &qualified)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn collect_classes(&mut self, body_list: &Bound<PyList>, parent_prefix: &str) -> Result<()> {
+        for node in body_list.iter() {
+            if ast_type_name!(node) == "ClassDef" {
+                let raw_name = ast_get_string!(node, "name");
+                let qualified = format!("{}${}", parent_prefix, raw_name);
+                self.collect_class_definition(&node, &qualified)?;
+                // Recurse into nested classes
+                let nested_body = ast_get_list!(node, "body");
+                self.collect_classes(&nested_body, &qualified)?;
+            }
+        }
+        Ok(())
+    }
 
     fn collect_class_definition(
         &mut self,
@@ -329,11 +361,11 @@ impl Lowering {
                         },
                     );
                 }
-                "Pass" => {}
+                "Pass" | "ClassDef" => {}
                 _ => {
                     return Err(self.syntax_error(
                         Self::get_line(&item),
-                        "only field declarations and method definitions are allowed in class body",
+                        "only field declarations, method definitions, and nested classes are allowed in class body",
                     ));
                 }
             }
@@ -355,22 +387,34 @@ impl Lowering {
         &mut self,
         node: &Bound<PyAny>,
         qualified_name: &str,
-    ) -> Result<(ClassInfo, Vec<TirFunction>)> {
+    ) -> Result<(Vec<ClassInfo>, Vec<TirFunction>)> {
         let class_info = self.class_registry.get(qualified_name).unwrap().clone();
         let body_list = ast_get_list!(node, "body");
 
         let mut functions = Vec::new();
+        let mut all_classes = vec![class_info.clone()];
         self.current_class = Some(qualified_name.to_string());
 
         for item in body_list.iter() {
-            if ast_type_name!(item) == "FunctionDef" {
-                let func = self.lower_method(&item, &class_info)?;
-                functions.push(func);
+            match ast_type_name!(item).as_str() {
+                "FunctionDef" => {
+                    let func = self.lower_method(&item, &class_info)?;
+                    functions.push(func);
+                }
+                "ClassDef" => {
+                    let raw_name = ast_get_string!(item, "name");
+                    let nested_qualified = format!("{}${}", qualified_name, raw_name);
+                    let (nested_classes, nested_fns) =
+                        self.lower_class_def(&item, &nested_qualified)?;
+                    all_classes.extend(nested_classes);
+                    functions.extend(nested_fns);
+                }
+                _ => {}
             }
         }
 
         self.current_class = None;
-        Ok((class_info, functions))
+        Ok((all_classes, functions))
     }
 
     fn lower_method(&mut self, node: &Bound<PyAny>, class_info: &ClassInfo) -> Result<TirFunction> {
@@ -533,6 +577,39 @@ impl Lowering {
         match node_type.as_str() {
             "FunctionDef" => {
                 Err(self.syntax_error(line, "nested function definitions are not supported"))
+            }
+
+            "ClassDef" => {
+                let raw_name = ast_get_string!(node, "name");
+                let fn_name = self.current_function_name.as_deref().unwrap_or("_");
+                let qualified = format!("{}${}${}", self.current_module_name, fn_name, raw_name);
+
+                // Register the class (Phase 1a-equivalent)
+                self.class_registry.insert(
+                    qualified.clone(),
+                    ClassInfo {
+                        name: qualified.clone(),
+                        fields: Vec::new(),
+                        methods: HashMap::new(),
+                        field_map: HashMap::new(),
+                    },
+                );
+                self.declare(raw_name, Type::Class(qualified.clone()));
+
+                // Discover nested classes inside this class
+                let body = ast_get_list!(node, "body");
+                self.discover_classes(&body, &qualified)?;
+
+                // Collect fields and methods (Phase 1b-equivalent)
+                self.collect_class_definition(node, &qualified)?;
+                self.collect_classes(&body, &qualified)?;
+
+                // Lower the class definition — results go into deferred state
+                let (class_infos, methods) = self.lower_class_def(node, &qualified)?;
+                self.deferred_classes.extend(class_infos);
+                self.deferred_functions.extend(methods);
+
+                Ok(vec![])
             }
 
             "AnnAssign" => {
@@ -1500,6 +1577,16 @@ impl Lowering {
                         }
                     }
                     Type::Module(mangled) => {
+                        // Check if this is an imported class constructor
+                        if let Some(class_info) = self.class_registry.get(mangled).cloned() {
+                            return self.lower_constructor_call(
+                                line,
+                                mangled,
+                                &class_info,
+                                tir_args,
+                            );
+                        }
+
                         let func_type = self
                             .symbol_table
                             .get(mangled)
@@ -1539,52 +1626,7 @@ impl Lowering {
                                 self.name_error(line, format!("unknown class `{}`", name))
                             })?
                             .clone();
-
-                        let init_method = class_info.methods.get("__init__").ok_or_else(|| {
-                            self.syntax_error(
-                                line,
-                                format!("class `{}` has no __init__ method", name),
-                            )
-                        })?;
-
-                        if tir_args.len() != init_method.params.len() {
-                            return Err(self.type_error(
-                                line,
-                                format!(
-                                    "{}() expects {} argument{}, got {}",
-                                    name,
-                                    init_method.params.len(),
-                                    if init_method.params.len() == 1 {
-                                        ""
-                                    } else {
-                                        "s"
-                                    },
-                                    tir_args.len()
-                                ),
-                            ));
-                        }
-                        for (i, (arg, expected)) in
-                            tir_args.iter().zip(init_method.params.iter()).enumerate()
-                        {
-                            if arg.ty.to_type() != *expected {
-                                return Err(self.type_error(
-                                    line,
-                                    format!(
-                                        "argument {} type mismatch in {}(): expected `{}`, got `{}`",
-                                        i, name, expected, arg.ty
-                                    ),
-                                ));
-                            }
-                        }
-
-                        Ok(CallResult::Expr(TirExpr {
-                            kind: TirExprKind::Construct {
-                                class_name: name.clone(),
-                                init_mangled_name: init_method.mangled_name.clone(),
-                                args: tir_args,
-                            },
-                            ty: ValueType::Class(name.clone()),
-                        }))
+                        self.lower_constructor_call(line, name, &class_info, tir_args)
                     }
                     _ => Err(self.type_error(line, format!("`{}` is not callable", func_name))),
                 }
@@ -1600,6 +1642,16 @@ impl Lowering {
                     let name = ast_get_string!(value_node, "id");
                     if let Some(Type::Module(mod_path)) = self.lookup(&name).cloned() {
                         let resolved = format!("{}${}", mod_path, attr);
+
+                        // Check for class constructor first
+                        if let Some(class_info) = self.class_registry.get(&resolved).cloned() {
+                            return self.lower_constructor_call(
+                                line,
+                                &resolved,
+                                &class_info,
+                                tir_args,
+                            );
+                        }
 
                         let func_type = self
                             .symbol_table
@@ -1631,7 +1683,20 @@ impl Lowering {
                     }
                 }
 
-                // Not a module — lower as an expression (must be a class instance)
+                // Check if the full dotted path resolves to a class
+                // (e.g., Outer.Inner(...), Deep.Mid.Leaf(...))
+                if let Some(qualified) = self.try_resolve_class_path(&func_node) {
+                    if let Some(class_info) = self.class_registry.get(&qualified).cloned() {
+                        return self.lower_constructor_call(
+                            line,
+                            &qualified,
+                            &class_info,
+                            tir_args,
+                        );
+                    }
+                }
+
+                // Not a class path — lower value as an expression (must be a class instance)
                 let obj_expr = self.lower_expr(&value_node)?;
 
                 match &obj_expr.ty {
@@ -1755,6 +1820,85 @@ impl Lowering {
                 Ok(*return_type.clone())
             }
             _ => Err(self.type_error(line, "cannot call non-function type")),
+        }
+    }
+
+    fn lower_constructor_call(
+        &self,
+        line: usize,
+        qualified_name: &str,
+        class_info: &ClassInfo,
+        tir_args: Vec<TirExpr>,
+    ) -> Result<CallResult> {
+        let init_method = class_info.methods.get("__init__").ok_or_else(|| {
+            self.syntax_error(
+                line,
+                format!("class `{}` has no __init__ method", qualified_name),
+            )
+        })?;
+
+        if tir_args.len() != init_method.params.len() {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "{}() expects {} argument{}, got {}",
+                    qualified_name,
+                    init_method.params.len(),
+                    if init_method.params.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    },
+                    tir_args.len()
+                ),
+            ));
+        }
+        for (i, (arg, expected)) in tir_args.iter().zip(init_method.params.iter()).enumerate() {
+            if arg.ty.to_type() != *expected {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "argument {} type mismatch in {}(): expected `{}`, got `{}`",
+                        i, qualified_name, expected, arg.ty
+                    ),
+                ));
+            }
+        }
+
+        Ok(CallResult::Expr(TirExpr {
+            kind: TirExprKind::Construct {
+                class_name: qualified_name.to_string(),
+                init_mangled_name: init_method.mangled_name.clone(),
+                args: tir_args,
+            },
+            ty: ValueType::Class(qualified_name.to_string()),
+        }))
+    }
+
+    /// Try to resolve an AST node as a dotted class/module path to a qualified class name.
+    /// E.g., `Outer.Inner` → `module$Outer$Inner`, `mod.Class` → `mod$Class`
+    fn try_resolve_class_path(&self, node: &Bound<PyAny>) -> Option<String> {
+        match ast_type_name!(node).as_str() {
+            "Name" => {
+                let name = ast_get_string!(node, "id");
+                match self.lookup(&name)? {
+                    Type::Class(qualified) => Some(qualified.clone()),
+                    Type::Module(mod_path) => Some(mod_path.clone()),
+                    _ => None,
+                }
+            }
+            "Attribute" => {
+                let value_node = ast_getattr!(node, "value");
+                let attr = ast_get_string!(node, "attr");
+                let parent = self.try_resolve_class_path(&value_node)?;
+                let candidate = format!("{}${}", parent, attr);
+                if self.class_registry.contains_key(&candidate) {
+                    Some(candidate)
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 
@@ -1916,6 +2060,14 @@ impl Lowering {
                 } else {
                     bail!("unsupported constant type annotation")
                 }
+            }
+            "Attribute" => {
+                if let Some(qualified) = self.try_resolve_class_path(node) {
+                    if self.class_registry.contains_key(&qualified) {
+                        return Ok(Type::Class(qualified));
+                    }
+                }
+                bail!("unsupported type annotation: `{}`", node_type)
             }
             _ => bail!("unsupported type annotation: `{}`", node_type),
         }
