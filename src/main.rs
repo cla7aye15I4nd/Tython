@@ -9,9 +9,6 @@ use tython::compiler::Compiler;
 struct Args {
     #[arg(value_name = "FILE")]
     input: PathBuf,
-
-    #[arg(short, long, value_name = "OUTPUT")]
-    output: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -20,14 +17,14 @@ fn main() -> Result<()> {
 
     let mut compiler = Compiler::new(args.input.clone())?;
 
-    let executable_path = args
-        .output
-        .unwrap_or_else(|| args.input.with_extension(""))
+    let exe_path = args
+        .input
         .canonicalize()
-        .unwrap();
-    compiler.compile(executable_path.clone())?;
+        .unwrap()
+        .with_extension(std::env::consts::EXE_EXTENSION);
+    compiler.compile(exe_path.clone())?;
 
-    let output = std::process::Command::new(&executable_path).output()?;
+    let output = std::process::Command::new(&exe_path).output()?;
 
     std::io::Write::write_all(&mut std::io::stdout(), &output.stdout)?;
     std::io::Write::write_all(&mut std::io::stderr(), &output.stderr)?;
