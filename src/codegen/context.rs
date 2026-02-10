@@ -1,4 +1,3 @@
-use anyhow::{Context as _, Result};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
@@ -31,22 +30,18 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
-    pub fn link(&self, output_path: &Path) -> Result<()> {
+    pub fn link(&self, output_path: &Path) {
         let bc_path = output_path.with_extension("bc");
 
         self.module.write_bitcode_to_path(&bc_path);
 
-        let output = Command::new("clang")
+        Command::new("clang")
             .arg("-O2")
             .arg("-o")
             .arg(output_path)
             .arg(&bc_path)
             .output()
-            .context("Failed to run clang")?;
-
-        assert!(output.status.success());
-
-        Ok(())
+            .unwrap();
     }
 
     // ── Type helpers ─────────────────────────────────────────────

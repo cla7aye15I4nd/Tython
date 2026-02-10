@@ -22,8 +22,6 @@ impl Resolver {
     }
 
     pub fn resolve_imports(&self, file_path: &Path) -> Result<ResolvedImports> {
-        assert!(file_path.is_file());
-
         Python::attach(|py| {
             let source = std::fs::read_to_string(file_path).unwrap();
             let ast_module = PyModule::import(py, "ast")?;

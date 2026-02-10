@@ -25,8 +25,6 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new(input_path: PathBuf) -> Result<Self> {
-        assert!(input_path.is_file());
-
         let entry_point = input_path.canonicalize()?;
         let base_dir = entry_point.parent().unwrap().to_path_buf();
         let resolver = Resolver::new(base_dir);
@@ -48,7 +46,7 @@ impl Compiler {
 
         codegen.add_c_main_wrapper(&entry_main_mangled);
 
-        codegen.link(&output_path)?;
+        codegen.link(&output_path);
 
         Ok(())
     }
@@ -65,8 +63,6 @@ impl Compiler {
         while let Some(action) = stack.pop() {
             match action {
                 CompileAction::Enter(path) => {
-                    assert!(path.is_file());
-
                     match colors.get(&path) {
                         Some(ModuleColor::Black) => continue,
                         Some(ModuleColor::Gray) => {
