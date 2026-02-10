@@ -6,6 +6,7 @@ use inkwell::types::{BasicMetadataTypeEnum, IntType};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue, ValueKind};
 use std::collections::HashMap;
 use std::path::Path;
+use std::process::Command;
 
 use crate::ast::Type;
 use crate::tir::{BinOpKind, TirExpr, TirExprKind, TirFunction, TirStmt};
@@ -29,16 +30,22 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
-    pub fn verify(&self) -> bool {
-        self.module.verify().is_ok()
-    }
+    pub fn link(&self, output_path: &Path) -> Result<()> {
+        let bc_path = output_path.with_extension("bc");
 
-    pub fn emit_ir(&self, path: &Path) {
-        let _ = self.module.print_to_file(path);
-    }
+        self.module.write_bitcode_to_path(&bc_path);
 
-    pub fn emit_bitcode(&self, path: &Path) {
-        self.module.write_bitcode_to_path(path);
+        let output = Command::new("clang")
+            .arg("-O2")
+            .arg("-o")
+            .arg(output_path)
+            .arg(&bc_path)
+            .output()
+            .context("Failed to run clang")?;
+
+        assert!(output.status.success());
+
+        Ok(())
     }
 
     // ── Type helpers ─────────────────────────────────────────────
