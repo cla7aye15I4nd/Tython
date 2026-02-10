@@ -1,5 +1,6 @@
 pub mod builtin;
 pub mod lower;
+pub mod type_rules;
 
 use crate::ast::Type;
 use std::collections::HashMap;
@@ -18,6 +19,25 @@ pub enum BinOpKind {
     BitXor,
     LShift,
     RShift,
+}
+
+impl std::fmt::Display for BinOpKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BinOpKind::Add => write!(f, "+"),
+            BinOpKind::Sub => write!(f, "-"),
+            BinOpKind::Mul => write!(f, "*"),
+            BinOpKind::Div => write!(f, "/"),
+            BinOpKind::FloorDiv => write!(f, "//"),
+            BinOpKind::Mod => write!(f, "%"),
+            BinOpKind::Pow => write!(f, "**"),
+            BinOpKind::BitAnd => write!(f, "&"),
+            BinOpKind::BitOr => write!(f, "|"),
+            BinOpKind::BitXor => write!(f, "^"),
+            BinOpKind::LShift => write!(f, "<<"),
+            BinOpKind::RShift => write!(f, ">>"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

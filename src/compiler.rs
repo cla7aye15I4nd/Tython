@@ -66,7 +66,7 @@ impl Compiler {
                     match colors.get(&path) {
                         Some(ModuleColor::Black) => continue,
                         Some(ModuleColor::Gray) => {
-                            bail!("Circular dependency detected: {}", path.display());
+                            bail!("circular dependency detected: {}", path.display());
                         }
                         None => {}
                     }

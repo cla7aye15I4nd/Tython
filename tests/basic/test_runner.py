@@ -18,6 +18,9 @@ from . import test_augmented
 from . import test_chained_cmp
 from . import test_mixed_type
 from . import test_builtins
+from . import test_float_cmp
+from . import test_casting
+import basic.test_truthiness as test_truthiness
 
 
 def run_all_tests() -> None:
@@ -41,3 +44,6 @@ def run_all_tests() -> None:
     test_chained_cmp.run_tests()
     test_mixed_type.run_tests()
     test_builtins.run_tests()
+    test_float_cmp.run_tests()
+    test_casting.run_tests()
+    test_truthiness.run_tests()

@@ -1,4 +1,4 @@
-use anyhow::{bail, Context as _, Result};
+use anyhow::{bail, Result};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use std::collections::HashMap;
@@ -10,6 +10,7 @@ use super::{
     TirStmt, UnaryOpKind,
 };
 use crate::ast::Type;
+use crate::errors::{ErrorCategory, TythonError};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 pub struct Lowering {
@@ -18,6 +19,9 @@ pub struct Lowering {
     current_module_name: String,
     current_return_type: Option<Type>,
     scopes: Vec<HashMap<String, Type>>,
+    current_file: String,
+    source_lines: Vec<String>,
+    current_function_name: Option<String>,
 }
 
 impl Default for Lowering {
@@ -33,8 +37,43 @@ impl Lowering {
             current_module_name: String::new(),
             current_return_type: None,
             scopes: Vec::new(),
+            current_file: String::new(),
+            source_lines: Vec::new(),
+            current_function_name: None,
         }
     }
+
+    // ── error helpers ──────────────────────────────────────────────────
+
+    fn make_error(&self, category: ErrorCategory, line: usize, message: String) -> anyhow::Error {
+        TythonError {
+            category,
+            message,
+            file: self.current_file.clone(),
+            line,
+            source_line: self.source_lines.get(line.wrapping_sub(1)).cloned(),
+            function_name: self.current_function_name.clone(),
+        }
+        .into()
+    }
+
+    fn type_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
+        self.make_error(ErrorCategory::TypeError, line, msg.into())
+    }
+
+    fn name_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
+        self.make_error(ErrorCategory::NameError, line, msg.into())
+    }
+
+    fn syntax_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
+        self.make_error(ErrorCategory::SyntaxError, line, msg.into())
+    }
+
+    fn value_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
+        self.make_error(ErrorCategory::ValueError, line, msg.into())
+    }
+
+    // ── scope helpers ──────────────────────────────────────────────────
 
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
@@ -57,6 +96,8 @@ impl Lowering {
         None
     }
 
+    // ── module / function lowering ─────────────────────────────────────
+
     pub fn lower_module(
         &mut self,
         canonical_path: &Path,
@@ -66,6 +107,8 @@ impl Lowering {
         self.scopes.clear();
         self.current_return_type = None;
         self.current_module_name = module_path.to_string();
+        self.current_file = canonical_path.display().to_string();
+        self.current_function_name = None;
 
         self.push_scope();
 
@@ -77,6 +120,7 @@ impl Lowering {
 
         Python::attach(|py| -> Result<_> {
             let source = std::fs::read_to_string(canonical_path)?;
+            self.source_lines = source.lines().map(String::from).collect();
             let ast_module = PyModule::import(py, "ast")?;
             let py_ast = ast_module.call_method1("parse", (source.as_str(),))?;
 
@@ -127,6 +171,7 @@ impl Lowering {
 
     fn collect_function_signature(&mut self, node: &Bound<PyAny>) -> Result<()> {
         let name = ast_get_string!(node, "name");
+        let line = Self::get_line(node);
 
         let args_node = ast_getattr!(node, "args");
         let py_args = ast_get_list!(&args_node, "args");
@@ -136,11 +181,13 @@ impl Lowering {
             let param_name = ast_get_string!(arg, "arg");
             let annotation = ast_getattr!(arg, "annotation");
             if annotation.is_none() {
-                bail!(
-                    "Parameter '{}' in function '{}' requires type annotation",
-                    param_name,
-                    name
-                );
+                return Err(self.syntax_error(
+                    line,
+                    format!(
+                        "parameter `{}` in function `{}` requires a type annotation",
+                        param_name, name
+                    ),
+                ));
             }
             param_types.push(Self::convert_type_annotation(&annotation)?);
         }
@@ -176,6 +223,7 @@ impl Lowering {
             self.declare(param.name.clone(), param.ty.clone());
         }
         self.current_return_type = Some(return_type.clone());
+        self.current_function_name = Some(name.clone());
 
         let body_list = ast_get_list!(node, "body");
         let mut tir_body = Vec::new();
@@ -184,17 +232,12 @@ impl Lowering {
             if node_type == "Import" || node_type == "ImportFrom" {
                 continue;
             }
-            tir_body.extend(self.lower_stmt(&stmt_node).with_context(|| {
-                format!(
-                    "In function '{}' at line {}",
-                    name,
-                    Self::get_line(&stmt_node)
-                )
-            })?);
+            tir_body.extend(self.lower_stmt(&stmt_node)?);
         }
 
         self.pop_scope();
         self.current_return_type = None;
+        self.current_function_name = None;
 
         Ok(TirFunction {
             name: mangled_name,
@@ -218,19 +261,22 @@ impl Lowering {
         }
     }
 
+    // ── statement lowering ─────────────────────────────────────────────
+
     fn lower_stmt(&mut self, node: &Bound<PyAny>) -> Result<Vec<TirStmt>> {
         let node_type = ast_type_name!(node);
         let line = Self::get_line(node);
 
         match node_type.as_str() {
-            "FunctionDef" => bail!("Nested functions not supported at line {}", line),
+            "FunctionDef" => {
+                Err(self.syntax_error(line, "nested function definitions are not supported"))
+            }
 
             "AnnAssign" => {
                 let target_node = ast_getattr!(node, "target");
                 if ast_type_name!(target_node) != "Name" {
-                    bail!(
-                        "Only simple variable assignments are supported at line {}",
-                        line
+                    return Err(
+                        self.syntax_error(line, "only simple variable assignments are supported")
                     );
                 }
                 let target = ast_get_string!(target_node, "id");
@@ -245,12 +291,13 @@ impl Lowering {
 
                 if let Some(ref ann_ty) = annotated_ty {
                     if ann_ty != &tir_value.ty {
-                        bail!(
-                            "Type mismatch at line {}: expected {:?}, got {:?}",
+                        return Err(self.type_error(
                             line,
-                            ann_ty,
-                            tir_value.ty
-                        );
+                            format!(
+                                "type mismatch: expected `{}`, got `{}`",
+                                ann_ty, tir_value.ty
+                            ),
+                        ));
                     }
                 }
 
@@ -267,14 +314,15 @@ impl Lowering {
             "Assign" => {
                 let targets_list = ast_get_list!(node, "targets");
                 if targets_list.len() != 1 {
-                    bail!("Multiple assignment targets not supported at line {}", line);
+                    return Err(
+                        self.syntax_error(line, "multiple assignment targets are not supported")
+                    );
                 }
 
                 let target_node = targets_list.get_item(0)?;
                 if ast_type_name!(target_node) != "Name" {
-                    bail!(
-                        "Only simple variable assignments are supported at line {}",
-                        line
+                    return Err(
+                        self.syntax_error(line, "only simple variable assignments are supported")
                     );
                 }
                 let target = ast_get_string!(target_node, "id");
@@ -294,15 +342,15 @@ impl Lowering {
             "AugAssign" => {
                 let target_node = ast_getattr!(node, "target");
                 if ast_type_name!(target_node) != "Name" {
-                    bail!(
-                        "Only simple variable augmented assignments supported at line {}",
-                        line
-                    );
+                    return Err(self.syntax_error(
+                        line,
+                        "only simple variable augmented assignments are supported",
+                    ));
                 }
                 let target = ast_get_string!(target_node, "id");
 
                 let target_ty = self.lookup(&target).cloned().ok_or_else(|| {
-                    anyhow::anyhow!("Undefined variable: {} at line {}", target, line)
+                    self.name_error(line, format!("undefined variable `{}`", target))
                 })?;
 
                 let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
@@ -310,11 +358,10 @@ impl Lowering {
 
                 // Disallow /= on int variables (would change type)
                 if op == BinOpKind::Div && target_ty == Type::Int {
-                    bail!(
-                        "/= on int variable '{}' at line {} would change type to float; use //= for integer division",
-                        target,
-                        line
-                    );
+                    return Err(self.type_error(
+                        line,
+                        format!("`/=` on `int` variable `{}` would change type to `float`; use `//=` for integer division", target),
+                    ));
                 }
 
                 let target_ref = TirExpr {
@@ -323,7 +370,7 @@ impl Lowering {
                 };
 
                 let (final_left, final_right, result_ty) =
-                    Self::resolve_binop_types(op, target_ref, value_expr, line)?;
+                    self.resolve_binop_types(line, op, target_ref, value_expr)?;
 
                 let binop_expr = TirExpr {
                     kind: TirExprKind::BinOp {
@@ -348,11 +395,13 @@ impl Lowering {
                 if value_node.is_none() {
                     if let Some(ref expected) = self.current_return_type {
                         if *expected != Type::Unit {
-                            bail!(
-                                "Return without value at line {}, but function expects {:?}",
+                            return Err(self.type_error(
                                 line,
-                                expected
-                            );
+                                format!(
+                                    "return without value, but function expects `{}`",
+                                    expected
+                                ),
+                            ));
                         }
                     }
                     Ok(vec![TirStmt::Return(None)])
@@ -360,12 +409,13 @@ impl Lowering {
                     let tir_expr = self.lower_expr(&value_node)?;
                     if let Some(ref expected) = self.current_return_type {
                         if expected != &tir_expr.ty {
-                            bail!(
-                                "Return type mismatch at line {}: expected {:?}, got {:?}",
+                            return Err(self.type_error(
                                 line,
-                                expected,
-                                tir_expr.ty
-                            );
+                                format!(
+                                    "return type mismatch: expected `{}`, got `{}`",
+                                    expected, tir_expr.ty
+                                ),
+                            ));
                         }
                     }
                     Ok(vec![TirStmt::Return(Some(tir_expr))])
@@ -381,7 +431,7 @@ impl Lowering {
                     if ast_type_name!(func_node) == "Name"
                         && ast_get_string!(func_node, "id") == "print"
                     {
-                        return self.lower_print_stmt(&value_node, line);
+                        return self.lower_print_stmt(&value_node);
                     }
                 }
 
@@ -453,14 +503,17 @@ impl Lowering {
                 })])
             }
 
-            _ => bail!("Unsupported statement type: {} at line {}", node_type, line),
+            _ => {
+                Err(self.syntax_error(line, format!("unsupported statement type: `{}`", node_type)))
+            }
         }
     }
+
+    // ── expression lowering ────────────────────────────────────────────
 
     fn lower_expr(&mut self, node: &Bound<PyAny>) -> Result<TirExpr> {
         let node_type = ast_type_name!(node);
         let line = Self::get_line(node);
-        let col = Self::get_col(node);
 
         match node_type.as_str() {
             "Constant" => {
@@ -482,20 +535,16 @@ impl Lowering {
                         ty: Type::Float,
                     })
                 } else {
-                    bail!("Unsupported constant type at line {}", line)
+                    Err(self.value_error(line, "unsupported constant type"))
                 }
             }
 
             "Name" => {
                 let id = ast_get_string!(node, "id");
-                let ty = self.lookup(&id).cloned().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Undefined variable: {} at line {}, column {}",
-                        id,
-                        line,
-                        col
-                    )
-                })?;
+                let ty = self
+                    .lookup(&id)
+                    .cloned()
+                    .ok_or_else(|| self.name_error(line, format!("undefined variable `{}`", id)))?;
                 Ok(TirExpr {
                     kind: TirExprKind::Var(id),
                     ty,
@@ -508,7 +557,7 @@ impl Lowering {
                 let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
 
                 let (final_left, final_right, result_ty) =
-                    Self::resolve_binop_types(op, left, right, line)?;
+                    self.resolve_binop_types(line, op, left, right)?;
 
                 Ok(TirExpr {
                     kind: TirExprKind::BinOp {
@@ -530,7 +579,7 @@ impl Lowering {
                     let op_node = ops_list.get_item(0)?;
                     let cmp_op = Self::convert_cmpop(&op_node)?;
                     let right = self.lower_expr(&comparators_list.get_item(0)?)?;
-                    let (fl, fr) = Self::promote_for_comparison(left, right, line)?;
+                    let (fl, fr) = self.promote_for_comparison(line, left, right)?;
                     return Ok(TirExpr {
                         kind: TirExprKind::Compare {
                             op: cmp_op,
@@ -551,7 +600,7 @@ impl Lowering {
                     let right = self.lower_expr(&comparators_list.get_item(i)?)?;
 
                     let (fl, fr) =
-                        Self::promote_for_comparison(current_left.clone(), right.clone(), line)?;
+                        self.promote_for_comparison(line, current_left.clone(), right.clone())?;
 
                     comparisons.push(TirExpr {
                         kind: TirExprKind::Compare {
@@ -586,54 +635,22 @@ impl Lowering {
                 let op_type = ast_type_name!(op_node);
                 let operand = self.lower_expr(&ast_getattr!(node, "operand"))?;
 
-                match op_type.as_str() {
-                    "USub" => {
-                        if operand.ty != Type::Int && operand.ty != Type::Float {
-                            bail!("Unary negation requires numeric operand at line {}", line);
-                        }
-                        let result_ty = operand.ty.clone();
-                        Ok(TirExpr {
-                            kind: TirExprKind::UnaryOp {
-                                op: UnaryOpKind::Neg,
-                                operand: Box::new(operand),
-                            },
-                            ty: result_ty,
-                        })
-                    }
-                    "UAdd" => {
-                        if operand.ty != Type::Int && operand.ty != Type::Float {
-                            bail!("Unary positive requires numeric operand at line {}", line);
-                        }
-                        let result_ty = operand.ty.clone();
-                        Ok(TirExpr {
-                            kind: TirExprKind::UnaryOp {
-                                op: UnaryOpKind::Pos,
-                                operand: Box::new(operand),
-                            },
-                            ty: result_ty,
-                        })
-                    }
-                    "Not" => Ok(TirExpr {
-                        kind: TirExprKind::UnaryOp {
-                            op: UnaryOpKind::Not,
-                            operand: Box::new(operand),
-                        },
-                        ty: Type::Bool,
-                    }),
-                    "Invert" => {
-                        if operand.ty != Type::Int {
-                            bail!("Bitwise NOT requires int operand at line {}", line);
-                        }
-                        Ok(TirExpr {
-                            kind: TirExprKind::UnaryOp {
-                                op: UnaryOpKind::BitNot,
-                                operand: Box::new(operand),
-                            },
-                            ty: Type::Int,
-                        })
-                    }
-                    _ => bail!("Unsupported unary operator: {} at line {}", op_type, line),
-                }
+                let op = Self::convert_unaryop(&op_type)?;
+
+                let rule = super::type_rules::lookup_unaryop(op, &operand.ty).ok_or_else(|| {
+                    self.type_error(
+                        line,
+                        super::type_rules::unaryop_type_error_message(op, &operand.ty),
+                    )
+                })?;
+
+                Ok(TirExpr {
+                    kind: TirExprKind::UnaryOp {
+                        op,
+                        operand: Box::new(operand),
+                    },
+                    ty: rule.result_type,
+                })
             }
 
             "BoolOp" => {
@@ -644,7 +661,12 @@ impl Lowering {
                 let logical_op = match op_type.as_str() {
                     "And" => LogicalOp::And,
                     "Or" => LogicalOp::Or,
-                    _ => bail!("Unsupported logical operator: {} at line {}", op_type, line),
+                    _ => {
+                        return Err(self.syntax_error(
+                            line,
+                            format!("unsupported logical operator: `{}`", op_type),
+                        ))
+                    }
                 };
 
                 let mut exprs: Vec<TirExpr> = Vec::new();
@@ -656,10 +678,13 @@ impl Lowering {
                 let result_ty = exprs[0].ty.clone();
                 for (i, e) in exprs.iter().enumerate().skip(1) {
                     if e.ty != result_ty {
-                        bail!(
-                            "All operands of '{}' must have the same type at line {}: operand {} is {:?}, expected {:?}",
-                            op_type, line, i, e.ty, result_ty
-                        );
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "all operands of `{}` must have the same type: operand {} is `{}`, expected `{}`",
+                                op_type, i, e.ty, result_ty
+                            ),
+                        ));
                     }
                 }
 
@@ -679,24 +704,23 @@ impl Lowering {
                 Ok(result)
             }
 
-            "Call" => self.lower_call(node, line, col),
+            "Call" => self.lower_call(node, line),
 
-            "Attribute" => {
-                bail!(
-                    "Attribute access outside of function calls not yet supported at line {}",
-                    line
-                )
-            }
+            "Attribute" => Err(self.syntax_error(
+                line,
+                "attribute access outside of function calls is not yet supported",
+            )),
 
-            _ => bail!(
-                "Unsupported expression type: {} at line {}",
-                node_type,
-                line
-            ),
+            _ => Err(self.syntax_error(
+                line,
+                format!("unsupported expression type: `{}`", node_type),
+            )),
         }
     }
 
-    fn lower_print_stmt(&mut self, call_node: &Bound<PyAny>, _line: usize) -> Result<Vec<TirStmt>> {
+    // ── print statement ────────────────────────────────────────────────
+
+    fn lower_print_stmt(&mut self, call_node: &Bound<PyAny>) -> Result<Vec<TirStmt>> {
         let args_list = ast_get_list!(call_node, "args");
 
         let mut tir_args = Vec::new();
@@ -745,7 +769,9 @@ impl Lowering {
         Ok(stmts)
     }
 
-    fn lower_call(&mut self, node: &Bound<PyAny>, line: usize, col: usize) -> Result<TirExpr> {
+    // ── call lowering ──────────────────────────────────────────────────
+
+    fn lower_call(&mut self, node: &Bound<PyAny>, line: usize) -> Result<TirExpr> {
         let func_node = ast_getattr!(node, "func");
         let args_list = ast_get_list!(node, "args");
 
@@ -760,38 +786,49 @@ impl Lowering {
                 let func_name = ast_get_string!(func_node, "id");
 
                 if func_name == "print" {
-                    bail!("print() at line {} can only be used as a statement", line);
+                    return Err(self.syntax_error(line, "print() can only be used as a statement"));
                 }
 
                 if func_name == "int" || func_name == "float" || func_name == "bool" {
                     if tir_args.len() != 1 {
-                        bail!(
-                            "{}() at line {} expects exactly 1 argument, got {}",
-                            func_name,
+                        return Err(self.type_error(
                             line,
-                            tir_args.len()
-                        );
+                            format!(
+                                "{}() expects exactly 1 argument, got {}",
+                                func_name,
+                                tir_args.len()
+                            ),
+                        ));
                     }
                     let arg = tir_args.remove(0);
                     let target_ty = match func_name.as_str() {
                         "int" => {
                             if arg.ty != Type::Int && arg.ty != Type::Float && arg.ty != Type::Bool
                             {
-                                bail!("int() at line {} cannot convert {:?}", line, arg.ty);
+                                return Err(self.type_error(
+                                    line,
+                                    format!("int() cannot convert `{}`", arg.ty),
+                                ));
                             }
                             Type::Int
                         }
                         "float" => {
                             if arg.ty != Type::Int && arg.ty != Type::Float && arg.ty != Type::Bool
                             {
-                                bail!("float() at line {} cannot convert {:?}", line, arg.ty);
+                                return Err(self.type_error(
+                                    line,
+                                    format!("float() cannot convert `{}`", arg.ty),
+                                ));
                             }
                             Type::Float
                         }
                         "bool" => {
                             if arg.ty != Type::Int && arg.ty != Type::Float && arg.ty != Type::Bool
                             {
-                                bail!("bool() at line {} cannot convert {:?}", line, arg.ty);
+                                return Err(self.type_error(
+                                    line,
+                                    format!("bool() cannot convert `{}`", arg.ty),
+                                ));
                             }
                             Type::Bool
                         }
@@ -809,12 +846,23 @@ impl Lowering {
                 // Built-in numeric functions
                 if func_name == "abs" {
                     if tir_args.len() != 1 {
-                        bail!("abs() expects 1 argument at line {}", line);
+                        return Err(self.type_error(
+                            line,
+                            format!("abs() expects 1 argument, got {}", tir_args.len()),
+                        ));
                     }
                     let (builtin_fn, ret_ty) = match tir_args[0].ty {
                         Type::Int => (builtin::BuiltinFn::AbsInt, Type::Int),
                         Type::Float => (builtin::BuiltinFn::AbsFloat, Type::Float),
-                        _ => bail!("abs() requires numeric argument at line {}", line),
+                        _ => {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "abs() requires a numeric argument, got `{}`",
+                                    tir_args[0].ty
+                                ),
+                            ))
+                        }
                     };
                     return Ok(TirExpr {
                         kind: TirExprKind::ExternalCall {
@@ -827,10 +875,19 @@ impl Lowering {
 
                 if func_name == "pow" {
                     if tir_args.len() != 2 {
-                        bail!("pow() expects 2 arguments at line {}", line);
+                        return Err(self.type_error(
+                            line,
+                            format!("pow() expects 2 arguments, got {}", tir_args.len()),
+                        ));
                     }
                     if tir_args[0].ty != tir_args[1].ty {
-                        bail!("pow() arguments must have same type at line {}", line);
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "pow() arguments must have the same type: got `{}` and `{}`",
+                                tir_args[0].ty, tir_args[1].ty
+                            ),
+                        ));
                     }
                     match tir_args[0].ty {
                         Type::Int => {
@@ -854,31 +911,52 @@ impl Lowering {
                                 ty: Type::Float,
                             });
                         }
-                        _ => bail!("pow() requires numeric arguments at line {}", line),
+                        _ => {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "pow() requires numeric arguments, got `{}`",
+                                    tir_args[0].ty
+                                ),
+                            ))
+                        }
                     }
                 }
 
                 if func_name == "min" || func_name == "max" {
                     if tir_args.len() != 2 {
-                        bail!("{}() expects 2 arguments at line {}", func_name, line);
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "{}() expects 2 arguments, got {}",
+                                func_name,
+                                tir_args.len()
+                            ),
+                        ));
                     }
                     if tir_args[0].ty != tir_args[1].ty {
-                        bail!(
-                            "{}() arguments must have same type at line {}",
-                            func_name,
-                            line
-                        );
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "{}() arguments must have the same type: got `{}` and `{}`",
+                                func_name, tir_args[0].ty, tir_args[1].ty
+                            ),
+                        ));
                     }
                     let (builtin_fn, ret_ty) = match (&tir_args[0].ty, func_name.as_str()) {
                         (Type::Int, "min") => (builtin::BuiltinFn::MinInt, Type::Int),
                         (Type::Int, "max") => (builtin::BuiltinFn::MaxInt, Type::Int),
                         (Type::Float, "min") => (builtin::BuiltinFn::MinFloat, Type::Float),
                         (Type::Float, "max") => (builtin::BuiltinFn::MaxFloat, Type::Float),
-                        _ => bail!(
-                            "{}() requires numeric arguments at line {}",
-                            func_name,
-                            line
-                        ),
+                        _ => {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "{}() requires numeric arguments, got `{}`",
+                                    func_name, tir_args[0].ty
+                                ),
+                            ))
+                        }
                     };
                     return Ok(TirExpr {
                         kind: TirExprKind::ExternalCall {
@@ -891,10 +969,19 @@ impl Lowering {
 
                 if func_name == "round" {
                     if tir_args.len() != 1 {
-                        bail!("round() expects 1 argument at line {}", line);
+                        return Err(self.type_error(
+                            line,
+                            format!("round() expects 1 argument, got {}", tir_args.len()),
+                        ));
                     }
                     if tir_args[0].ty != Type::Float {
-                        bail!("round() requires float argument at line {}", line);
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "round() requires a `float` argument, got `{}`",
+                                tir_args[0].ty
+                            ),
+                        ));
                     }
                     return Ok(TirExpr {
                         kind: TirExprKind::ExternalCall {
@@ -906,18 +993,13 @@ impl Lowering {
                 }
 
                 let scope_type = self.lookup(&func_name).cloned().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Undefined function: {} at line {}, column {}",
-                        func_name,
-                        line,
-                        col
-                    )
+                    self.name_error(line, format!("undefined function `{}`", func_name))
                 })?;
 
                 match &scope_type {
                     Type::Function { .. } => {
                         let return_type =
-                            self.check_call_args(&func_name, &scope_type, &tir_args, line)?;
+                            self.check_call_args(line, &func_name, &scope_type, &tir_args)?;
                         let mangled = self.mangle_name(&func_name);
                         Ok(TirExpr {
                             kind: TirExprKind::Call {
@@ -932,15 +1014,17 @@ impl Lowering {
                             .symbol_table
                             .get(mangled)
                             .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "Imported symbol '{}' not found in symbol table at line {}",
-                                    func_name,
-                                    line
+                                self.name_error(
+                                    line,
+                                    format!(
+                                        "imported symbol `{}` not found in symbol table",
+                                        func_name
+                                    ),
                                 )
                             })?
                             .clone();
                         let return_type =
-                            self.check_call_args(&func_name, &func_type, &tir_args, line)?;
+                            self.check_call_args(line, &func_name, &func_type, &tir_args)?;
                         Ok(TirExpr {
                             kind: TirExprKind::Call {
                                 func: mangled.clone(),
@@ -949,7 +1033,7 @@ impl Lowering {
                             ty: return_type,
                         })
                     }
-                    _ => bail!("'{}' is not callable at line {}", func_name, line),
+                    _ => Err(self.type_error(line, format!("`{}` is not callable", func_name))),
                 }
             }
 
@@ -958,17 +1042,21 @@ impl Lowering {
                 let attr = ast_get_string!(func_node, "attr");
 
                 if ast_type_name!(value_node) != "Name" {
-                    bail!("Complex attribute access not supported at line {}", line);
+                    return Err(
+                        self.syntax_error(line, "complex attribute access is not supported")
+                    );
                 }
                 let mod_name = ast_get_string!(value_node, "id");
 
                 let mod_type = self.lookup(&mod_name).cloned().ok_or_else(|| {
-                    anyhow::anyhow!("Unknown module: {} at line {}", mod_name, line)
+                    self.name_error(line, format!("unknown module `{}`", mod_name))
                 })?;
 
                 let mod_path = match &mod_type {
                     Type::Module(path) => path.clone(),
-                    _ => bail!("'{}' is not a module at line {}", mod_name, line),
+                    _ => {
+                        return Err(self.type_error(line, format!("`{}` is not a module", mod_name)))
+                    }
                 };
 
                 let resolved = format!("{}${}", mod_path, attr);
@@ -977,19 +1065,13 @@ impl Lowering {
                     .symbol_table
                     .get(&resolved)
                     .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Undefined function: {}.{} at line {}, column {}",
-                            mod_name,
-                            attr,
-                            line,
-                            col
-                        )
+                        self.name_error(line, format!("undefined function `{}.{}`", mod_name, attr))
                     })?
                     .clone();
 
                 let return_type = {
                     let label = format!("{}.{}", mod_name, attr);
-                    self.check_call_args(&label, &func_type, &tir_args, line)?
+                    self.check_call_args(line, &label, &func_type, &tir_args)?
                 };
 
                 Ok(TirExpr {
@@ -1001,19 +1083,21 @@ impl Lowering {
                 })
             }
 
-            _ => bail!(
-                "Only direct function calls and module.function calls supported at line {}",
-                line
-            ),
+            _ => Err(self.syntax_error(
+                line,
+                "only direct function calls and module.function calls are supported",
+            )),
         }
     }
 
+    // ── call argument checking ─────────────────────────────────────────
+
     fn check_call_args(
         &self,
+        line: usize,
         func_name: &str,
         func_type: &Type,
         args: &[TirExpr],
-        line: usize,
     ) -> Result<Type> {
         match func_type {
             Type::Function {
@@ -1021,25 +1105,31 @@ impl Lowering {
                 return_type,
             } => {
                 if args.len() != params.len() {
-                    bail!(
-                        "Function '{}' at line {} expects {} arguments, got {}",
-                        func_name,
+                    return Err(self.type_error(
                         line,
-                        params.len(),
-                        args.len()
-                    );
+                        format!(
+                            "function `{}` expects {} argument{}, got {}",
+                            func_name,
+                            params.len(),
+                            if params.len() == 1 { "" } else { "s" },
+                            args.len()
+                        ),
+                    ));
                 }
                 for (i, (arg, expected)) in args.iter().zip(params.iter()).enumerate() {
                     if &arg.ty != expected {
-                        bail!(
-                            "Argument {} type mismatch in call to '{}' at line {}: expected {:?}, got {:?}",
-                            i, func_name, line, expected, arg.ty
-                        );
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "argument {} type mismatch in call to `{}`: expected `{}`, got `{}`",
+                                i, func_name, expected, arg.ty
+                            ),
+                        ));
                     }
                 }
                 Ok(*return_type.clone())
             }
-            _ => bail!("Cannot call non-function type at line {}", line),
+            _ => Err(self.type_error(line, "cannot call non-function type")),
         }
     }
 
@@ -1047,100 +1137,52 @@ impl Lowering {
         format!("{}${}", self.current_module_name, name)
     }
 
+    // ── type promotion / binary ops ────────────────────────────────────
+
     fn resolve_binop_types(
+        &self,
+        line: usize,
         op: BinOpKind,
         left: TirExpr,
         right: TirExpr,
-        line: usize,
     ) -> Result<(TirExpr, TirExpr, Type)> {
-        // Bitwise ops require int
-        match op {
-            BinOpKind::BitAnd
-            | BinOpKind::BitOr
-            | BinOpKind::BitXor
-            | BinOpKind::LShift
-            | BinOpKind::RShift => {
-                if left.ty != Type::Int || right.ty != Type::Int {
-                    bail!(
-                        "Bitwise operators require int operands at line {}: got {:?} and {:?}",
-                        line,
-                        left.ty,
-                        right.ty
-                    );
-                }
-                return Ok((left, right, Type::Int));
-            }
-            _ => {}
-        }
-
-        if left.ty == right.ty {
-            // Same type
-            match op {
-                BinOpKind::Div if left.ty == Type::Int => {
-                    // Python true division: int / int => float
-                    let left_cast = TirExpr {
-                        kind: TirExprKind::Cast {
-                            target: Type::Float,
-                            arg: Box::new(left),
-                        },
-                        ty: Type::Float,
-                    };
-                    let right_cast = TirExpr {
-                        kind: TirExprKind::Cast {
-                            target: Type::Float,
-                            arg: Box::new(right),
-                        },
-                        ty: Type::Float,
-                    };
-                    Ok((left_cast, right_cast, Type::Float))
-                }
-                _ => {
-                    let ty = left.ty.clone();
-                    Ok((left, right, ty))
-                }
-            }
-        } else if (left.ty == Type::Int && right.ty == Type::Float)
-            || (left.ty == Type::Float && right.ty == Type::Int)
-        {
-            // Mixed int/float: promote int to float
-            let promoted_left = if left.ty == Type::Int {
-                TirExpr {
-                    kind: TirExprKind::Cast {
-                        target: Type::Float,
-                        arg: Box::new(left),
-                    },
-                    ty: Type::Float,
-                }
-            } else {
-                left
-            };
-            let promoted_right = if right.ty == Type::Int {
-                TirExpr {
-                    kind: TirExprKind::Cast {
-                        target: Type::Float,
-                        arg: Box::new(right),
-                    },
-                    ty: Type::Float,
-                }
-            } else {
-                right
-            };
-            Ok((promoted_left, promoted_right, Type::Float))
-        } else {
-            bail!(
-                "Binary operator {:?} at line {} requires numeric operands, got {:?} and {:?}",
-                op,
+        let rule = super::type_rules::lookup_binop(op, &left.ty, &right.ty).ok_or_else(|| {
+            self.type_error(
                 line,
-                left.ty,
-                right.ty
+                super::type_rules::binop_type_error_message(op, &left.ty, &right.ty),
             )
+        })?;
+
+        let final_left = Self::apply_coercion(left, rule.left_coercion);
+        let final_right = Self::apply_coercion(right, rule.right_coercion);
+
+        Ok((final_left, final_right, rule.result_type))
+    }
+
+    fn apply_coercion(expr: TirExpr, coercion: super::type_rules::Coercion) -> TirExpr {
+        match coercion {
+            super::type_rules::Coercion::None => expr,
+            super::type_rules::Coercion::ToFloat => {
+                if expr.ty == Type::Float {
+                    expr
+                } else {
+                    TirExpr {
+                        kind: TirExprKind::Cast {
+                            target: Type::Float,
+                            arg: Box::new(expr),
+                        },
+                        ty: Type::Float,
+                    }
+                }
+            }
         }
     }
 
     fn promote_for_comparison(
+        &self,
+        line: usize,
         left: TirExpr,
         right: TirExpr,
-        line: usize,
     ) -> Result<(TirExpr, TirExpr)> {
         if left.ty == right.ty {
             Ok((left, right))
@@ -1171,14 +1213,17 @@ impl Lowering {
             };
             Ok((pl, pr))
         } else {
-            bail!(
-                "Comparison operands must have compatible types at line {}: {:?} vs {:?}",
+            Err(self.type_error(
                 line,
-                left.ty,
-                right.ty
-            )
+                format!(
+                    "comparison operands must have compatible types: `{}` vs `{}`",
+                    left.ty, right.ty
+                ),
+            ))
         }
     }
+
+    // ── type / operator conversion helpers ─────────────────────────────
 
     fn convert_return_type(node: &Bound<PyAny>) -> Result<Type> {
         let returns = ast_getattr!(node, "returns");
@@ -1198,7 +1243,7 @@ impl Lowering {
                     "int" => Ok(Type::Int),
                     "float" => Ok(Type::Float),
                     "bool" => Ok(Type::Bool),
-                    _ => bail!("Unsupported type: {}", id),
+                    _ => bail!("unsupported type `{}`", id),
                 }
             }
             "Constant" => {
@@ -1206,10 +1251,10 @@ impl Lowering {
                 if value.is_none() {
                     Ok(Type::Unit)
                 } else {
-                    bail!("Unsupported constant type annotation")
+                    bail!("unsupported constant type annotation")
                 }
             }
-            _ => bail!("Unsupported type annotation: {}", node_type),
+            _ => bail!("unsupported type annotation: `{}`", node_type),
         }
     }
 
@@ -1222,7 +1267,7 @@ impl Lowering {
             "LtE" => Ok(CmpOp::LtEq),
             "Gt" => Ok(CmpOp::Gt),
             "GtE" => Ok(CmpOp::GtEq),
-            _ => bail!("Unsupported comparison operator: {}", op_type),
+            _ => bail!("unsupported comparison operator: `{}`", op_type),
         }
     }
 
@@ -1241,18 +1286,22 @@ impl Lowering {
             "BitXor" => Ok(BinOpKind::BitXor),
             "LShift" => Ok(BinOpKind::LShift),
             "RShift" => Ok(BinOpKind::RShift),
-            _ => bail!("Unsupported binary operator: {}", op_type),
+            _ => bail!("unsupported binary operator: `{}`", op_type),
+        }
+    }
+
+    fn convert_unaryop(op_type: &str) -> Result<UnaryOpKind> {
+        match op_type {
+            "USub" => Ok(UnaryOpKind::Neg),
+            "UAdd" => Ok(UnaryOpKind::Pos),
+            "Not" => Ok(UnaryOpKind::Not),
+            "Invert" => Ok(UnaryOpKind::BitNot),
+            _ => bail!("unsupported unary operator: `{}`", op_type),
         }
     }
 
     fn get_line(node: &Bound<PyAny>) -> usize {
         ast_getattr!(node, "lineno")
-            .extract::<usize>()
-            .unwrap_or_default()
-    }
-
-    fn get_col(node: &Bound<PyAny>) -> usize {
-        ast_getattr!(node, "col_offset")
             .extract::<usize>()
             .unwrap_or_default()
     }

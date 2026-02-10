@@ -131,7 +131,7 @@ impl Resolver {
         if module_file.exists() && module_file.is_file() {
             Ok(module_file)
         } else {
-            anyhow::bail!("Failed to resolve import: {}", import)
+            anyhow::bail!("failed to resolve import `{}`", import)
         }
     }
 
@@ -156,7 +156,7 @@ impl Resolver {
                 .canonicalize()
                 .context("Failed to canonicalize path")
         } else {
-            anyhow::bail!("Module file not found: {}", module)
+            anyhow::bail!("module file not found: {}", module)
         }
     }
 
