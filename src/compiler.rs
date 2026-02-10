@@ -51,7 +51,7 @@ impl Compiler {
 
         let entry_main_mangled = self.resolver.mangle_synthetic_main(&self.entry_point);
 
-        codegen.add_c_main_wrapper(&entry_main_mangled)?;
+        codegen.add_c_main_wrapper(&entry_main_mangled);
 
         codegen.link(&output_path)?;
 
@@ -79,11 +79,7 @@ impl Compiler {
                     colors.insert(path.clone(), ModuleColor::Gray);
 
                     let dependencies = self.resolver.resolve_dependencies(&path)?;
-
-                    // Push compile action first (processed after all deps)
                     stack.push(CompileAction::Compile(path, dependencies.clone()));
-
-                    // Push dependencies in reverse so they're processed left-to-right
                     for dep in dependencies.into_iter().rev() {
                         stack.push(CompileAction::Enter(dep));
                     }
@@ -91,14 +87,14 @@ impl Compiler {
                 CompileAction::Compile(path, dependencies) => {
                     // Single-pass lowering: Python AST → TIR
                     let module_path = self.resolver.compute_module_path(&path);
+                    let mut lowering = LoweringContext::new(module_path);
                     let tir = Python::attach(|py| -> Result<_> {
                         let source = std::fs::read_to_string(&path)?;
                         let ast_module = PyModule::import(py, "ast")?;
                         let py_ast = ast_module.call_method1("parse", (source.as_str(),))?;
-                        LoweringContext::lower_module(
+                        lowering.lower_module(
                             &py_ast,
                             &path,
-                            &module_path,
                             &dependencies,
                             &self.symbol_table,
                             &self.module_exports,
@@ -120,7 +116,7 @@ impl Compiler {
                     self.module_exports.insert(path.to_path_buf(), export_names);
 
                     for func in tir.functions.values() {
-                        codegen.generate(func)?;
+                        codegen.generate(func);
                     }
 
                     colors.insert(path.to_path_buf(), ModuleColor::Black);

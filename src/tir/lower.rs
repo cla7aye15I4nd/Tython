@@ -34,7 +34,7 @@ pub struct LoweringContext {
 }
 
 impl LoweringContext {
-    fn new(module_path: String) -> Self {
+    pub fn new(module_path: String) -> Self {
         Self {
             module_path,
             functions: HashMap::new(),
@@ -46,19 +46,18 @@ impl LoweringContext {
     }
 
     pub fn lower_module(
+        &mut self,
         py_ast: &Bound<PyAny>,
         canonical_path: &Path,
-        module_path: &str,
         dependencies: &[PathBuf],
         symbol_table: &SymbolTable,
         module_exports: &HashMap<PathBuf, Vec<String>>,
         resolver: &Resolver,
     ) -> Result<TirModule> {
-        let mut ctx = Self::new(module_path.to_string());
         let body_list = ast_get_list!(py_ast, "body");
 
         let import_details = Self::extract_import_info(py_ast)?;
-        ctx.register_imports(
+        self.register_imports(
             canonical_path,
             &import_details,
             dependencies,
@@ -70,7 +69,7 @@ impl LoweringContext {
         // Phase 1: collect all function signatures
         for node in body_list.iter() {
             if ast_type_name!(node) == "FunctionDef" {
-                ctx.collect_function_signature(&node)?;
+                self.collect_function_signature(&node)?;
             }
         }
 
@@ -81,18 +80,18 @@ impl LoweringContext {
         for node in body_list.iter() {
             match ast_type_name!(node).as_str() {
                 "FunctionDef" => {
-                    let tir_func = ctx.lower_function(&node)?;
+                    let tir_func = self.lower_function(&node)?;
                     functions.insert(tir_func.name.clone(), tir_func);
                 }
                 "Import" | "ImportFrom" | "Assert" => {}
                 _ => {
-                    module_level_stmts.push(ctx.lower_stmt(&node)?);
+                    module_level_stmts.push(self.lower_stmt(&node)?);
                 }
             }
         }
 
         if !module_level_stmts.is_empty() {
-            let main_func = ctx.build_synthetic_main(module_level_stmts);
+            let main_func = self.build_synthetic_main(module_level_stmts);
             functions.insert(main_func.name.clone(), main_func);
         }
 

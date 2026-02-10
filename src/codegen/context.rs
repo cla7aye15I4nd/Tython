@@ -87,7 +87,7 @@ impl<'ctx> Codegen<'ctx> {
 
     // ── Function codegen ─────────────────────────────────────────
 
-    pub fn generate(&mut self, func: &TirFunction) -> Result<()> {
+    pub fn generate(&mut self, func: &TirFunction) {
         let param_types: Vec<Type> = func.params.iter().map(|p| p.ty.clone()).collect();
         let function = self.get_or_declare_function(&func.name, &param_types, &func.return_type);
 
@@ -100,87 +100,65 @@ impl<'ctx> Codegen<'ctx> {
             let alloca = self
                 .builder
                 .build_alloca(self.get_llvm_type(&param.ty), &param.name)
-                .map_err(|e| anyhow::anyhow!("Failed to build alloca: {:?}", e))?;
-            self.builder
-                .build_store(alloca, param_value)
-                .map_err(|e| anyhow::anyhow!("Failed to build store: {:?}", e))?;
+                .unwrap();
+            self.builder.build_store(alloca, param_value).unwrap();
             self.variables.insert(param.name.clone(), alloca);
         }
 
         for stmt in &func.body {
-            self.codegen_stmt(stmt)
-                .with_context(|| format!("In function '{}'", func.name))?;
+            self.codegen_stmt(stmt);
         }
 
         if func.return_type == Type::Unit {
-            self.builder
-                .build_return(None)
-                .map_err(|e| anyhow::anyhow!("Failed to build return: {:?}", e))?;
+            self.builder.build_return(None).unwrap();
         }
-
-        Ok(())
     }
 
-    fn codegen_stmt(&mut self, stmt: &TirStmt) -> Result<()> {
+    fn codegen_stmt(&mut self, stmt: &TirStmt) {
         match stmt {
             TirStmt::Let { name, ty, value } => {
-                let value_llvm = self.codegen_expr(value)?;
+                let value_llvm = self.codegen_expr(value);
 
                 let alloca = self
                     .builder
                     .build_alloca(self.get_llvm_type(ty), name)
-                    .map_err(|e| anyhow::anyhow!("Failed to build alloca: {:?}", e))?;
+                    .unwrap();
 
-                self.builder
-                    .build_store(alloca, value_llvm)
-                    .map_err(|e| anyhow::anyhow!("Failed to build store: {:?}", e))?;
+                self.builder.build_store(alloca, value_llvm).unwrap();
                 self.variables.insert(name.clone(), alloca);
             }
 
             TirStmt::Return(expr_opt) => {
                 if let Some(expr) = expr_opt {
-                    let value = self.codegen_expr(expr)?;
-                    self.builder
-                        .build_return(Some(&value))
-                        .map_err(|e| anyhow::anyhow!("Failed to build return: {:?}", e))?;
+                    let value = self.codegen_expr(expr);
+                    self.builder.build_return(Some(&value)).unwrap();
                 } else {
-                    self.builder
-                        .build_return(None)
-                        .map_err(|e| anyhow::anyhow!("Failed to build return: {:?}", e))?;
+                    self.builder.build_return(None).unwrap();
                 }
             }
 
             TirStmt::Expr(expr) => {
-                self.codegen_expr(expr)?;
+                self.codegen_expr(expr);
             }
         }
-
-        Ok(())
     }
 
     // ── Expression codegen ───────────────────────────────────────
 
-    fn codegen_expr(&mut self, expr: &TirExpr) -> Result<BasicValueEnum<'ctx>> {
+    fn codegen_expr(&mut self, expr: &TirExpr) -> BasicValueEnum<'ctx> {
         match &expr.kind {
-            TirExprKind::IntLiteral(val) => {
-                Ok(self.i64_type().const_int(*val as u64, false).into())
-            }
+            TirExprKind::IntLiteral(val) => self.i64_type().const_int(*val as u64, false).into(),
 
             TirExprKind::Var(name) => {
-                let ptr = self
-                    .variables
-                    .get(name.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Undefined variable: {}", name))?;
-                let value = self
-                    .builder
-                    .build_load(self.get_llvm_type(&expr.ty), *ptr, name)
-                    .map_err(|e| anyhow::anyhow!("Failed to build load: {:?}", e))?;
-                Ok(value)
+                let ptr = self.variables[name.as_str()];
+                self.builder
+                    .build_load(self.get_llvm_type(&expr.ty), ptr, name)
+                    .unwrap()
             }
 
             TirExprKind::BinOp { op, left, right } => {
-                let left_val = self.codegen_expr(left)?;
-                let right_val = self.codegen_expr(right)?;
+                let left_val = self.codegen_expr(left);
+                let right_val = self.codegen_expr(right);
 
                 let left_int = left_val.into_int_value();
                 let right_int = right_val.into_int_value();
@@ -189,26 +167,26 @@ impl<'ctx> Codegen<'ctx> {
                     BinOpKind::Add => self
                         .builder
                         .build_int_add(left_int, right_int, "add")
-                        .map_err(|e| anyhow::anyhow!("Failed to build add: {:?}", e))?,
+                        .unwrap(),
                     BinOpKind::Sub => self
                         .builder
                         .build_int_sub(left_int, right_int, "sub")
-                        .map_err(|e| anyhow::anyhow!("Failed to build sub: {:?}", e))?,
+                        .unwrap(),
                     BinOpKind::Mul => self
                         .builder
                         .build_int_mul(left_int, right_int, "mul")
-                        .map_err(|e| anyhow::anyhow!("Failed to build mul: {:?}", e))?,
+                        .unwrap(),
                     BinOpKind::Div => self
                         .builder
                         .build_int_signed_div(left_int, right_int, "div")
-                        .map_err(|e| anyhow::anyhow!("Failed to build div: {:?}", e))?,
+                        .unwrap(),
                     BinOpKind::Mod => self
                         .builder
                         .build_int_signed_rem(left_int, right_int, "mod")
-                        .map_err(|e| anyhow::anyhow!("Failed to build mod: {:?}", e))?,
+                        .unwrap(),
                 };
 
-                Ok(result.into())
+                result.into()
             }
 
             TirExprKind::Call { func, args } => {
@@ -219,28 +197,26 @@ impl<'ctx> Codegen<'ctx> {
                 let arg_types: Vec<Type> = args.iter().map(|a| a.ty.clone()).collect();
                 let function = self.get_or_declare_function(func, &arg_types, &expr.ty);
 
-                let arg_values: Vec<BasicValueEnum> = args
-                    .iter()
-                    .map(|arg| self.codegen_expr(arg))
-                    .collect::<Result<_>>()?;
+                let arg_values: Vec<BasicValueEnum> =
+                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
 
                 let arg_metadata: Vec<_> = arg_values.iter().map(|v| (*v).into()).collect();
 
                 let call_site = self
                     .builder
                     .build_call(function, &arg_metadata, "call")
-                    .map_err(|e| anyhow::anyhow!("Failed to build call: {:?}", e))?;
+                    .unwrap();
 
                 match call_site.try_as_basic_value() {
-                    ValueKind::Basic(return_val) => Ok(return_val),
-                    ValueKind::Instruction(_) => Ok(self.i64_type().const_int(0, false).into()),
+                    ValueKind::Basic(return_val) => return_val,
+                    ValueKind::Instruction(_) => self.i64_type().const_int(0, false).into(),
                 }
             }
         }
     }
 
-    fn codegen_print_call(&mut self, arg: &TirExpr) -> Result<BasicValueEnum<'ctx>> {
-        let arg_val = self.codegen_expr(arg)?;
+    fn codegen_print_call(&mut self, arg: &TirExpr) -> BasicValueEnum<'ctx> {
+        let arg_val = self.codegen_expr(arg);
 
         let printf_type = self.context.i32_type().fn_type(
             &[self
@@ -258,7 +234,7 @@ impl<'ctx> Codegen<'ctx> {
         let format_str = self
             .builder
             .build_global_string_ptr("%lld\n", "printf_fmt")
-            .map_err(|e| anyhow::anyhow!("Failed to build format string: {:?}", e))?;
+            .unwrap();
 
         self.builder
             .build_call(
@@ -266,18 +242,15 @@ impl<'ctx> Codegen<'ctx> {
                 &[format_str.as_pointer_value().into(), arg_val.into()],
                 "printf_call",
             )
-            .map_err(|e| anyhow::anyhow!("Failed to build printf call: {:?}", e))?;
+            .unwrap();
 
-        Ok(self.i64_type().const_int(0, false).into())
+        self.i64_type().const_int(0, false).into()
     }
 
     // ── Entry-point wrapper ──────────────────────────────────────
 
-    pub fn add_c_main_wrapper(&mut self, entry_main_name: &str) -> Result<()> {
-        let entry_fn = self
-            .module
-            .get_function(entry_main_name)
-            .ok_or_else(|| anyhow::anyhow!("{} function not found", entry_main_name))?;
+    pub fn add_c_main_wrapper(&mut self, entry_main_name: &str) {
+        let entry_fn = self.module.get_function(entry_main_name).unwrap();
 
         let c_main_type = self.context.i32_type().fn_type(&[], false);
         let c_main = self.module.add_function("main", c_main_type, None);
@@ -285,13 +258,10 @@ impl<'ctx> Codegen<'ctx> {
         let entry = self.context.append_basic_block(c_main, "entry");
         self.builder.position_at_end(entry);
 
-        let result = self
-            .builder
-            .build_call(entry_fn, &[], "call_main")
-            .map_err(|e| anyhow::anyhow!("Failed to build call: {:?}", e))?;
+        let result = self.builder.build_call(entry_fn, &[], "call_main").unwrap();
         let return_val = match result.try_as_basic_value() {
             ValueKind::Basic(val) => val,
-            ValueKind::Instruction(_) => anyhow::bail!("Main function must return a value"),
+            ValueKind::Instruction(_) => panic!("Main function must return a value"),
         };
 
         let i32_result = self
@@ -301,12 +271,8 @@ impl<'ctx> Codegen<'ctx> {
                 self.context.i32_type(),
                 "cast_to_i32",
             )
-            .map_err(|e| anyhow::anyhow!("Failed to build cast: {:?}", e))?;
+            .unwrap();
 
-        self.builder
-            .build_return(Some(&i32_result))
-            .map_err(|e| anyhow::anyhow!("Failed to build return: {:?}", e))?;
-
-        Ok(())
+        self.builder.build_return(Some(&i32_result)).unwrap();
     }
 }
