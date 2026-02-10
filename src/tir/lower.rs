@@ -4,6 +4,7 @@ use pyo3::types::PyModule;
 use std::collections::HashMap;
 use std::path::Path;
 
+use super::builtin;
 use super::{
     BinOpKind, CmpOp, FunctionParam, TirExpr, TirExprKind, TirFunction, TirModule, TirStmt,
 };
@@ -102,7 +103,7 @@ impl Lowering {
                 }
                 "Import" | "ImportFrom" => {}
                 _ => {
-                    module_level_stmts.push(self.lower_stmt(&node)?);
+                    module_level_stmts.extend(self.lower_stmt(&node)?);
                 }
             }
         }
@@ -182,7 +183,7 @@ impl Lowering {
             if node_type == "Import" || node_type == "ImportFrom" {
                 continue;
             }
-            tir_body.push(self.lower_stmt(&stmt_node).with_context(|| {
+            tir_body.extend(self.lower_stmt(&stmt_node).with_context(|| {
                 format!(
                     "In function '{}' at line {}",
                     name,
@@ -216,7 +217,7 @@ impl Lowering {
         }
     }
 
-    fn lower_stmt(&mut self, node: &Bound<PyAny>) -> Result<TirStmt> {
+    fn lower_stmt(&mut self, node: &Bound<PyAny>) -> Result<Vec<TirStmt>> {
         let node_type = ast_type_name!(node);
         let line = Self::get_line(node);
 
@@ -255,11 +256,11 @@ impl Lowering {
                 let var_type = annotated_ty.unwrap_or_else(|| tir_value.ty.clone());
                 self.declare(target.clone(), var_type.clone());
 
-                Ok(TirStmt::Let {
+                Ok(vec![TirStmt::Let {
                     name: target,
                     ty: var_type,
                     value: tir_value,
-                })
+                }])
             }
 
             "Assign" => {
@@ -282,11 +283,11 @@ impl Lowering {
                 let var_type = tir_value.ty.clone();
                 self.declare(target.clone(), var_type.clone());
 
-                Ok(TirStmt::Let {
+                Ok(vec![TirStmt::Let {
                     name: target,
                     ty: var_type,
                     value: tir_value,
-                })
+                }])
             }
 
             "Return" => {
@@ -301,7 +302,7 @@ impl Lowering {
                             );
                         }
                     }
-                    Ok(TirStmt::Return(None))
+                    Ok(vec![TirStmt::Return(None)])
                 } else {
                     let tir_expr = self.lower_expr(&value_node)?;
                     if let Some(ref expected) = self.current_return_type {
@@ -314,13 +315,24 @@ impl Lowering {
                             );
                         }
                     }
-                    Ok(TirStmt::Return(Some(tir_expr)))
+                    Ok(vec![TirStmt::Return(Some(tir_expr))])
                 }
             }
 
             "Expr" => {
                 let value_node = ast_getattr!(node, "value");
-                Ok(TirStmt::Expr(self.lower_expr(&value_node)?))
+
+                // Detect print() calls and expand to value-print + newline statements
+                if ast_type_name!(value_node) == "Call" {
+                    let func_node = ast_getattr!(value_node, "func");
+                    if ast_type_name!(func_node) == "Name"
+                        && ast_get_string!(func_node, "id") == "print"
+                    {
+                        return self.lower_print_stmt(&value_node, line);
+                    }
+                }
+
+                Ok(vec![TirStmt::Expr(self.lower_expr(&value_node)?)])
             }
 
             "If" => {
@@ -331,7 +343,7 @@ impl Lowering {
                 self.push_scope();
                 let mut then_body = Vec::new();
                 for stmt_node in body_list.iter() {
-                    then_body.push(self.lower_stmt(&stmt_node)?);
+                    then_body.extend(self.lower_stmt(&stmt_node)?);
                 }
                 self.pop_scope();
 
@@ -339,15 +351,15 @@ impl Lowering {
                 self.push_scope();
                 let mut else_body = Vec::new();
                 for stmt_node in orelse_list.iter() {
-                    else_body.push(self.lower_stmt(&stmt_node)?);
+                    else_body.extend(self.lower_stmt(&stmt_node)?);
                 }
                 self.pop_scope();
 
-                Ok(TirStmt::If {
+                Ok(vec![TirStmt::If {
                     condition,
                     then_body,
                     else_body,
-                })
+                }])
             }
 
             "While" => {
@@ -358,17 +370,30 @@ impl Lowering {
                 self.push_scope();
                 let mut body = Vec::new();
                 for stmt_node in body_list.iter() {
-                    body.push(self.lower_stmt(&stmt_node)?);
+                    body.extend(self.lower_stmt(&stmt_node)?);
                 }
                 self.pop_scope();
 
-                Ok(TirStmt::While { condition, body })
+                Ok(vec![TirStmt::While { condition, body }])
             }
 
             "Assert" => {
                 let test_node = ast_getattr!(node, "test");
                 let condition = self.lower_expr(&test_node)?;
-                Ok(TirStmt::Assert(condition))
+                let bool_condition = TirExpr {
+                    kind: TirExprKind::Cast {
+                        target: Type::Bool,
+                        arg: Box::new(condition),
+                    },
+                    ty: Type::Bool,
+                };
+                Ok(vec![TirStmt::Expr(TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::Assert,
+                        args: vec![bool_condition],
+                    },
+                    ty: Type::Unit,
+                })])
             }
 
             _ => bail!("Unsupported statement type: {} at line {}", node_type, line),
@@ -498,6 +523,55 @@ impl Lowering {
         }
     }
 
+    fn lower_print_stmt(&mut self, call_node: &Bound<PyAny>, _line: usize) -> Result<Vec<TirStmt>> {
+        let args_list = ast_get_list!(call_node, "args");
+
+        let mut tir_args = Vec::new();
+        for arg in args_list.iter() {
+            tir_args.push(self.lower_expr(&arg)?);
+        }
+
+        if tir_args.is_empty() {
+            return Ok(vec![TirStmt::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::PrintNewline,
+                    args: vec![],
+                },
+                ty: Type::Unit,
+            })]);
+        }
+
+        let mut stmts = Vec::new();
+        for (i, arg) in tir_args.into_iter().enumerate() {
+            if i > 0 {
+                stmts.push(TirStmt::Expr(TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::PrintSpace,
+                        args: vec![],
+                    },
+                    ty: Type::Unit,
+                }));
+            }
+            let print_fn = builtin::resolve_print(&arg.ty);
+            stmts.push(TirStmt::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: print_fn,
+                    args: vec![arg],
+                },
+                ty: Type::Unit,
+            }));
+        }
+        stmts.push(TirStmt::Expr(TirExpr {
+            kind: TirExprKind::ExternalCall {
+                func: builtin::BuiltinFn::PrintNewline,
+                args: vec![],
+            },
+            ty: Type::Unit,
+        }));
+
+        Ok(stmts)
+    }
+
     fn lower_call(&mut self, node: &Bound<PyAny>, line: usize, col: usize) -> Result<TirExpr> {
         let func_node = ast_getattr!(node, "func");
         let args_list = ast_get_list!(node, "args");
@@ -513,13 +587,7 @@ impl Lowering {
                 let func_name = ast_get_string!(func_node, "id");
 
                 if func_name == "print" {
-                    return Ok(TirExpr {
-                        kind: TirExprKind::Call {
-                            func: "print".to_string(),
-                            args: tir_args,
-                        },
-                        ty: Type::Unit,
-                    });
+                    bail!("print() at line {} can only be used as a statement", line);
                 }
 
                 if func_name == "int" || func_name == "float" || func_name == "bool" {
@@ -531,41 +599,35 @@ impl Lowering {
                             tir_args.len()
                         );
                     }
-                    let arg_ty = &tir_args[0].ty;
+                    let arg = tir_args.remove(0);
                     let target_ty = match func_name.as_str() {
                         "int" => {
-                            if *arg_ty != Type::Int
-                                && *arg_ty != Type::Float
-                                && *arg_ty != Type::Bool
+                            if arg.ty != Type::Int && arg.ty != Type::Float && arg.ty != Type::Bool
                             {
-                                bail!("int() at line {} cannot convert {:?}", line, arg_ty);
+                                bail!("int() at line {} cannot convert {:?}", line, arg.ty);
                             }
                             Type::Int
                         }
                         "float" => {
-                            if *arg_ty != Type::Int
-                                && *arg_ty != Type::Float
-                                && *arg_ty != Type::Bool
+                            if arg.ty != Type::Int && arg.ty != Type::Float && arg.ty != Type::Bool
                             {
-                                bail!("float() at line {} cannot convert {:?}", line, arg_ty);
+                                bail!("float() at line {} cannot convert {:?}", line, arg.ty);
                             }
                             Type::Float
                         }
                         "bool" => {
-                            if *arg_ty != Type::Int
-                                && *arg_ty != Type::Float
-                                && *arg_ty != Type::Bool
+                            if arg.ty != Type::Int && arg.ty != Type::Float && arg.ty != Type::Bool
                             {
-                                bail!("bool() at line {} cannot convert {:?}", line, arg_ty);
+                                bail!("bool() at line {} cannot convert {:?}", line, arg.ty);
                             }
                             Type::Bool
                         }
                         _ => unreachable!(),
                     };
                     return Ok(TirExpr {
-                        kind: TirExprKind::Call {
-                            func: func_name,
-                            args: tir_args,
+                        kind: TirExprKind::Cast {
+                            target: target_ty.clone(),
+                            arg: Box::new(arg),
                         },
                         ty: target_ty,
                     });

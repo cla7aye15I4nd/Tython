@@ -1,3 +1,4 @@
+pub mod builtin;
 pub mod lower;
 
 use crate::ast::Type;
@@ -65,7 +66,6 @@ pub enum TirStmt {
         condition: TirExpr,
         body: Vec<TirStmt>,
     },
-    Assert(TirExpr),
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +87,14 @@ pub enum TirExprKind {
     Call {
         func: String,
         args: Vec<TirExpr>,
+    },
+    ExternalCall {
+        func: builtin::BuiltinFn,
+        args: Vec<TirExpr>,
+    },
+    Cast {
+        target: Type,
+        arg: Box<TirExpr>,
     },
     Compare {
         op: CmpOp,

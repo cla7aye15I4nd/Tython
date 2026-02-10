@@ -1,9 +1,10 @@
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
+use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, FloatType, IntType};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue, ValueKind};
-use inkwell::{FloatPredicate, IntPredicate};
+use inkwell::{FloatPredicate, IntPredicate, OptimizationLevel};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -20,7 +21,26 @@ pub struct Codegen<'ctx> {
 
 impl<'ctx> Codegen<'ctx> {
     pub fn new(context: &'ctx Context) -> Self {
+        Target::initialize_native(&InitializationConfig::default())
+            .expect("Failed to initialize native target");
+
+        let triple = TargetMachine::get_default_triple();
+        let target = Target::from_triple(&triple).unwrap();
+        let target_machine = target
+            .create_target_machine(
+                &triple,
+                "",
+                "",
+                OptimizationLevel::Default,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .expect("Failed to create target machine");
+
         let module = context.create_module("__main__");
+        module.set_triple(&triple);
+        module.set_data_layout(&target_machine.get_target_data().get_data_layout());
+
         let builder = context.create_builder();
         Self {
             context,
@@ -30,16 +50,20 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
+    const RUNTIME_BC: &'static str = env!("RUNTIME_BC_PATH");
+
     pub fn link(&self, output_path: &Path) {
-        let bc_path = output_path.with_extension("bc");
+        let bc_path = output_path.with_extension("o");
 
         self.module.write_bitcode_to_path(&bc_path);
 
         Command::new("clang")
+            .arg("-flto")
             .arg("-O2")
             .arg("-o")
             .arg(output_path)
             .arg(&bc_path)
+            .arg(Self::RUNTIME_BC)
             .output()
             .unwrap();
     }
@@ -272,36 +296,6 @@ impl<'ctx> Codegen<'ctx> {
 
                 self.builder.position_at_end(after_bb);
             }
-
-            TirStmt::Assert(condition) => {
-                let cond_val = self.codegen_expr(condition);
-                let cond_bool =
-                    self.build_truthiness_check_for_value(cond_val, &condition.ty, "assertcond");
-
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
-
-                let fail_bb = self.context.append_basic_block(function, "assert.fail");
-                let pass_bb = self.context.append_basic_block(function, "assert.pass");
-
-                self.builder
-                    .build_conditional_branch(cond_bool, pass_bb, fail_bb)
-                    .unwrap();
-
-                self.builder.position_at_end(fail_bb);
-                let abort_fn = self.module.get_function("abort").unwrap_or_else(|| {
-                    let abort_type = self.context.void_type().fn_type(&[], false);
-                    self.module.add_function("abort", abort_type, None)
-                });
-                self.builder.build_call(abort_fn, &[], "").unwrap();
-                self.builder.build_unreachable().unwrap();
-
-                self.builder.position_at_end(pass_bb);
-            }
         }
     }
 
@@ -380,14 +374,6 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirExprKind::Call { func, args } => {
-                if func == "print" {
-                    return self.codegen_print_call(&args[0]);
-                }
-
-                if func == "int" || func == "float" || func == "bool" {
-                    return self.codegen_cast_call(func, &args[0], &expr.ty);
-                }
-
                 let arg_types: Vec<Type> = args.iter().map(|a| a.ty.clone()).collect();
                 let function = self.get_or_declare_function(func, &arg_types, &expr.ty);
 
@@ -404,6 +390,83 @@ impl<'ctx> Codegen<'ctx> {
                 match call_site.try_as_basic_value() {
                     ValueKind::Basic(return_val) => return_val,
                     ValueKind::Instruction(_) => self.i64_type().const_int(0, false).into(),
+                }
+            }
+
+            TirExprKind::ExternalCall { func, args } => {
+                let function = self.get_or_declare_function(
+                    func.symbol(),
+                    &func.param_types(),
+                    &func.return_type(),
+                );
+
+                let arg_values: Vec<BasicValueEnum> =
+                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
+                let arg_metadata: Vec<_> = arg_values.iter().map(|v| (*v).into()).collect();
+
+                self.builder
+                    .build_call(function, &arg_metadata, "")
+                    .unwrap();
+
+                self.i64_type().const_int(0, false).into()
+            }
+
+            TirExprKind::Cast { target, arg } => {
+                let arg_val = self.codegen_expr(arg);
+                match (&arg.ty, target) {
+                    (Type::Int, Type::Int)
+                    | (Type::Float, Type::Float)
+                    | (Type::Bool, Type::Bool)
+                    | (Type::Bool, Type::Int) => arg_val,
+
+                    (Type::Float, Type::Int) => self
+                        .builder
+                        .build_float_to_signed_int(
+                            arg_val.into_float_value(),
+                            self.i64_type(),
+                            "ftoi",
+                        )
+                        .unwrap()
+                        .into(),
+
+                    (Type::Int, Type::Float) => self
+                        .builder
+                        .build_signed_int_to_float(
+                            arg_val.into_int_value(),
+                            self.f64_type(),
+                            "itof",
+                        )
+                        .unwrap()
+                        .into(),
+
+                    (Type::Bool, Type::Float) => self
+                        .builder
+                        .build_signed_int_to_float(
+                            arg_val.into_int_value(),
+                            self.f64_type(),
+                            "btof",
+                        )
+                        .unwrap()
+                        .into(),
+
+                    (Type::Int, Type::Bool) => {
+                        let cmp = self.build_int_truthiness_check(arg_val.into_int_value(), "itob");
+                        self.builder
+                            .build_int_z_extend(cmp, self.i64_type(), "zext_bool")
+                            .unwrap()
+                            .into()
+                    }
+
+                    (Type::Float, Type::Bool) => {
+                        let cmp =
+                            self.build_float_truthiness_check(arg_val.into_float_value(), "ftob");
+                        self.builder
+                            .build_int_z_extend(cmp, self.i64_type(), "zext_bool")
+                            .unwrap()
+                            .into()
+                    }
+
+                    _ => panic!("Unsupported cast: {:?} -> {:?}", arg.ty, target),
                 }
             }
 
@@ -452,100 +515,6 @@ impl<'ctx> Codegen<'ctx> {
                     .unwrap()
                     .into()
             }
-        }
-    }
-
-    fn codegen_print_call(&mut self, arg: &TirExpr) -> BasicValueEnum<'ctx> {
-        let arg_val = self.codegen_expr(arg);
-
-        let printf_type = self.context.i32_type().fn_type(
-            &[self
-                .context
-                .ptr_type(inkwell::AddressSpace::default())
-                .into()],
-            true,
-        );
-
-        let printf = self
-            .module
-            .get_function("printf")
-            .unwrap_or_else(|| self.module.add_function("printf", printf_type, None));
-
-        let fmt = match arg.ty {
-            Type::Float => "%g\n",
-            _ => "%lld\n",
-        };
-
-        let format_str = self
-            .builder
-            .build_global_string_ptr(fmt, "printf_fmt")
-            .unwrap();
-
-        self.builder
-            .build_call(
-                printf,
-                &[format_str.as_pointer_value().into(), arg_val.into()],
-                "printf_call",
-            )
-            .unwrap();
-
-        self.i64_type().const_int(0, false).into()
-    }
-
-    fn codegen_cast_call(
-        &mut self,
-        func: &str,
-        arg: &TirExpr,
-        target_ty: &Type,
-    ) -> BasicValueEnum<'ctx> {
-        let arg_val = self.codegen_expr(arg);
-
-        match (func, &arg.ty, target_ty) {
-            // Identity casts
-            ("int", Type::Int, _) => arg_val,
-            ("float", Type::Float, _) => arg_val,
-            ("bool", Type::Bool, _) => arg_val,
-
-            // int() conversions
-            ("int", Type::Float, _) => self
-                .builder
-                .build_float_to_signed_int(arg_val.into_float_value(), self.i64_type(), "ftoi")
-                .unwrap()
-                .into(),
-            ("int", Type::Bool, _) => arg_val, // bool is already i64
-
-            // float() conversions
-            ("float", Type::Int, _) => self
-                .builder
-                .build_signed_int_to_float(arg_val.into_int_value(), self.f64_type(), "itof")
-                .unwrap()
-                .into(),
-            ("float", Type::Bool, _) => self
-                .builder
-                .build_signed_int_to_float(arg_val.into_int_value(), self.f64_type(), "btof")
-                .unwrap()
-                .into(),
-
-            // bool() conversions
-            ("bool", Type::Int, _) => {
-                let cmp = self.build_int_truthiness_check(arg_val.into_int_value(), "itob");
-                self.builder
-                    .build_int_z_extend(cmp, self.i64_type(), "zext_bool")
-                    .unwrap()
-                    .into()
-            }
-            ("bool", Type::Float, _) => {
-                let cmp = self.build_float_truthiness_check(arg_val.into_float_value(), "ftob");
-                self.builder
-                    .build_int_z_extend(cmp, self.i64_type(), "zext_bool")
-                    .unwrap()
-                    .into()
-            }
-
-            _ => panic!(
-                "Unsupported cast: {}({:?}) -> {:?}",
-                func, arg.ty, target_ty
-            ),
         }
     }
 
