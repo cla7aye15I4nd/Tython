@@ -83,6 +83,10 @@ impl Compiler {
                     let module_path = self.resolver.compute_module_path(&path);
                     let tir = lowering.lower_module(&path, &module_path, &imports)?;
 
+                    for class_info in tir.classes.values() {
+                        codegen.register_class(class_info);
+                    }
+
                     for func in tir.functions.values() {
                         codegen.generate(func);
                     }

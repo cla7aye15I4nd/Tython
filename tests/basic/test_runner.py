@@ -21,6 +21,7 @@ from . import test_builtins
 from . import test_float_cmp
 from . import test_casting
 import basic.test_truthiness as test_truthiness
+import basic.test_class as test_class
 
 
 def run_all_tests() -> None:
@@ -47,3 +48,4 @@ def run_all_tests() -> None:
     test_float_cmp.run_tests()
     test_casting.run_tests()
     test_truthiness.run_tests()
+    test_class.run_tests()

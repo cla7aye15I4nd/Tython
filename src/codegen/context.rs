@@ -2,13 +2,14 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
-use inkwell::types::{BasicMetadataTypeEnum, BasicType, FloatType, IntType};
+use inkwell::types::{BasicMetadataTypeEnum, BasicType, FloatType, IntType, StructType};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue, ValueKind};
-use inkwell::{FloatPredicate, IntPredicate, OptimizationLevel};
+use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
+use crate::ast::ClassInfo;
 use crate::tir::{
     ArithBinOp, BitwiseBinOp, CallTarget, CastKind, CmpOp, LogicalOp, TirExpr, TirExprKind,
     TirFunction, TirStmt, TypedBinOp, UnaryOpKind, ValueType,
@@ -23,6 +24,7 @@ pub struct Codegen<'ctx> {
         inkwell::basic_block::BasicBlock<'ctx>,
         inkwell::basic_block::BasicBlock<'ctx>,
     )>,
+    class_types: HashMap<String, StructType<'ctx>>,
 }
 
 impl<'ctx> Codegen<'ctx> {
@@ -54,6 +56,7 @@ impl<'ctx> Codegen<'ctx> {
             builder,
             variables: HashMap::new(),
             loop_stack: Vec::new(),
+            class_types: HashMap::new(),
         }
     }
 
@@ -76,10 +79,32 @@ impl<'ctx> Codegen<'ctx> {
             .unwrap();
     }
 
+    // ── class registration ────────────────────────────────────────────
+
+    pub fn register_class(&mut self, class_info: &ClassInfo) {
+        let field_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> = class_info
+            .fields
+            .iter()
+            .map(|f| {
+                let vty = ValueType::from_type(&f.ty).expect("ICE: class field has non-value type");
+                self.get_llvm_type(&vty)
+            })
+            .collect();
+
+        let struct_type = self.context.opaque_struct_type(&class_info.name);
+        struct_type.set_body(&field_types, false);
+
+        self.class_types
+            .insert(class_info.name.clone(), struct_type);
+    }
+
+    // ── type helpers ──────────────────────────────────────────────────
+
     fn get_llvm_type(&self, ty: &ValueType) -> inkwell::types::BasicTypeEnum<'ctx> {
         match ty {
             ValueType::Int | ValueType::Bool => self.context.i64_type().into(),
             ValueType::Float => self.context.f64_type().into(),
+            ValueType::Class(_) => self.context.ptr_type(AddressSpace::default()).into(),
         }
     }
 
@@ -172,16 +197,28 @@ impl<'ctx> Codegen<'ctx> {
 
             let fn_type = match return_type {
                 None => self.context.void_type().fn_type(&llvm_params, false),
-                Some(ty) => self.get_llvm_type(&ty).fn_type(&llvm_params, false),
+                Some(ref ty) => self.get_llvm_type(ty).fn_type(&llvm_params, false),
             };
 
             self.module.add_function(name, fn_type, None)
         })
     }
 
+    fn get_or_declare_malloc(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_malloc")
+            .unwrap_or_else(|| {
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[i64_type.into()], false);
+                self.module.add_function("__tython_malloc", fn_type, None)
+            })
+    }
+
     pub fn generate(&mut self, func: &TirFunction) {
-        let param_types: Vec<ValueType> = func.params.iter().map(|p| p.ty).collect();
-        let function = self.get_or_declare_function(&func.name, &param_types, func.return_type);
+        let param_types: Vec<ValueType> = func.params.iter().map(|p| p.ty.clone()).collect();
+        let function =
+            self.get_or_declare_function(&func.name, &param_types, func.return_type.clone());
 
         let entry_bb = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_bb);
@@ -250,7 +287,7 @@ impl<'ctx> Codegen<'ctx> {
 
                 match target {
                     CallTarget::Named(func_name) => {
-                        let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty).collect();
+                        let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty.clone()).collect();
                         let function = self.get_or_declare_function(func_name, &arg_types, None);
                         self.builder
                             .build_call(function, &arg_metadata, "void_call")
@@ -266,7 +303,47 @@ impl<'ctx> Codegen<'ctx> {
                             .build_call(function, &arg_metadata, "void_ext_call")
                             .unwrap();
                     }
+                    CallTarget::MethodCall {
+                        mangled_name,
+                        object,
+                    } => {
+                        let self_val = self.codegen_expr(object);
+                        let mut all_meta: Vec<inkwell::values::BasicMetadataValueEnum> =
+                            vec![self_val.into()];
+                        all_meta.extend(arg_metadata);
+
+                        let mut param_types = vec![object.ty.clone()];
+                        param_types.extend(args.iter().map(|a| a.ty.clone()));
+
+                        let function =
+                            self.get_or_declare_function(mangled_name, &param_types, None);
+                        self.builder
+                            .build_call(function, &all_meta, "void_method_call")
+                            .unwrap();
+                    }
                 }
+            }
+
+            TirStmt::SetField {
+                object,
+                field_name: _,
+                field_index,
+                value,
+            } => {
+                let obj_ptr = self.codegen_expr(object).into_pointer_value();
+                let class_name = match &object.ty {
+                    ValueType::Class(name) => name,
+                    _ => unreachable!("ICE: SetField on non-class type"),
+                };
+                let struct_type = self.class_types[class_name];
+
+                let field_ptr = self
+                    .builder
+                    .build_struct_gep(struct_type, obj_ptr, *field_index as u32, "field_ptr")
+                    .unwrap();
+
+                let val = self.codegen_expr(value);
+                self.builder.build_store(field_ptr, val).unwrap();
             }
 
             TirStmt::If {
@@ -582,8 +659,9 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirExprKind::Call { func, args } => {
-                let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty).collect();
-                let function = self.get_or_declare_function(func, &arg_types, Some(expr.ty));
+                let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty.clone()).collect();
+                let function =
+                    self.get_or_declare_function(func, &arg_types, Some(expr.ty.clone()));
 
                 let arg_values: Vec<BasicValueEnum> =
                     args.iter().map(|arg| self.codegen_expr(arg)).collect();
@@ -804,6 +882,107 @@ impl<'ctx> Codegen<'ctx> {
                 phi.add_incoming(&[(&left_val, left_bb), (&right_val, right_end_bb)]);
 
                 phi.as_basic_value()
+            }
+
+            // ── class expressions ────────────────────────────────────
+            TirExprKind::Construct {
+                class_name,
+                init_mangled_name,
+                args,
+            } => {
+                let struct_type = self.class_types[class_name.as_str()];
+
+                // Allocate heap memory for the struct
+                let size = struct_type.size_of().unwrap();
+                let size_i64 = self
+                    .builder
+                    .build_int_cast(size, self.i64_type(), "size_i64")
+                    .unwrap();
+                let malloc_fn = self.get_or_declare_malloc();
+                let call_site = self
+                    .builder
+                    .build_call(malloc_fn, &[size_i64.into()], "malloc")
+                    .unwrap();
+                let ptr = self.extract_call_value(call_site).into_pointer_value();
+
+                // Codegen __init__ args
+                let arg_values: Vec<BasicValueEnum> =
+                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
+
+                // Build full arg list: [self_ptr, ...args]
+                let mut init_args: Vec<inkwell::values::BasicMetadataValueEnum> = vec![ptr.into()];
+                for v in &arg_values {
+                    init_args.push((*v).into());
+                }
+
+                // Declare/get __init__ function
+                let mut param_types = vec![ValueType::Class(class_name.clone())];
+                param_types.extend(args.iter().map(|a| a.ty.clone()));
+                let init_fn = self.get_or_declare_function(init_mangled_name, &param_types, None);
+
+                self.builder
+                    .build_call(init_fn, &init_args, "init")
+                    .unwrap();
+
+                ptr.into()
+            }
+
+            TirExprKind::GetField {
+                object,
+                field_name: _,
+                field_index,
+            } => {
+                let obj_ptr = self.codegen_expr(object).into_pointer_value();
+                let class_name = match &object.ty {
+                    ValueType::Class(name) => name,
+                    _ => unreachable!("ICE: GetField on non-class type"),
+                };
+                let struct_type = self.class_types[class_name.as_str()];
+
+                let field_ptr = self
+                    .builder
+                    .build_struct_gep(struct_type, obj_ptr, *field_index as u32, "field_ptr")
+                    .unwrap();
+
+                let field_llvm_type = self.get_llvm_type(&expr.ty);
+                self.builder
+                    .build_load(field_llvm_type, field_ptr, "field_val")
+                    .unwrap()
+            }
+
+            TirExprKind::MethodCall {
+                object,
+                method_mangled_name,
+                args,
+            } => {
+                let self_val = self.codegen_expr(object);
+
+                // Codegen method args
+                let arg_values: Vec<BasicValueEnum> =
+                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
+
+                // Build full arg list: [self, ...args]
+                let mut all_meta: Vec<inkwell::values::BasicMetadataValueEnum> =
+                    vec![self_val.into()];
+                for v in &arg_values {
+                    all_meta.push((*v).into());
+                }
+
+                // Declare/get method function
+                let mut param_types = vec![object.ty.clone()];
+                param_types.extend(args.iter().map(|a| a.ty.clone()));
+                let method_fn = self.get_or_declare_function(
+                    method_mangled_name,
+                    &param_types,
+                    Some(expr.ty.clone()),
+                );
+
+                let call_site = self
+                    .builder
+                    .build_call(method_fn, &all_meta, "method_call")
+                    .unwrap();
+
+                self.extract_call_value(call_site)
             }
         }
     }

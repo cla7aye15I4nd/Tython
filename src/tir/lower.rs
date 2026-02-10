@@ -9,7 +9,7 @@ use super::{
     ArithBinOp, BitwiseBinOp, CallResult, CallTarget, CastKind, CmpOp, FunctionParam, LogicalOp,
     TirExpr, TirExprKind, TirFunction, TirModule, TirStmt, TypedBinOp, UnaryOpKind, ValueType,
 };
-use crate::ast::Type;
+use crate::ast::{ClassField, ClassInfo, ClassMethod, Type};
 use crate::errors::{ErrorCategory, TythonError};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -22,6 +22,9 @@ pub struct Lowering {
     current_file: String,
     source_lines: Vec<String>,
     current_function_name: Option<String>,
+
+    class_registry: HashMap<String, ClassInfo>,
+    current_class: Option<String>,
 }
 
 impl Default for Lowering {
@@ -40,6 +43,8 @@ impl Lowering {
             current_file: String::new(),
             source_lines: Vec::new(),
             current_function_name: None,
+            class_registry: HashMap::new(),
+            current_class: None,
         }
     }
 
@@ -73,6 +78,10 @@ impl Lowering {
         self.make_error(ErrorCategory::ValueError, line, msg.into())
     }
 
+    fn attribute_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
+        self.make_error(ErrorCategory::AttributeError, line, msg.into())
+    }
+
     // ── scope helpers ──────────────────────────────────────────────────
 
     fn push_scope(&mut self) {
@@ -99,7 +108,7 @@ impl Lowering {
     // ── helpers: Type → ValueType conversion ────────────────────────
 
     fn to_value_type(ty: &Type) -> ValueType {
-        ValueType::from_type(ty).expect("ICE: expected a value type (Int/Float/Bool)")
+        ValueType::from_type(ty).expect("ICE: expected a value type")
     }
 
     fn to_opt_value_type(ty: &Type) -> Option<ValueType> {
@@ -144,17 +153,56 @@ impl Lowering {
     fn lower_py_ast(&mut self, py_ast: &Bound<PyAny>) -> Result<TirModule> {
         let body_list = ast_get_list!(py_ast, "body");
 
+        // Pass 1: Collect class definitions (two sub-phases for cross-referencing)
+        // Phase 1a: Register all class names (with module-qualified names)
+        for node in body_list.iter() {
+            if ast_type_name!(node) == "ClassDef" {
+                let raw_name = ast_get_string!(node, "name");
+                let qualified = format!("{}${}", self.current_module_name, raw_name);
+                self.class_registry.insert(
+                    qualified.clone(),
+                    ClassInfo {
+                        name: qualified.clone(),
+                        fields: Vec::new(),
+                        methods: HashMap::new(),
+                        field_map: HashMap::new(),
+                    },
+                );
+                self.declare(raw_name, Type::Class(qualified));
+            }
+        }
+        // Phase 1b: Fill in fields and methods
+        for node in body_list.iter() {
+            if ast_type_name!(node) == "ClassDef" {
+                let raw_name = ast_get_string!(node, "name");
+                let qualified = format!("{}${}", self.current_module_name, raw_name);
+                self.collect_class_definition(&node, &qualified)?;
+            }
+        }
+
+        // Pass 2: Collect function signatures
         for node in body_list.iter() {
             if ast_type_name!(node) == "FunctionDef" {
                 self.collect_function_signature(&node)?;
             }
         }
 
+        // Pass 3: Lower everything
         let mut functions = HashMap::new();
         let mut module_level_stmts = Vec::new();
+        let mut classes = HashMap::new();
 
         for node in body_list.iter() {
             match ast_type_name!(node).as_str() {
+                "ClassDef" => {
+                    let raw_name = ast_get_string!(node, "name");
+                    let qualified = format!("{}${}", self.current_module_name, raw_name);
+                    let (class_info, class_functions) = self.lower_class_def(&node, &qualified)?;
+                    for func in class_functions {
+                        functions.insert(func.name.clone(), func);
+                    }
+                    classes.insert(class_info.name.clone(), class_info);
+                }
                 "FunctionDef" => {
                     let tir_func = self.lower_function(&node)?;
                     functions.insert(tir_func.name.clone(), tir_func);
@@ -176,6 +224,7 @@ impl Lowering {
                 params: func.params.iter().map(|p| p.ty.to_type()).collect(),
                 return_type: Box::new(
                     func.return_type
+                        .as_ref()
                         .map(|vt| vt.to_type())
                         .unwrap_or(Type::Unit),
                 ),
@@ -183,8 +232,203 @@ impl Lowering {
             self.symbol_table.insert(func.name.clone(), func_type);
         }
 
-        Ok(TirModule { functions })
+        Ok(TirModule { functions, classes })
     }
+
+    // ── class lowering ────────────────────────────────────────────────
+
+    fn collect_class_definition(
+        &mut self,
+        node: &Bound<PyAny>,
+        qualified_name: &str,
+    ) -> Result<()> {
+        let line = Self::get_line(node);
+
+        let bases_list = ast_get_list!(node, "bases");
+        if !bases_list.is_empty() {
+            return Err(self.syntax_error(line, "class inheritance is not supported"));
+        }
+
+        let body_list = ast_get_list!(node, "body");
+        let mut fields = Vec::new();
+        let mut field_map = HashMap::new();
+        let mut methods = HashMap::new();
+        let mut index = 0;
+
+        for item in body_list.iter() {
+            match ast_type_name!(item).as_str() {
+                "AnnAssign" => {
+                    let target_node = ast_getattr!(item, "target");
+                    let field_name = ast_get_string!(target_node, "id");
+                    let annotation = ast_getattr!(item, "annotation");
+                    let field_ty = self.convert_type_annotation(&annotation)?;
+
+                    fields.push(ClassField {
+                        name: field_name.clone(),
+                        ty: field_ty,
+                        index,
+                    });
+                    field_map.insert(field_name, index);
+                    index += 1;
+                }
+                "FunctionDef" => {
+                    let method_name = ast_get_string!(item, "name");
+                    let method_line = Self::get_line(&item);
+                    let args_node = ast_getattr!(item, "args");
+                    let py_args = ast_get_list!(&args_node, "args");
+
+                    if py_args.is_empty() {
+                        return Err(self.syntax_error(
+                            method_line,
+                            format!(
+                                "method `{}` must have `self` as first parameter",
+                                method_name
+                            ),
+                        ));
+                    }
+                    let first_arg = py_args.get_item(0)?;
+                    let first_name = ast_get_string!(first_arg, "arg");
+                    if first_name != "self" {
+                        return Err(self.syntax_error(
+                            method_line,
+                            format!("first parameter of method `{}` must be `self`", method_name),
+                        ));
+                    }
+
+                    let mut param_types = Vec::new();
+                    for i in 1..py_args.len() {
+                        let arg = py_args.get_item(i)?;
+                        let p_name = ast_get_string!(arg, "arg");
+                        let annotation = ast_getattr!(arg, "annotation");
+                        if annotation.is_none() {
+                            return Err(self.syntax_error(
+                                method_line,
+                                format!("parameter `{}` requires a type annotation", p_name),
+                            ));
+                        }
+                        param_types.push(self.convert_type_annotation(&annotation)?);
+                    }
+
+                    let return_type = self.convert_return_type(&item)?;
+                    let mangled_name = format!("{}${}", qualified_name, method_name);
+
+                    if method_name == "__init__" && return_type != Type::Unit {
+                        return Err(self.type_error(
+                            method_line,
+                            format!("__init__ must return None, got `{}`", return_type),
+                        ));
+                    }
+
+                    methods.insert(
+                        method_name.clone(),
+                        ClassMethod {
+                            name: method_name,
+                            params: param_types,
+                            return_type,
+                            mangled_name,
+                        },
+                    );
+                }
+                "Pass" => {}
+                _ => {
+                    return Err(self.syntax_error(
+                        Self::get_line(&item),
+                        "only field declarations and method definitions are allowed in class body",
+                    ));
+                }
+            }
+        }
+
+        let class_info = ClassInfo {
+            name: qualified_name.to_string(),
+            fields,
+            methods,
+            field_map,
+        };
+
+        self.class_registry
+            .insert(qualified_name.to_string(), class_info);
+        Ok(())
+    }
+
+    fn lower_class_def(
+        &mut self,
+        node: &Bound<PyAny>,
+        qualified_name: &str,
+    ) -> Result<(ClassInfo, Vec<TirFunction>)> {
+        let class_info = self.class_registry.get(qualified_name).unwrap().clone();
+        let body_list = ast_get_list!(node, "body");
+
+        let mut functions = Vec::new();
+        self.current_class = Some(qualified_name.to_string());
+
+        for item in body_list.iter() {
+            if ast_type_name!(item) == "FunctionDef" {
+                let func = self.lower_method(&item, &class_info)?;
+                functions.push(func);
+            }
+        }
+
+        self.current_class = None;
+        Ok((class_info, functions))
+    }
+
+    fn lower_method(&mut self, node: &Bound<PyAny>, class_info: &ClassInfo) -> Result<TirFunction> {
+        let method_name = ast_get_string!(node, "name");
+        let method_info = &class_info.methods[&method_name];
+        let mangled_name = method_info.mangled_name.clone();
+
+        let args_node = ast_getattr!(node, "args");
+        let py_args = ast_get_list!(&args_node, "args");
+
+        let mut params = Vec::new();
+        // self parameter
+        params.push(FunctionParam::new(
+            "self".to_string(),
+            ValueType::Class(class_info.name.clone()),
+        ));
+
+        // remaining parameters
+        for i in 1..py_args.len() {
+            let arg = py_args.get_item(i)?;
+            let param_name = ast_get_string!(arg, "arg");
+            let annotation = ast_getattr!(arg, "annotation");
+            let ty = self.convert_type_annotation(&annotation)?;
+            params.push(FunctionParam::new(param_name, Self::to_value_type(&ty)));
+        }
+
+        let return_type = Self::to_opt_value_type(&method_info.return_type);
+
+        self.push_scope();
+        for param in &params {
+            self.declare(param.name.clone(), param.ty.to_type());
+        }
+        self.current_return_type = Some(method_info.return_type.clone());
+        self.current_function_name = Some(format!("{}.{}", class_info.name, method_name));
+
+        let body_list = ast_get_list!(node, "body");
+        let mut tir_body = Vec::new();
+        for stmt_node in body_list.iter() {
+            let node_type = ast_type_name!(stmt_node);
+            if node_type == "Import" || node_type == "ImportFrom" {
+                continue;
+            }
+            tir_body.extend(self.lower_stmt(&stmt_node)?);
+        }
+
+        self.pop_scope();
+        self.current_return_type = None;
+        self.current_function_name = None;
+
+        Ok(TirFunction {
+            name: mangled_name,
+            params,
+            return_type,
+            body: tir_body,
+        })
+    }
+
+    // ── function lowering ─────────────────────────────────────────────
 
     fn collect_function_signature(&mut self, node: &Bound<PyAny>) -> Result<()> {
         let name = ast_get_string!(node, "name");
@@ -206,10 +450,10 @@ impl Lowering {
                     ),
                 ));
             }
-            param_types.push(Self::convert_type_annotation(&annotation)?);
+            param_types.push(self.convert_type_annotation(&annotation)?);
         }
 
-        let return_type = Self::convert_return_type(node)?;
+        let return_type = self.convert_return_type(node)?;
         let func_type = Type::Function {
             params: param_types,
             return_type: Box::new(return_type),
@@ -229,13 +473,12 @@ impl Lowering {
         for arg in py_args.iter() {
             let param_name = ast_get_string!(arg, "arg");
             let annotation = ast_getattr!(arg, "annotation");
-            let ty = Self::convert_type_annotation(&annotation)?;
+            let ty = self.convert_type_annotation(&annotation)?;
             let vty = Self::to_value_type(&ty);
-            // Declare in scope with full Type for type checking
             params.push(FunctionParam::new(param_name, vty));
         }
 
-        let return_type_ast = Self::convert_return_type(node)?;
+        let return_type_ast = self.convert_return_type(node)?;
         let return_type = Self::to_opt_value_type(&return_type_ast);
 
         self.push_scope();
@@ -303,7 +546,7 @@ impl Lowering {
 
                 let annotation = ast_getattr!(node, "annotation");
                 let annotated_ty = (!annotation.is_none())
-                    .then(|| Self::convert_type_annotation(&annotation))
+                    .then(|| self.convert_type_annotation(&annotation))
                     .transpose()?;
 
                 let value_node = ast_getattr!(node, "value");
@@ -341,75 +584,80 @@ impl Lowering {
                 }
 
                 let target_node = targets_list.get_item(0)?;
-                if ast_type_name!(target_node) != "Name" {
-                    return Err(
-                        self.syntax_error(line, "only simple variable assignments are supported")
-                    );
+                match ast_type_name!(target_node).as_str() {
+                    "Name" => {
+                        let target = ast_get_string!(target_node, "id");
+                        let value_node = ast_getattr!(node, "value");
+                        let tir_value = self.lower_expr(&value_node)?;
+                        let var_type = tir_value.ty.to_type();
+                        self.declare(target.clone(), var_type);
+
+                        Ok(vec![TirStmt::Let {
+                            name: target,
+                            ty: tir_value.ty.clone(),
+                            value: tir_value,
+                        }])
+                    }
+                    "Attribute" => self.lower_attribute_assign(&target_node, node, line),
+                    _ => Err(self.syntax_error(
+                        line,
+                        "only variable or attribute assignments are supported",
+                    )),
                 }
-                let target = ast_get_string!(target_node, "id");
-
-                let value_node = ast_getattr!(node, "value");
-                let tir_value = self.lower_expr(&value_node)?;
-                let var_type = tir_value.ty.to_type();
-                self.declare(target.clone(), var_type);
-
-                Ok(vec![TirStmt::Let {
-                    name: target,
-                    ty: tir_value.ty,
-                    value: tir_value,
-                }])
             }
 
             "AugAssign" => {
                 let target_node = ast_getattr!(node, "target");
-                if ast_type_name!(target_node) != "Name" {
-                    return Err(self.syntax_error(
+                match ast_type_name!(target_node).as_str() {
+                    "Name" => {
+                        let target = ast_get_string!(target_node, "id");
+
+                        let target_ty = self.lookup(&target).cloned().ok_or_else(|| {
+                            self.name_error(line, format!("undefined variable `{}`", target))
+                        })?;
+
+                        let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
+                        let value_expr = self.lower_expr(&ast_getattr!(node, "value"))?;
+
+                        if op == TypedBinOp::Arith(ArithBinOp::Div) && target_ty == Type::Int {
+                            return Err(self.type_error(
+                                line,
+                                format!("`/=` on `int` variable `{}` would change type to `float`; use `//=` for integer division", target),
+                            ));
+                        }
+
+                        let target_ref = TirExpr {
+                            kind: TirExprKind::Var(target.clone()),
+                            ty: Self::to_value_type(&target_ty),
+                        };
+
+                        let (final_left, final_right, result_ty) =
+                            self.resolve_binop_types(line, op, target_ref, value_expr)?;
+
+                        let result_vty = Self::to_value_type(&result_ty);
+                        let binop_expr = TirExpr {
+                            kind: TirExprKind::BinOp {
+                                op,
+                                left: Box::new(final_left),
+                                right: Box::new(final_right),
+                            },
+                            ty: result_vty.clone(),
+                        };
+
+                        self.declare(target.clone(), result_ty);
+
+                        Ok(vec![TirStmt::Let {
+                            name: target,
+                            ty: result_vty,
+                            value: binop_expr,
+                        }])
+                    }
+                    "Attribute" => self.lower_attribute_aug_assign(&target_node, node, line),
+                    _ => Err(self.syntax_error(
                         line,
-                        "only simple variable augmented assignments are supported",
-                    ));
+                        "only variable or attribute augmented assignments are supported",
+                    )),
                 }
-                let target = ast_get_string!(target_node, "id");
-
-                let target_ty = self.lookup(&target).cloned().ok_or_else(|| {
-                    self.name_error(line, format!("undefined variable `{}`", target))
-                })?;
-
-                let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
-                let value_expr = self.lower_expr(&ast_getattr!(node, "value"))?;
-
-                // Disallow /= on int variables (would change type)
-                if op == TypedBinOp::Arith(ArithBinOp::Div) && target_ty == Type::Int {
-                    return Err(self.type_error(
-                        line,
-                        format!("`/=` on `int` variable `{}` would change type to `float`; use `//=` for integer division", target),
-                    ));
-                }
-
-                let target_ref = TirExpr {
-                    kind: TirExprKind::Var(target.clone()),
-                    ty: Self::to_value_type(&target_ty),
-                };
-
-                let (final_left, final_right, result_ty) =
-                    self.resolve_binop_types(line, op, target_ref, value_expr)?;
-
-                let result_vty = Self::to_value_type(&result_ty);
-                let binop_expr = TirExpr {
-                    kind: TirExprKind::BinOp {
-                        op,
-                        left: Box::new(final_left),
-                        right: Box::new(final_right),
-                    },
-                    ty: result_vty,
-                };
-
-                self.declare(target.clone(), result_ty);
-
-                Ok(vec![TirStmt::Let {
-                    name: target,
-                    ty: result_vty,
-                    value: binop_expr,
-                }])
             }
 
             "Return" => {
@@ -447,7 +695,6 @@ impl Lowering {
             "Expr" => {
                 let value_node = ast_getattr!(node, "value");
 
-                // Detect print() calls and expand to value-print + newline statements
                 if ast_type_name!(value_node) == "Call" {
                     let func_node = ast_getattr!(value_node, "func");
                     if ast_type_name!(func_node) == "Name"
@@ -456,7 +703,6 @@ impl Lowering {
                         return self.lower_print_stmt(&value_node);
                     }
 
-                    // For other calls, check if void and route to VoidCall
                     let call_result = self.lower_call(&value_node, line)?;
                     return match call_result {
                         CallResult::Expr(expr) => Ok(vec![TirStmt::Expr(expr)]),
@@ -517,14 +763,18 @@ impl Lowering {
                 let test_node = ast_getattr!(node, "test");
                 let condition = self.lower_expr(&test_node)?;
 
-                // Cast to bool if not already bool
                 let bool_condition = if condition.ty == ValueType::Bool {
                     condition
                 } else {
-                    let cast_kind = match condition.ty {
+                    let cast_kind = match &condition.ty {
                         ValueType::Int => CastKind::IntToBool,
                         ValueType::Float => CastKind::FloatToBool,
-                        ValueType::Bool => unreachable!(),
+                        _ => {
+                            return Err(self.type_error(
+                                line,
+                                format!("cannot use `{}` in assert", condition.ty),
+                            ))
+                        }
                     };
                     TirExpr {
                         kind: TirExprKind::Cast {
@@ -545,6 +795,165 @@ impl Lowering {
                 Err(self.syntax_error(line, format!("unsupported statement type: `{}`", node_type)))
             }
         }
+    }
+
+    // ── attribute assignment ───────────────────────────────────────────
+
+    fn lower_attribute_assign(
+        &mut self,
+        target_node: &Bound<PyAny>,
+        assign_node: &Bound<PyAny>,
+        line: usize,
+    ) -> Result<Vec<TirStmt>> {
+        let obj_node = ast_getattr!(target_node, "value");
+        let field_name = ast_get_string!(target_node, "attr");
+        let obj_expr = self.lower_expr(&obj_node)?;
+
+        let class_name = match &obj_expr.ty {
+            ValueType::Class(name) => name.clone(),
+            other => {
+                return Err(self.type_error(
+                    line,
+                    format!("cannot set attribute on non-class type `{}`", other),
+                ))
+            }
+        };
+
+        let class_info = self
+            .class_registry
+            .get(&class_name)
+            .ok_or_else(|| self.name_error(line, format!("unknown class `{}`", class_name)))?
+            .clone();
+
+        let field_index = *class_info.field_map.get(&field_name).ok_or_else(|| {
+            self.attribute_error(
+                line,
+                format!("class `{}` has no field `{}`", class_name, field_name),
+            )
+        })?;
+
+        let field = &class_info.fields[field_index];
+
+        // Enforce reference-type field immutability outside __init__
+        if field.ty.is_reference_type() {
+            let inside_init = self.current_class.as_ref() == Some(&class_name)
+                && self
+                    .current_function_name
+                    .as_ref()
+                    .map(|n| n.ends_with(".__init__"))
+                    .unwrap_or(false);
+            let is_self = matches!(&obj_expr.kind, TirExprKind::Var(name) if name == "self");
+
+            if !(inside_init && is_self) {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "cannot reassign reference field `{}.{}` of type `{}` outside of __init__",
+                        class_name, field_name, field.ty
+                    ),
+                ));
+            }
+        }
+
+        let value_node = ast_getattr!(assign_node, "value");
+        let tir_value = self.lower_expr(&value_node)?;
+
+        if tir_value.ty.to_type() != field.ty {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "cannot assign `{}` to field `{}.{}` of type `{}`",
+                    tir_value.ty, class_name, field_name, field.ty
+                ),
+            ));
+        }
+
+        Ok(vec![TirStmt::SetField {
+            object: obj_expr,
+            field_name,
+            field_index,
+            value: tir_value,
+        }])
+    }
+
+    fn lower_attribute_aug_assign(
+        &mut self,
+        target_node: &Bound<PyAny>,
+        aug_node: &Bound<PyAny>,
+        line: usize,
+    ) -> Result<Vec<TirStmt>> {
+        let obj_node = ast_getattr!(target_node, "value");
+        let field_name = ast_get_string!(target_node, "attr");
+        let obj_expr = self.lower_expr(&obj_node)?;
+
+        let class_name = match &obj_expr.ty {
+            ValueType::Class(name) => name.clone(),
+            other => {
+                return Err(self.type_error(
+                    line,
+                    format!("cannot set attribute on non-class type `{}`", other),
+                ))
+            }
+        };
+
+        let class_info = self
+            .class_registry
+            .get(&class_name)
+            .ok_or_else(|| self.name_error(line, format!("unknown class `{}`", class_name)))?
+            .clone();
+
+        let field_index = *class_info.field_map.get(&field_name).ok_or_else(|| {
+            self.attribute_error(
+                line,
+                format!("class `{}` has no field `{}`", class_name, field_name),
+            )
+        })?;
+
+        let field = &class_info.fields[field_index];
+        let field_vty = Self::to_value_type(&field.ty);
+
+        // Read current field value
+        let current_val = TirExpr {
+            kind: TirExprKind::GetField {
+                object: Box::new(obj_expr.clone()),
+                field_name: field_name.clone(),
+                field_index,
+            },
+            ty: field_vty,
+        };
+
+        let op = Self::convert_binop(&ast_getattr!(aug_node, "op"))?;
+        let rhs = self.lower_expr(&ast_getattr!(aug_node, "value"))?;
+
+        let (final_left, final_right, result_ty) =
+            self.resolve_binop_types(line, op, current_val, rhs)?;
+
+        if result_ty != field.ty {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "augmented assignment would change field `{}.{}` type from `{}` to `{}`",
+                    class_name, field_name, field.ty, result_ty
+                ),
+            ));
+        }
+
+        let result_vty = Self::to_value_type(&result_ty);
+        let binop_expr = TirExpr {
+            kind: TirExprKind::BinOp {
+                op,
+                left: Box::new(final_left),
+                right: Box::new(final_right),
+            },
+            ty: result_vty,
+        };
+
+        Ok(vec![TirStmt::SetField {
+            object: obj_expr,
+            field_name,
+            field_index,
+            value: binop_expr,
+        }])
     }
 
     // ── expression lowering ────────────────────────────────────────────
@@ -614,7 +1023,6 @@ impl Lowering {
                 let comparators_list = ast_get_list!(node, "comparators");
 
                 if ops_list.len() == 1 {
-                    // Single comparison
                     let op_node = ops_list.get_item(0)?;
                     let cmp_op = Self::convert_cmpop(&op_node)?;
                     let right = self.lower_expr(&comparators_list.get_item(0)?)?;
@@ -629,7 +1037,6 @@ impl Lowering {
                     });
                 }
 
-                // Chained comparison: a < b < c => (a < b) and (b < c)
                 let mut comparisons: Vec<TirExpr> = Vec::new();
                 let mut current_left = left;
 
@@ -653,7 +1060,6 @@ impl Lowering {
                     current_left = right;
                 }
 
-                // Chain with LogicalOp::And
                 let mut result = comparisons.remove(0);
                 for cmp in comparisons {
                     result = TirExpr {
@@ -717,8 +1123,7 @@ impl Lowering {
                     exprs.push(self.lower_expr(&val)?);
                 }
 
-                // All values must have the same type
-                let result_ty = exprs[0].ty;
+                let result_ty = exprs[0].ty.clone();
                 for (i, e) in exprs.iter().enumerate().skip(1) {
                     if e.ty != result_ty {
                         return Err(self.type_error(
@@ -731,7 +1136,6 @@ impl Lowering {
                     }
                 }
 
-                // Chain: a and b and c => (a and b) and c
                 let mut result = exprs.remove(0);
                 for operand in exprs {
                     result = TirExpr {
@@ -740,7 +1144,7 @@ impl Lowering {
                             left: Box::new(result),
                             right: Box::new(operand),
                         },
-                        ty: result_ty,
+                        ty: result_ty.clone(),
                     };
                 }
 
@@ -754,10 +1158,43 @@ impl Lowering {
                 }
             },
 
-            "Attribute" => Err(self.syntax_error(
-                line,
-                "attribute access outside of function calls is not yet supported",
-            )),
+            "Attribute" => {
+                let value_node = ast_getattr!(node, "value");
+                let attr_name = ast_get_string!(node, "attr");
+                let obj_expr = self.lower_expr(&value_node)?;
+
+                let class_name = match &obj_expr.ty {
+                    ValueType::Class(name) => name.clone(),
+                    other => {
+                        return Err(self.type_error(
+                            line,
+                            format!("cannot access attribute on non-class type `{}`", other),
+                        ))
+                    }
+                };
+
+                let class_info = self.class_registry.get(&class_name).ok_or_else(|| {
+                    self.name_error(line, format!("unknown class `{}`", class_name))
+                })?;
+
+                let field_index = *class_info.field_map.get(&attr_name).ok_or_else(|| {
+                    self.attribute_error(
+                        line,
+                        format!("class `{}` has no field `{}`", class_name, attr_name),
+                    )
+                })?;
+
+                let field_ty = Self::to_value_type(&class_info.fields[field_index].ty);
+
+                Ok(TirExpr {
+                    kind: TirExprKind::GetField {
+                        object: Box::new(obj_expr),
+                        field_name: attr_name,
+                        field_index,
+                    },
+                    ty: field_ty,
+                })
+            }
 
             _ => Err(self.syntax_error(
                 line,
@@ -769,6 +1206,7 @@ impl Lowering {
     // ── print statement ────────────────────────────────────────────────
 
     fn lower_print_stmt(&mut self, call_node: &Bound<PyAny>) -> Result<Vec<TirStmt>> {
+        let line = Self::get_line(call_node);
         let args_list = ast_get_list!(call_node, "args");
 
         let mut tir_args = Vec::new();
@@ -791,7 +1229,9 @@ impl Lowering {
                     args: vec![],
                 });
             }
-            let print_fn = builtin::resolve_print(&arg.ty);
+            let print_fn = builtin::resolve_print(&arg.ty).ok_or_else(|| {
+                self.type_error(line, format!("cannot print value of type `{}`", arg.ty))
+            })?;
             stmts.push(TirStmt::VoidCall {
                 target: CallTarget::Builtin(print_fn),
                 args: vec![arg],
@@ -839,10 +1279,7 @@ impl Lowering {
                     let arg = tir_args.remove(0);
                     let target_ty = match func_name.as_str() {
                         "int" => {
-                            if arg.ty != ValueType::Int
-                                && arg.ty != ValueType::Float
-                                && arg.ty != ValueType::Bool
-                            {
+                            if !arg.ty.is_primitive() {
                                 return Err(self.type_error(
                                     line,
                                     format!("int() cannot convert `{}`", arg.ty),
@@ -851,10 +1288,7 @@ impl Lowering {
                             ValueType::Int
                         }
                         "float" => {
-                            if arg.ty != ValueType::Int
-                                && arg.ty != ValueType::Float
-                                && arg.ty != ValueType::Bool
-                            {
+                            if !arg.ty.is_primitive() {
                                 return Err(self.type_error(
                                     line,
                                     format!("float() cannot convert `{}`", arg.ty),
@@ -863,10 +1297,7 @@ impl Lowering {
                             ValueType::Float
                         }
                         "bool" => {
-                            if arg.ty != ValueType::Int
-                                && arg.ty != ValueType::Float
-                                && arg.ty != ValueType::Bool
-                            {
+                            if !arg.ty.is_primitive() {
                                 return Err(self.type_error(
                                     line,
                                     format!("bool() cannot convert `{}`", arg.ty),
@@ -877,12 +1308,11 @@ impl Lowering {
                         _ => unreachable!(),
                     };
 
-                    // Eliminate identity casts
                     if arg.ty == target_ty {
                         return Ok(CallResult::Expr(arg));
                     }
 
-                    let cast_kind = Self::compute_cast_kind(arg.ty, target_ty);
+                    let cast_kind = Self::compute_cast_kind(&arg.ty, &target_ty);
                     return Ok(CallResult::Expr(TirExpr {
                         kind: TirExprKind::Cast {
                             kind: cast_kind,
@@ -900,7 +1330,7 @@ impl Lowering {
                             format!("abs() expects 1 argument, got {}", tir_args.len()),
                         ));
                     }
-                    let (builtin_fn, ret_vty) = match tir_args[0].ty {
+                    let (builtin_fn, ret_vty) = match &tir_args[0].ty {
                         ValueType::Int => (builtin::BuiltinFn::AbsInt, ValueType::Int),
                         ValueType::Float => (builtin::BuiltinFn::AbsFloat, ValueType::Float),
                         _ => {
@@ -938,7 +1368,7 @@ impl Lowering {
                             ),
                         ));
                     }
-                    match tir_args[0].ty {
+                    match &tir_args[0].ty {
                         ValueType::Int => {
                             return Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::ExternalCall {
@@ -992,7 +1422,7 @@ impl Lowering {
                             ),
                         ));
                     }
-                    let (builtin_fn, ret_vty) = match (tir_args[0].ty, func_name.as_str()) {
+                    let (builtin_fn, ret_vty) = match (&tir_args[0].ty, func_name.as_str()) {
                         (ValueType::Int, "min") => (builtin::BuiltinFn::MinInt, ValueType::Int),
                         (ValueType::Int, "max") => (builtin::BuiltinFn::MaxInt, ValueType::Int),
                         (ValueType::Float, "min") => {
@@ -1100,6 +1530,62 @@ impl Lowering {
                             }))
                         }
                     }
+                    Type::Class(name) => {
+                        // Constructor call
+                        let class_info = self
+                            .class_registry
+                            .get(name)
+                            .ok_or_else(|| {
+                                self.name_error(line, format!("unknown class `{}`", name))
+                            })?
+                            .clone();
+
+                        let init_method = class_info.methods.get("__init__").ok_or_else(|| {
+                            self.syntax_error(
+                                line,
+                                format!("class `{}` has no __init__ method", name),
+                            )
+                        })?;
+
+                        if tir_args.len() != init_method.params.len() {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "{}() expects {} argument{}, got {}",
+                                    name,
+                                    init_method.params.len(),
+                                    if init_method.params.len() == 1 {
+                                        ""
+                                    } else {
+                                        "s"
+                                    },
+                                    tir_args.len()
+                                ),
+                            ));
+                        }
+                        for (i, (arg, expected)) in
+                            tir_args.iter().zip(init_method.params.iter()).enumerate()
+                        {
+                            if arg.ty.to_type() != *expected {
+                                return Err(self.type_error(
+                                    line,
+                                    format!(
+                                        "argument {} type mismatch in {}(): expected `{}`, got `{}`",
+                                        i, name, expected, arg.ty
+                                    ),
+                                ));
+                            }
+                        }
+
+                        Ok(CallResult::Expr(TirExpr {
+                            kind: TirExprKind::Construct {
+                                class_name: name.clone(),
+                                init_mangled_name: init_method.mangled_name.clone(),
+                                args: tir_args,
+                            },
+                            ty: ValueType::Class(name.clone()),
+                        }))
+                    }
                     _ => Err(self.type_error(line, format!("`{}` is not callable", func_name))),
                 }
             }
@@ -1108,52 +1594,117 @@ impl Lowering {
                 let value_node = ast_getattr!(func_node, "value");
                 let attr = ast_get_string!(func_node, "attr");
 
-                if ast_type_name!(value_node) != "Name" {
-                    return Err(
-                        self.syntax_error(line, "complex attribute access is not supported")
-                    );
-                }
-                let mod_name = ast_get_string!(value_node, "id");
+                // Check if value_node is a Name that resolves to a module
+                // (modules are not value types, so we must handle them before lower_expr)
+                if ast_type_name!(value_node) == "Name" {
+                    let name = ast_get_string!(value_node, "id");
+                    if let Some(Type::Module(mod_path)) = self.lookup(&name).cloned() {
+                        let resolved = format!("{}${}", mod_path, attr);
 
-                let mod_type = self.lookup(&mod_name).cloned().ok_or_else(|| {
-                    self.name_error(line, format!("unknown module `{}`", mod_name))
-                })?;
+                        let func_type = self
+                            .symbol_table
+                            .get(&resolved)
+                            .ok_or_else(|| {
+                                self.name_error(line, format!("undefined function `{}`", attr))
+                            })?
+                            .clone();
 
-                let mod_path = match &mod_type {
-                    Type::Module(path) => path.clone(),
-                    _ => {
-                        return Err(self.type_error(line, format!("`{}` is not a module", mod_name)))
+                        let return_type = {
+                            let label = attr.to_string();
+                            self.check_call_args(line, &label, &func_type, &tir_args)?
+                        };
+
+                        return if return_type == Type::Unit {
+                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                                target: CallTarget::Named(resolved),
+                                args: tir_args,
+                            }))
+                        } else {
+                            Ok(CallResult::Expr(TirExpr {
+                                kind: TirExprKind::Call {
+                                    func: resolved,
+                                    args: tir_args,
+                                },
+                                ty: Self::to_value_type(&return_type),
+                            }))
+                        };
                     }
-                };
+                }
 
-                let resolved = format!("{}${}", mod_path, attr);
+                // Not a module — lower as an expression (must be a class instance)
+                let obj_expr = self.lower_expr(&value_node)?;
 
-                let func_type = self
-                    .symbol_table
-                    .get(&resolved)
-                    .ok_or_else(|| {
-                        self.name_error(line, format!("undefined function `{}.{}`", mod_name, attr))
-                    })?
-                    .clone();
+                match &obj_expr.ty {
+                    ValueType::Class(class_name) => {
+                        // Method call on a class instance
+                        let class_info = self
+                            .class_registry
+                            .get(class_name)
+                            .ok_or_else(|| {
+                                self.name_error(line, format!("unknown class `{}`", class_name))
+                            })?
+                            .clone();
 
-                let return_type = {
-                    let label = format!("{}.{}", mod_name, attr);
-                    self.check_call_args(line, &label, &func_type, &tir_args)?
-                };
+                        let method = class_info.methods.get(&attr).ok_or_else(|| {
+                            self.attribute_error(
+                                line,
+                                format!("class `{}` has no method `{}`", class_name, attr),
+                            )
+                        })?;
 
-                if return_type == Type::Unit {
-                    Ok(CallResult::VoidStmt(TirStmt::VoidCall {
-                        target: CallTarget::Named(resolved),
-                        args: tir_args,
-                    }))
-                } else {
-                    Ok(CallResult::Expr(TirExpr {
-                        kind: TirExprKind::Call {
-                            func: resolved,
-                            args: tir_args,
-                        },
-                        ty: Self::to_value_type(&return_type),
-                    }))
+                        if tir_args.len() != method.params.len() {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "{}.{}() expects {} argument{}, got {}",
+                                    class_name,
+                                    attr,
+                                    method.params.len(),
+                                    if method.params.len() == 1 { "" } else { "s" },
+                                    tir_args.len()
+                                ),
+                            ));
+                        }
+                        for (i, (arg, expected)) in
+                            tir_args.iter().zip(method.params.iter()).enumerate()
+                        {
+                            if arg.ty.to_type() != *expected {
+                                return Err(self.type_error(
+                                    line,
+                                    format!(
+                                        "argument {} type mismatch in {}.{}(): expected `{}`, got `{}`",
+                                        i, class_name, attr, expected, arg.ty
+                                    ),
+                                ));
+                            }
+                        }
+
+                        let return_type = &method.return_type;
+                        let mangled = method.mangled_name.clone();
+
+                        if *return_type == Type::Unit {
+                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                                target: CallTarget::MethodCall {
+                                    mangled_name: mangled,
+                                    object: obj_expr,
+                                },
+                                args: tir_args,
+                            }))
+                        } else {
+                            Ok(CallResult::Expr(TirExpr {
+                                kind: TirExprKind::MethodCall {
+                                    object: Box::new(obj_expr),
+                                    method_mangled_name: mangled,
+                                    args: tir_args,
+                                },
+                                ty: Self::to_value_type(return_type),
+                            }))
+                        }
+                    }
+                    _ => {
+                        Err(self
+                            .type_error(line, format!("`{}` is not a class instance", obj_expr.ty)))
+                    }
                 }
             }
 
@@ -1242,10 +1793,10 @@ impl Lowering {
                 if expr.ty == ValueType::Float {
                     expr
                 } else {
-                    let cast_kind = match expr.ty {
+                    let cast_kind = match &expr.ty {
                         ValueType::Int => CastKind::IntToFloat,
                         ValueType::Bool => CastKind::BoolToFloat,
-                        ValueType::Float => unreachable!(),
+                        _ => unreachable!(),
                     };
                     TirExpr {
                         kind: TirExprKind::Cast {
@@ -1306,7 +1857,7 @@ impl Lowering {
 
     // ── cast kind computation ──────────────────────────────────────────
 
-    fn compute_cast_kind(from: ValueType, to: ValueType) -> CastKind {
+    fn compute_cast_kind(from: &ValueType, to: &ValueType) -> CastKind {
         match (from, to) {
             (ValueType::Int, ValueType::Float) => CastKind::IntToFloat,
             (ValueType::Float, ValueType::Int) => CastKind::FloatToInt,
@@ -1314,23 +1865,22 @@ impl Lowering {
             (ValueType::Int, ValueType::Bool) => CastKind::IntToBool,
             (ValueType::Float, ValueType::Bool) => CastKind::FloatToBool,
             (ValueType::Bool, ValueType::Int) => CastKind::BoolToInt,
-            // Identity casts should be eliminated before calling this
             _ => unreachable!("identity cast should have been eliminated"),
         }
     }
 
     // ── type / operator conversion helpers ─────────────────────────────
 
-    fn convert_return_type(node: &Bound<PyAny>) -> Result<Type> {
+    fn convert_return_type(&self, node: &Bound<PyAny>) -> Result<Type> {
         let returns = ast_getattr!(node, "returns");
         if returns.is_none() {
             Ok(Type::Unit)
         } else {
-            Self::convert_type_annotation(&returns)
+            self.convert_type_annotation(&returns)
         }
     }
 
-    fn convert_type_annotation(node: &Bound<PyAny>) -> Result<Type> {
+    fn convert_type_annotation(&self, node: &Bound<PyAny>) -> Result<Type> {
         let node_type = ast_type_name!(node);
         match node_type.as_str() {
             "Name" => {
@@ -1339,7 +1889,24 @@ impl Lowering {
                     "int" => Ok(Type::Int),
                     "float" => Ok(Type::Float),
                     "bool" => Ok(Type::Bool),
-                    _ => bail!("unsupported type `{}`", id),
+                    other => {
+                        if let Some(ty) = self.lookup(other).cloned() {
+                            match ty {
+                                Type::Class(_) => Ok(ty),
+                                Type::Module(ref mangled) => {
+                                    // from-import of a class: `from mod import ClassName`
+                                    if self.class_registry.contains_key(mangled) {
+                                        Ok(Type::Class(mangled.clone()))
+                                    } else {
+                                        bail!("'{}' is not a type", other)
+                                    }
+                                }
+                                _ => bail!("'{}' is not a type", other),
+                            }
+                        } else {
+                            bail!("unsupported type `{}`", id)
+                        }
+                    }
                 }
             }
             "Constant" => {

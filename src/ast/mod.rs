@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int,
@@ -9,6 +11,13 @@ pub enum Type {
     },
     Module(String),
     Unit,
+    Class(String),
+}
+
+impl Type {
+    pub fn is_reference_type(&self) -> bool {
+        matches!(self, Type::Class(_))
+    }
 }
 
 impl std::fmt::Display for Type {
@@ -19,6 +28,7 @@ impl std::fmt::Display for Type {
             Type::Bool => write!(f, "bool"),
             Type::Unit => write!(f, "None"),
             Type::Module(path) => write!(f, "module '{}'", path),
+            Type::Class(name) => write!(f, "{}", name),
             Type::Function {
                 params,
                 return_type,
@@ -34,4 +44,27 @@ impl std::fmt::Display for Type {
             }
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassField {
+    pub name: String,
+    pub ty: Type,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassMethod {
+    pub name: String,
+    pub params: Vec<Type>,
+    pub return_type: Type,
+    pub mangled_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassInfo {
+    pub name: String,
+    pub fields: Vec<ClassField>,
+    pub methods: HashMap<String, ClassMethod>,
+    pub field_map: HashMap<String, usize>,
 }

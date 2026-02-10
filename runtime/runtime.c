@@ -90,3 +90,12 @@ double __tython_max_float(double a, double b) {
 int64_t __tython_round_float(double x) {
     return (int64_t)round(x);
 }
+
+void* __tython_malloc(int64_t size) {
+    void* ptr = malloc((size_t)size);
+    if (!ptr) {
+        fprintf(stderr, "MemoryError: allocation failed\n");
+        exit(1);
+    }
+    return ptr;
+}

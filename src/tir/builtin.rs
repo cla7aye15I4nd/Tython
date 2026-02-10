@@ -46,10 +46,11 @@ define_builtins! {
     RoundFloat    => "__tython_round_float",    params: [ValueType::Float],                        ret: Some(ValueType::Int);
 }
 
-pub fn resolve_print(arg_ty: &ValueType) -> BuiltinFn {
+pub fn resolve_print(arg_ty: &ValueType) -> Option<BuiltinFn> {
     match arg_ty {
-        ValueType::Float => BuiltinFn::PrintFloat,
-        ValueType::Bool => BuiltinFn::PrintBool,
-        ValueType::Int => BuiltinFn::PrintInt,
+        ValueType::Float => Some(BuiltinFn::PrintFloat),
+        ValueType::Bool => Some(BuiltinFn::PrintBool),
+        ValueType::Int => Some(BuiltinFn::PrintInt),
+        ValueType::Class(_) => None,
     }
 }

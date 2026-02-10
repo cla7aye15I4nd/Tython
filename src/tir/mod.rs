@@ -2,16 +2,17 @@ pub mod builtin;
 pub mod lower;
 pub mod type_rules;
 
-use crate::ast::Type;
+use crate::ast::{ClassInfo, Type};
 use std::collections::HashMap;
 
 // ── Value types (types with LLVM register representations) ──────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ValueType {
     Int,
     Float,
     Bool,
+    Class(String),
 }
 
 impl ValueType {
@@ -20,16 +21,22 @@ impl ValueType {
             Type::Int => Some(ValueType::Int),
             Type::Float => Some(ValueType::Float),
             Type::Bool => Some(ValueType::Bool),
+            Type::Class(name) => Some(ValueType::Class(name.clone())),
             _ => None,
         }
     }
 
-    pub fn to_type(self) -> Type {
+    pub fn to_type(&self) -> Type {
         match self {
             ValueType::Int => Type::Int,
             ValueType::Float => Type::Float,
             ValueType::Bool => Type::Bool,
+            ValueType::Class(name) => Type::Class(name.clone()),
         }
+    }
+
+    pub fn is_primitive(&self) -> bool {
+        matches!(self, ValueType::Int | ValueType::Float | ValueType::Bool)
     }
 }
 
@@ -39,6 +46,7 @@ impl std::fmt::Display for ValueType {
             ValueType::Int => write!(f, "int"),
             ValueType::Float => write!(f, "float"),
             ValueType::Bool => write!(f, "bool"),
+            ValueType::Class(name) => write!(f, "{}", name),
         }
     }
 }
@@ -124,6 +132,10 @@ pub enum CastKind {
 pub enum CallTarget {
     Named(String),
     Builtin(builtin::BuiltinFn),
+    MethodCall {
+        mangled_name: String,
+        object: TirExpr,
+    },
 }
 
 // ── Comparison / unary / logical ops ────────────────────────────────
@@ -169,6 +181,7 @@ impl FunctionParam {
 #[derive(Debug, Clone)]
 pub struct TirModule {
     pub functions: HashMap<String, TirFunction>,
+    pub classes: HashMap<String, ClassInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -203,6 +216,12 @@ pub enum TirStmt {
     },
     Break,
     Continue,
+    SetField {
+        object: TirExpr,
+        field_name: String,
+        field_index: usize,
+        value: TirExpr,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -246,6 +265,21 @@ pub enum TirExprKind {
         op: LogicalOp,
         left: Box<TirExpr>,
         right: Box<TirExpr>,
+    },
+    GetField {
+        object: Box<TirExpr>,
+        field_name: String,
+        field_index: usize,
+    },
+    Construct {
+        class_name: String,
+        init_mangled_name: String,
+        args: Vec<TirExpr>,
+    },
+    MethodCall {
+        object: Box<TirExpr>,
+        method_mangled_name: String,
+        args: Vec<TirExpr>,
     },
 }
 

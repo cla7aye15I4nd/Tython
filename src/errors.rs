@@ -8,6 +8,7 @@ pub enum ErrorCategory {
     NameError,
     SyntaxError,
     ValueError,
+    AttributeError,
 }
 
 impl std::fmt::Display for ErrorCategory {
@@ -17,6 +18,7 @@ impl std::fmt::Display for ErrorCategory {
             ErrorCategory::NameError => write!(f, "NameError"),
             ErrorCategory::SyntaxError => write!(f, "SyntaxError"),
             ErrorCategory::ValueError => write!(f, "ValueError"),
+            ErrorCategory::AttributeError => write!(f, "AttributeError"),
         }
     }
 }
