@@ -13,7 +13,6 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let mut compiler = Compiler::new(args.input.clone())?;
 

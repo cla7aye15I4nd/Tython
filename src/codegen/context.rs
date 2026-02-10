@@ -1,9 +1,9 @@
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{BasicMetadataTypeEnum, IntType};
+use inkwell::types::{BasicMetadataTypeEnum, BasicType, FloatType, IntType};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue, ValueKind};
-use inkwell::IntPredicate;
+use inkwell::{FloatPredicate, IntPredicate};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -47,6 +47,7 @@ impl<'ctx> Codegen<'ctx> {
     fn get_llvm_type(&self, ty: &Type) -> inkwell::types::BasicTypeEnum<'ctx> {
         match ty {
             Type::Int | Type::Bool => self.context.i64_type().into(),
+            Type::Float => self.context.f64_type().into(),
             _ => panic!("Unsupported type for LLVM conversion: {:?}", ty),
         }
     }
@@ -55,7 +56,11 @@ impl<'ctx> Codegen<'ctx> {
         self.context.i64_type()
     }
 
-    fn build_truthiness_check(
+    fn f64_type(&self) -> FloatType<'ctx> {
+        self.context.f64_type()
+    }
+
+    fn build_int_truthiness_check(
         &self,
         value: inkwell::values::IntValue<'ctx>,
         label: &str,
@@ -68,6 +73,33 @@ impl<'ctx> Codegen<'ctx> {
                 label,
             )
             .unwrap()
+    }
+
+    fn build_float_truthiness_check(
+        &self,
+        value: inkwell::values::FloatValue<'ctx>,
+        label: &str,
+    ) -> inkwell::values::IntValue<'ctx> {
+        self.builder
+            .build_float_compare(
+                FloatPredicate::ONE,
+                value,
+                self.f64_type().const_float(0.0),
+                label,
+            )
+            .unwrap()
+    }
+
+    fn build_truthiness_check_for_value(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        ty: &Type,
+        label: &str,
+    ) -> inkwell::values::IntValue<'ctx> {
+        match ty {
+            Type::Float => self.build_float_truthiness_check(value.into_float_value(), label),
+            _ => self.build_int_truthiness_check(value.into_int_value(), label),
+        }
     }
 
     fn branch_if_unterminated(&self, target: inkwell::basic_block::BasicBlock<'ctx>) -> bool {
@@ -95,10 +127,9 @@ impl<'ctx> Codegen<'ctx> {
                 .map(|t| self.get_llvm_type(t).into())
                 .collect();
 
-            let fn_type = if *return_type == Type::Int {
-                self.i64_type().fn_type(&llvm_params, false)
-            } else {
-                self.context.void_type().fn_type(&llvm_params, false)
+            let fn_type = match return_type {
+                Type::Unit => self.context.void_type().fn_type(&llvm_params, false),
+                other => self.get_llvm_type(other).fn_type(&llvm_params, false),
             };
 
             self.module.add_function(name, fn_type, None)
@@ -174,8 +205,9 @@ impl<'ctx> Codegen<'ctx> {
                 then_body,
                 else_body,
             } => {
-                let cond_val = self.codegen_expr(condition).into_int_value();
-                let cond_bool = self.build_truthiness_check(cond_val, "ifcond");
+                let cond_val = self.codegen_expr(condition);
+                let cond_bool =
+                    self.build_truthiness_check_for_value(cond_val, &condition.ty, "ifcond");
 
                 let function = self
                     .builder
@@ -225,8 +257,9 @@ impl<'ctx> Codegen<'ctx> {
                 self.builder.build_unconditional_branch(header_bb).unwrap();
 
                 self.builder.position_at_end(header_bb);
-                let cond_val = self.codegen_expr(condition).into_int_value();
-                let cond_bool = self.build_truthiness_check(cond_val, "whilecond");
+                let cond_val = self.codegen_expr(condition);
+                let cond_bool =
+                    self.build_truthiness_check_for_value(cond_val, &condition.ty, "whilecond");
                 self.builder
                     .build_conditional_branch(cond_bool, body_bb, after_bb)
                     .unwrap();
@@ -241,8 +274,9 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirStmt::Assert(condition) => {
-                let cond_val = self.codegen_expr(condition).into_int_value();
-                let cond_bool = self.build_truthiness_check(cond_val, "assertcond");
+                let cond_val = self.codegen_expr(condition);
+                let cond_bool =
+                    self.build_truthiness_check_for_value(cond_val, &condition.ty, "assertcond");
 
                 let function = self
                     .builder
@@ -275,6 +309,8 @@ impl<'ctx> Codegen<'ctx> {
         match &expr.kind {
             TirExprKind::IntLiteral(val) => self.i64_type().const_int(*val as u64, false).into(),
 
+            TirExprKind::FloatLiteral(val) => self.f64_type().const_float(*val).into(),
+
             TirExprKind::Var(name) => {
                 let ptr = self.variables[name.as_str()];
                 self.builder
@@ -286,38 +322,70 @@ impl<'ctx> Codegen<'ctx> {
                 let left_val = self.codegen_expr(left);
                 let right_val = self.codegen_expr(right);
 
-                let left_int = left_val.into_int_value();
-                let right_int = right_val.into_int_value();
+                if expr.ty == Type::Float {
+                    let left_float = left_val.into_float_value();
+                    let right_float = right_val.into_float_value();
 
-                let result = match op {
-                    BinOpKind::Add => self
-                        .builder
-                        .build_int_add(left_int, right_int, "add")
-                        .unwrap(),
-                    BinOpKind::Sub => self
-                        .builder
-                        .build_int_sub(left_int, right_int, "sub")
-                        .unwrap(),
-                    BinOpKind::Mul => self
-                        .builder
-                        .build_int_mul(left_int, right_int, "mul")
-                        .unwrap(),
-                    BinOpKind::Div => self
-                        .builder
-                        .build_int_signed_div(left_int, right_int, "div")
-                        .unwrap(),
-                    BinOpKind::Mod => self
-                        .builder
-                        .build_int_signed_rem(left_int, right_int, "mod")
-                        .unwrap(),
-                };
+                    let result = match op {
+                        BinOpKind::Add => self
+                            .builder
+                            .build_float_add(left_float, right_float, "fadd")
+                            .unwrap(),
+                        BinOpKind::Sub => self
+                            .builder
+                            .build_float_sub(left_float, right_float, "fsub")
+                            .unwrap(),
+                        BinOpKind::Mul => self
+                            .builder
+                            .build_float_mul(left_float, right_float, "fmul")
+                            .unwrap(),
+                        BinOpKind::Div => self
+                            .builder
+                            .build_float_div(left_float, right_float, "fdiv")
+                            .unwrap(),
+                        BinOpKind::Mod => self
+                            .builder
+                            .build_float_rem(left_float, right_float, "fmod")
+                            .unwrap(),
+                    };
+                    result.into()
+                } else {
+                    let left_int = left_val.into_int_value();
+                    let right_int = right_val.into_int_value();
 
-                result.into()
+                    let result = match op {
+                        BinOpKind::Add => self
+                            .builder
+                            .build_int_add(left_int, right_int, "add")
+                            .unwrap(),
+                        BinOpKind::Sub => self
+                            .builder
+                            .build_int_sub(left_int, right_int, "sub")
+                            .unwrap(),
+                        BinOpKind::Mul => self
+                            .builder
+                            .build_int_mul(left_int, right_int, "mul")
+                            .unwrap(),
+                        BinOpKind::Div => self
+                            .builder
+                            .build_int_signed_div(left_int, right_int, "div")
+                            .unwrap(),
+                        BinOpKind::Mod => self
+                            .builder
+                            .build_int_signed_rem(left_int, right_int, "mod")
+                            .unwrap(),
+                    };
+                    result.into()
+                }
             }
 
             TirExprKind::Call { func, args } => {
                 if func == "print" {
                     return self.codegen_print_call(&args[0]);
+                }
+
+                if func == "int" || func == "float" || func == "bool" {
+                    return self.codegen_cast_call(func, &args[0], &expr.ty);
                 }
 
                 let arg_types: Vec<Type> = args.iter().map(|a| a.ty.clone()).collect();
@@ -340,22 +408,44 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirExprKind::Compare { op, left, right } => {
-                let left_val = self.codegen_expr(left).into_int_value();
-                let right_val = self.codegen_expr(right).into_int_value();
+                let left_val = self.codegen_expr(left);
+                let right_val = self.codegen_expr(right);
 
-                let predicate = match op {
-                    CmpOp::Eq => IntPredicate::EQ,
-                    CmpOp::NotEq => IntPredicate::NE,
-                    CmpOp::Lt => IntPredicate::SLT,
-                    CmpOp::LtEq => IntPredicate::SLE,
-                    CmpOp::Gt => IntPredicate::SGT,
-                    CmpOp::GtEq => IntPredicate::SGE,
+                let cmp_result = if left.ty == Type::Float {
+                    let predicate = match op {
+                        CmpOp::Eq => FloatPredicate::OEQ,
+                        CmpOp::NotEq => FloatPredicate::ONE,
+                        CmpOp::Lt => FloatPredicate::OLT,
+                        CmpOp::LtEq => FloatPredicate::OLE,
+                        CmpOp::Gt => FloatPredicate::OGT,
+                        CmpOp::GtEq => FloatPredicate::OGE,
+                    };
+                    self.builder
+                        .build_float_compare(
+                            predicate,
+                            left_val.into_float_value(),
+                            right_val.into_float_value(),
+                            "fcmp",
+                        )
+                        .unwrap()
+                } else {
+                    let predicate = match op {
+                        CmpOp::Eq => IntPredicate::EQ,
+                        CmpOp::NotEq => IntPredicate::NE,
+                        CmpOp::Lt => IntPredicate::SLT,
+                        CmpOp::LtEq => IntPredicate::SLE,
+                        CmpOp::Gt => IntPredicate::SGT,
+                        CmpOp::GtEq => IntPredicate::SGE,
+                    };
+                    self.builder
+                        .build_int_compare(
+                            predicate,
+                            left_val.into_int_value(),
+                            right_val.into_int_value(),
+                            "cmp",
+                        )
+                        .unwrap()
                 };
-
-                let cmp_result = self
-                    .builder
-                    .build_int_compare(predicate, left_val, right_val, "cmp")
-                    .unwrap();
 
                 self.builder
                     .build_int_z_extend(cmp_result, self.i64_type(), "zext_bool")
@@ -381,9 +471,14 @@ impl<'ctx> Codegen<'ctx> {
             .get_function("printf")
             .unwrap_or_else(|| self.module.add_function("printf", printf_type, None));
 
+        let fmt = match arg.ty {
+            Type::Float => "%g\n",
+            _ => "%lld\n",
+        };
+
         let format_str = self
             .builder
-            .build_global_string_ptr("%lld\n", "printf_fmt")
+            .build_global_string_ptr(fmt, "printf_fmt")
             .unwrap();
 
         self.builder
@@ -395,6 +490,63 @@ impl<'ctx> Codegen<'ctx> {
             .unwrap();
 
         self.i64_type().const_int(0, false).into()
+    }
+
+    fn codegen_cast_call(
+        &mut self,
+        func: &str,
+        arg: &TirExpr,
+        target_ty: &Type,
+    ) -> BasicValueEnum<'ctx> {
+        let arg_val = self.codegen_expr(arg);
+
+        match (func, &arg.ty, target_ty) {
+            // Identity casts
+            ("int", Type::Int, _) => arg_val,
+            ("float", Type::Float, _) => arg_val,
+            ("bool", Type::Bool, _) => arg_val,
+
+            // int() conversions
+            ("int", Type::Float, _) => self
+                .builder
+                .build_float_to_signed_int(arg_val.into_float_value(), self.i64_type(), "ftoi")
+                .unwrap()
+                .into(),
+            ("int", Type::Bool, _) => arg_val, // bool is already i64
+
+            // float() conversions
+            ("float", Type::Int, _) => self
+                .builder
+                .build_signed_int_to_float(arg_val.into_int_value(), self.f64_type(), "itof")
+                .unwrap()
+                .into(),
+            ("float", Type::Bool, _) => self
+                .builder
+                .build_signed_int_to_float(arg_val.into_int_value(), self.f64_type(), "btof")
+                .unwrap()
+                .into(),
+
+            // bool() conversions
+            ("bool", Type::Int, _) => {
+                let cmp = self.build_int_truthiness_check(arg_val.into_int_value(), "itob");
+                self.builder
+                    .build_int_z_extend(cmp, self.i64_type(), "zext_bool")
+                    .unwrap()
+                    .into()
+            }
+            ("bool", Type::Float, _) => {
+                let cmp = self.build_float_truthiness_check(arg_val.into_float_value(), "ftob");
+                self.builder
+                    .build_int_z_extend(cmp, self.i64_type(), "zext_bool")
+                    .unwrap()
+                    .into()
+            }
+
+            _ => panic!(
+                "Unsupported cast: {}({:?}) -> {:?}",
+                func, arg.ty, target_ty
+            ),
+        }
     }
 
     pub fn add_c_main_wrapper(&mut self, entry_main_name: &str) {

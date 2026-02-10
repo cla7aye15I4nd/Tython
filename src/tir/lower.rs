@@ -394,6 +394,11 @@ impl Lowering {
                         kind: TirExprKind::IntLiteral(int_val),
                         ty: Type::Int,
                     })
+                } else if let Ok(float_val) = value.extract::<f64>() {
+                    Ok(TirExpr {
+                        kind: TirExprKind::FloatLiteral(float_val),
+                        ty: Type::Float,
+                    })
                 } else {
                     bail!("Unsupported constant type at line {}", line)
                 }
@@ -420,15 +425,19 @@ impl Lowering {
                 let right = self.lower_expr(&ast_getattr!(node, "right"))?;
                 let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
 
-                if left.ty != Type::Int || right.ty != Type::Int {
+                let result_ty = if left.ty == Type::Int && right.ty == Type::Int {
+                    Type::Int
+                } else if left.ty == Type::Float && right.ty == Type::Float {
+                    Type::Float
+                } else {
                     bail!(
-                        "Binary operator {:?} at line {} requires int operands, got {:?} and {:?}",
+                        "Binary operator {:?} at line {} requires matching numeric operands, got {:?} and {:?}",
                         op,
                         line,
                         left.ty,
                         right.ty
                     );
-                }
+                };
 
                 Ok(TirExpr {
                     kind: TirExprKind::BinOp {
@@ -436,7 +445,7 @@ impl Lowering {
                         left: Box::new(left),
                         right: Box::new(right),
                     },
-                    ty: Type::Int,
+                    ty: result_ty,
                 })
             }
 
@@ -510,6 +519,55 @@ impl Lowering {
                             args: tir_args,
                         },
                         ty: Type::Unit,
+                    });
+                }
+
+                if func_name == "int" || func_name == "float" || func_name == "bool" {
+                    if tir_args.len() != 1 {
+                        bail!(
+                            "{}() at line {} expects exactly 1 argument, got {}",
+                            func_name,
+                            line,
+                            tir_args.len()
+                        );
+                    }
+                    let arg_ty = &tir_args[0].ty;
+                    let target_ty = match func_name.as_str() {
+                        "int" => {
+                            if *arg_ty != Type::Int
+                                && *arg_ty != Type::Float
+                                && *arg_ty != Type::Bool
+                            {
+                                bail!("int() at line {} cannot convert {:?}", line, arg_ty);
+                            }
+                            Type::Int
+                        }
+                        "float" => {
+                            if *arg_ty != Type::Int
+                                && *arg_ty != Type::Float
+                                && *arg_ty != Type::Bool
+                            {
+                                bail!("float() at line {} cannot convert {:?}", line, arg_ty);
+                            }
+                            Type::Float
+                        }
+                        "bool" => {
+                            if *arg_ty != Type::Int
+                                && *arg_ty != Type::Float
+                                && *arg_ty != Type::Bool
+                            {
+                                bail!("bool() at line {} cannot convert {:?}", line, arg_ty);
+                            }
+                            Type::Bool
+                        }
+                        _ => unreachable!(),
+                    };
+                    return Ok(TirExpr {
+                        kind: TirExprKind::Call {
+                            func: func_name,
+                            args: tir_args,
+                        },
+                        ty: target_ty,
                     });
                 }
 
@@ -671,6 +729,8 @@ impl Lowering {
                 let id = ast_get_string!(node, "id");
                 match id.as_str() {
                     "int" => Ok(Type::Int),
+                    "float" => Ok(Type::Float),
+                    "bool" => Ok(Type::Bool),
                     _ => bail!("Unsupported type: {}", id),
                 }
             }

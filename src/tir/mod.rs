@@ -77,6 +77,7 @@ pub struct TirExpr {
 #[derive(Debug, Clone)]
 pub enum TirExprKind {
     IntLiteral(i64),
+    FloatLiteral(f64),
     Var(String),
     BinOp {
         op: BinOpKind,

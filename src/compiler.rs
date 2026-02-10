@@ -71,7 +71,6 @@ impl Compiler {
                         None => {}
                     }
 
-                    log::info!("Compiling module: {}", path.display());
                     colors.insert(path.clone(), ModuleColor::Gray);
 
                     let resolved = self.resolver.resolve_imports(&path)?;
@@ -89,7 +88,6 @@ impl Compiler {
                     }
 
                     colors.insert(path.to_path_buf(), ModuleColor::Black);
-                    log::info!("Successfully compiled: {}", path.display());
                 }
             }
         }

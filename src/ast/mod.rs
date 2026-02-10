@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int,
+    Float,
     Bool,
     Function {
         params: Vec<Type>,
