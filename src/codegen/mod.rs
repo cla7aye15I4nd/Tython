@@ -1,3 +1,3 @@
 pub mod context;
 
-pub use context::Codegen;
+pub(crate) use context::Codegen;

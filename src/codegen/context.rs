@@ -5,29 +5,40 @@ use inkwell::module::Module;
 use inkwell::types::{BasicMetadataTypeEnum, IntType};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue, ValueKind};
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::ast::Type;
 use crate::tir::{BinOpKind, TirExpr, TirExprKind, TirFunction, TirStmt};
 
 pub struct Codegen<'ctx> {
     context: &'ctx Context,
-    pub module: Module<'ctx>,
+    module: Module<'ctx>,
     builder: Builder<'ctx>,
     variables: HashMap<String, PointerValue<'ctx>>,
-    functions: HashMap<String, FunctionValue<'ctx>>,
 }
 
 impl<'ctx> Codegen<'ctx> {
-    pub fn new(context: &'ctx Context, module_name: &str) -> Self {
-        let module = context.create_module(module_name);
+    pub fn new(context: &'ctx Context) -> Self {
+        let module = context.create_module("__main__");
         let builder = context.create_builder();
         Self {
             context,
             module,
             builder,
             variables: HashMap::new(),
-            functions: HashMap::new(),
         }
+    }
+
+    pub fn verify(&self) -> bool {
+        self.module.verify().is_ok()
+    }
+
+    pub fn emit_ir(&self, path: &Path) {
+        let _ = self.module.print_to_file(path);
+    }
+
+    pub fn emit_bitcode(&self, path: &Path) {
+        self.module.write_bitcode_to_path(path);
     }
 
     // ── Type helpers ─────────────────────────────────────────────
@@ -43,32 +54,35 @@ impl<'ctx> Codegen<'ctx> {
         self.context.i64_type()
     }
 
-    // ── Function codegen ─────────────────────────────────────────
+    // ── Function helpers ─────────────────────────────────────────
 
-    pub fn declare_function(&mut self, func: &TirFunction) -> Result<()> {
-        let param_types: Vec<BasicMetadataTypeEnum> = func
-            .params
-            .iter()
-            .map(|p| self.get_llvm_type(&p.ty).into())
-            .collect();
+    fn get_or_declare_function(
+        &self,
+        name: &str,
+        param_types: &[Type],
+        return_type: &Type,
+    ) -> FunctionValue<'ctx> {
+        self.module.get_function(name).unwrap_or_else(|| {
+            let llvm_params: Vec<BasicMetadataTypeEnum> = param_types
+                .iter()
+                .map(|t| self.get_llvm_type(t).into())
+                .collect();
 
-        let fn_type = if func.return_type == Type::Int {
-            self.i64_type().fn_type(&param_types, false)
-        } else {
-            self.context.void_type().fn_type(&param_types, false)
-        };
+            let fn_type = if *return_type == Type::Int {
+                self.i64_type().fn_type(&llvm_params, false)
+            } else {
+                self.context.void_type().fn_type(&llvm_params, false)
+            };
 
-        let function = self.module.add_function(&func.name, fn_type, None);
-        self.functions.insert(func.name.clone(), function);
-
-        Ok(())
+            self.module.add_function(name, fn_type, None)
+        })
     }
 
-    pub fn generate_function_body(&mut self, func: &TirFunction) -> Result<()> {
-        let function = *self
-            .functions
-            .get(&func.name)
-            .ok_or_else(|| anyhow::anyhow!("Function {} not declared", func.name))?;
+    // ── Function codegen ─────────────────────────────────────────
+
+    pub fn generate(&mut self, func: &TirFunction) -> Result<()> {
+        let param_types: Vec<Type> = func.params.iter().map(|p| p.ty.clone()).collect();
+        let function = self.get_or_declare_function(&func.name, &param_types, &func.return_type);
 
         let entry_bb = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_bb);
@@ -195,10 +209,8 @@ impl<'ctx> Codegen<'ctx> {
                     return self.codegen_print_call(&args[0]);
                 }
 
-                let function = *self
-                    .functions
-                    .get(func.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Undefined function: {}", func))?;
+                let arg_types: Vec<Type> = args.iter().map(|a| a.ty.clone()).collect();
+                let function = self.get_or_declare_function(func, &arg_types, &expr.ty);
 
                 let arg_values: Vec<BasicValueEnum> = args
                     .iter()

@@ -51,6 +51,7 @@ impl LoweringContext {
         module_path: &str,
         dependencies: &[PathBuf],
         symbol_table: &SymbolTable,
+        module_exports: &HashMap<PathBuf, Vec<String>>,
         resolver: &Resolver,
     ) -> Result<TirModule> {
         let mut ctx = Self::new(module_path.to_string());
@@ -62,6 +63,7 @@ impl LoweringContext {
             &import_details,
             dependencies,
             symbol_table,
+            module_exports,
             resolver,
         )?;
 
@@ -145,12 +147,13 @@ impl LoweringContext {
         import_details: &[ImportDetail],
         dependencies: &[PathBuf],
         symbol_table: &SymbolTable,
+        module_exports: &HashMap<PathBuf, Vec<String>>,
         resolver: &Resolver,
     ) -> Result<()> {
         let file_dir = canonical_path.parent().unwrap();
 
         for dep_path in dependencies {
-            if let Some(mangled_names) = symbol_table.get_functions_for_module(dep_path) {
+            if let Some(mangled_names) = module_exports.get(dep_path) {
                 for mangled_name in mangled_names {
                     if mangled_name.contains("$$main$") {
                         continue;

@@ -4,10 +4,9 @@ use crate::symbol_table::SymbolTable;
 use crate::tir::lower::LoweringContext;
 
 use anyhow::{bail, Context, Result};
-use inkwell::context::Context as LlvmContext;
 use pyo3::prelude::*;
 use pyo3::types::PyModule as PyPyModule;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -15,6 +14,7 @@ pub struct Compiler {
     entry_point: PathBuf,
     resolver: Resolver,
     symbol_table: SymbolTable,
+    module_exports: HashMap<PathBuf, Vec<String>>,
 }
 
 impl Compiler {
@@ -29,30 +29,30 @@ impl Compiler {
             entry_point,
             resolver,
             symbol_table: SymbolTable::new(),
+            module_exports: HashMap::new(),
         })
     }
 
     pub fn compile(&mut self, output_path: PathBuf) -> Result<()> {
-        let llvm_context = LlvmContext::create();
-        let mut codegen = Codegen::new(&llvm_context, "__main__");
+        let context = inkwell::context::Context::create();
+        let mut codegen = Codegen::new(&context);
 
         self.compile_module(
             &self.entry_point.clone(),
-            &mut HashSet::new(),
-            &mut HashSet::new(),
             &mut codegen,
+            &mut HashSet::new(),
+            &mut HashSet::new(),
         )?;
 
         let entry_main_mangled = self.resolver.mangle_synthetic_main(&self.entry_point);
-        assert!(codegen.module.get_function(&entry_main_mangled).is_some());
 
         codegen.add_c_main_wrapper(&entry_main_mangled)?;
-        assert!(codegen.module.verify().is_ok());
+        assert!(codegen.verify());
 
         let bc_path = self.entry_point.with_extension("bc");
         let ll_path = self.entry_point.with_extension("ll");
-        let _ = codegen.module.print_to_file(&ll_path);
-        codegen.module.write_bitcode_to_path(&bc_path);
+        codegen.emit_ir(&ll_path);
+        codegen.emit_bitcode(&bc_path);
 
         Self::link_with_clang(&bc_path, &output_path)?;
 
@@ -62,9 +62,9 @@ impl Compiler {
     fn compile_module(
         &mut self,
         canonical_path: &Path,
+        codegen: &mut Codegen,
         in_progress: &mut HashSet<PathBuf>,
         compiled: &mut HashSet<PathBuf>,
-        codegen: &mut Codegen,
     ) -> Result<()> {
         assert!(canonical_path.is_file());
 
@@ -82,7 +82,7 @@ impl Compiler {
         let dependencies = self.resolver.resolve_dependencies(canonical_path)?;
 
         for dep_path in &dependencies {
-            self.compile_module(dep_path, in_progress, compiled, codegen)?;
+            self.compile_module(dep_path, codegen, in_progress, compiled)?;
         }
 
         in_progress.remove(canonical_path);
@@ -99,26 +99,27 @@ impl Compiler {
                 &module_path,
                 &dependencies,
                 &self.symbol_table,
+                &self.module_exports,
                 &self.resolver,
             )
         })?;
 
-        // Register functions in symbol table
+        // Register functions in symbol table and track module exports
+        let mut export_names = Vec::new();
         for func in tir.functions.values() {
             let func_type = crate::ast::Type::Function {
                 params: func.params.iter().map(|p| p.ty.clone()).collect(),
                 return_type: Box::new(func.return_type.clone()),
             };
             self.symbol_table
-                .register_function(func.name.clone(), canonical_path, func_type);
+                .register_function(func.name.clone(), func_type);
+            export_names.push(func.name.clone());
         }
+        self.module_exports
+            .insert(canonical_path.to_path_buf(), export_names);
 
-        // Declare all signatures before generating bodies (forward references)
         for func in tir.functions.values() {
-            codegen.declare_function(func)?;
-        }
-        for func in tir.functions.values() {
-            codegen.generate_function_body(func)?;
+            codegen.generate(func)?;
         }
 
         compiled.insert(canonical_path.to_path_buf());
