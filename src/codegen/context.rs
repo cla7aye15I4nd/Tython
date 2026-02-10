@@ -44,8 +44,6 @@ impl<'ctx> Codegen<'ctx> {
             .unwrap();
     }
 
-    // ── Type helpers ─────────────────────────────────────────────
-
     fn get_llvm_type(&self, ty: &Type) -> inkwell::types::BasicTypeEnum<'ctx> {
         match ty {
             Type::Int | Type::Bool => self.context.i64_type().into(),
@@ -57,7 +55,33 @@ impl<'ctx> Codegen<'ctx> {
         self.context.i64_type()
     }
 
-    // ── Function helpers ─────────────────────────────────────────
+    fn build_truthiness_check(
+        &self,
+        value: inkwell::values::IntValue<'ctx>,
+        label: &str,
+    ) -> inkwell::values::IntValue<'ctx> {
+        self.builder
+            .build_int_compare(
+                IntPredicate::NE,
+                value,
+                self.i64_type().const_int(0, false),
+                label,
+            )
+            .unwrap()
+    }
+
+    fn branch_if_unterminated(&self, target: inkwell::basic_block::BasicBlock<'ctx>) -> bool {
+        let terminated = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_some();
+        if !terminated {
+            self.builder.build_unconditional_branch(target).unwrap();
+        }
+        terminated
+    }
 
     fn get_or_declare_function(
         &self,
@@ -80,8 +104,6 @@ impl<'ctx> Codegen<'ctx> {
             self.module.add_function(name, fn_type, None)
         })
     }
-
-    // ── Function codegen ─────────────────────────────────────────
 
     pub fn generate(&mut self, func: &TirFunction) {
         let param_types: Vec<Type> = func.params.iter().map(|p| p.ty.clone()).collect();
@@ -123,10 +145,8 @@ impl<'ctx> Codegen<'ctx> {
                 let value_llvm = self.codegen_expr(value);
 
                 if let Some(&existing_ptr) = self.variables.get(name.as_str()) {
-                    // Reassignment: store to existing alloca
                     self.builder.build_store(existing_ptr, value_llvm).unwrap();
                 } else {
-                    // New variable: create alloca and store
                     let alloca = self
                         .builder
                         .build_alloca(self.get_llvm_type(ty), name)
@@ -155,15 +175,7 @@ impl<'ctx> Codegen<'ctx> {
                 else_body,
             } => {
                 let cond_val = self.codegen_expr(condition).into_int_value();
-                let cond_bool = self
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::NE,
-                        cond_val,
-                        self.i64_type().const_int(0, false),
-                        "ifcond",
-                    )
-                    .unwrap();
+                let cond_bool = self.build_truthiness_check(cond_val, "ifcond");
 
                 let function = self
                     .builder
@@ -180,38 +192,19 @@ impl<'ctx> Codegen<'ctx> {
                     .build_conditional_branch(cond_bool, then_bb, else_bb)
                     .unwrap();
 
-                // Then block
                 self.builder.position_at_end(then_bb);
                 for s in then_body {
                     self.codegen_stmt(s);
                 }
-                let then_terminated = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_terminator()
-                    .is_some();
-                if !then_terminated {
-                    self.builder.build_unconditional_branch(merge_bb).unwrap();
-                }
+                let then_terminated = self.branch_if_unterminated(merge_bb);
 
-                // Else block
                 self.builder.position_at_end(else_bb);
                 for s in else_body {
                     self.codegen_stmt(s);
                 }
-                let else_terminated = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_terminator()
-                    .is_some();
-                if !else_terminated {
-                    self.builder.build_unconditional_branch(merge_bb).unwrap();
-                }
+                let else_terminated = self.branch_if_unterminated(merge_bb);
 
                 self.builder.position_at_end(merge_bb);
-                // If both branches terminated (e.g. both return), merge is dead
                 if then_terminated && else_terminated {
                     self.builder.build_unreachable().unwrap();
                 }
@@ -231,51 +224,25 @@ impl<'ctx> Codegen<'ctx> {
 
                 self.builder.build_unconditional_branch(header_bb).unwrap();
 
-                // Header: evaluate condition
                 self.builder.position_at_end(header_bb);
                 let cond_val = self.codegen_expr(condition).into_int_value();
-                let cond_bool = self
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::NE,
-                        cond_val,
-                        self.i64_type().const_int(0, false),
-                        "whilecond",
-                    )
-                    .unwrap();
+                let cond_bool = self.build_truthiness_check(cond_val, "whilecond");
                 self.builder
                     .build_conditional_branch(cond_bool, body_bb, after_bb)
                     .unwrap();
 
-                // Body
                 self.builder.position_at_end(body_bb);
                 for s in body {
                     self.codegen_stmt(s);
                 }
-                if self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_terminator()
-                    .is_none()
-                {
-                    self.builder.build_unconditional_branch(header_bb).unwrap();
-                }
+                self.branch_if_unterminated(header_bb);
 
                 self.builder.position_at_end(after_bb);
             }
 
             TirStmt::Assert(condition) => {
                 let cond_val = self.codegen_expr(condition).into_int_value();
-                let cond_bool = self
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::NE,
-                        cond_val,
-                        self.i64_type().const_int(0, false),
-                        "assertcond",
-                    )
-                    .unwrap();
+                let cond_bool = self.build_truthiness_check(cond_val, "assertcond");
 
                 let function = self
                     .builder
@@ -291,7 +258,6 @@ impl<'ctx> Codegen<'ctx> {
                     .build_conditional_branch(cond_bool, pass_bb, fail_bb)
                     .unwrap();
 
-                // Fail block: call abort()
                 self.builder.position_at_end(fail_bb);
                 let abort_fn = self.module.get_function("abort").unwrap_or_else(|| {
                     let abort_type = self.context.void_type().fn_type(&[], false);
@@ -304,8 +270,6 @@ impl<'ctx> Codegen<'ctx> {
             }
         }
     }
-
-    // ── Expression codegen ───────────────────────────────────────
 
     fn codegen_expr(&mut self, expr: &TirExpr) -> BasicValueEnum<'ctx> {
         match &expr.kind {
@@ -393,7 +357,6 @@ impl<'ctx> Codegen<'ctx> {
                     .build_int_compare(predicate, left_val, right_val, "cmp")
                     .unwrap();
 
-                // zext i1 -> i64 to match our Bool representation
                 self.builder
                     .build_int_z_extend(cmp_result, self.i64_type(), "zext_bool")
                     .unwrap()
@@ -433,8 +396,6 @@ impl<'ctx> Codegen<'ctx> {
 
         self.i64_type().const_int(0, false).into()
     }
-
-    // ── Entry-point wrapper ──────────────────────────────────────
 
     pub fn add_c_main_wrapper(&mut self, entry_main_name: &str) {
         let entry_fn = self.module.get_function(entry_main_name).unwrap();

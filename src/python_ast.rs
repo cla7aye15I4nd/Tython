@@ -5,7 +5,6 @@ macro_rules! ast_getattr {
     };
 }
 
-/// Extract a typed value from a PyAny object
 #[macro_export]
 macro_rules! ast_extract {
     ($node:expr, $ty:ty) => {
@@ -13,7 +12,6 @@ macro_rules! ast_extract {
     };
 }
 
-/// Get a list attribute from an AST node and cast it to PyList
 #[macro_export]
 macro_rules! ast_get_list {
     ($node:expr, $attr:expr) => {{
@@ -24,7 +22,6 @@ macro_rules! ast_get_list {
     }};
 }
 
-/// Get a string attribute from an AST node
 #[macro_export]
 macro_rules! ast_get_string {
     ($node:expr, $attr:expr) => {{
@@ -33,7 +30,6 @@ macro_rules! ast_get_string {
     }};
 }
 
-/// Get an integer attribute from an AST node
 #[macro_export]
 macro_rules! ast_get_int {
     ($node:expr, $attr:expr, $ty:ty) => {{
@@ -42,11 +38,22 @@ macro_rules! ast_get_int {
     }};
 }
 
-/// Get the type name of an AST node
 #[macro_export]
 macro_rules! ast_type_name {
     ($node:expr) => {{
         let node_ref: &pyo3::Bound<pyo3::PyAny> = &$node;
         node_ref.get_type().name().unwrap().to_string()
+    }};
+}
+
+#[macro_export]
+macro_rules! ast_get_string_or {
+    ($node:expr, $attr:expr, $default:expr) => {{
+        let val = $crate::ast_getattr!($node, $attr);
+        if val.is_none() {
+            $default
+        } else {
+            $crate::ast_extract!(val, String)
+        }
     }};
 }

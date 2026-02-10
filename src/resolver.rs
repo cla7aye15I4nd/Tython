@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::ast::Type;
-use crate::{ast_extract, ast_get_int, ast_get_list, ast_get_string, ast_getattr, ast_type_name};
+use crate::{
+    ast_extract, ast_get_int, ast_get_list, ast_get_string, ast_get_string_or, ast_getattr,
+    ast_type_name,
+};
 
 pub struct ResolvedImports {
     pub dependencies: Vec<PathBuf>,
@@ -60,12 +63,7 @@ impl Resolver {
             let path = self.resolve_absolute_import(&name)?;
             let mod_path = self.compute_module_path(&path);
 
-            let asname_node = ast_getattr!(alias, "asname");
-            let local_name = if asname_node.is_none() {
-                name
-            } else {
-                ast_extract!(asname_node, String)
-            };
+            let local_name = ast_get_string_or!(alias, "asname", name);
 
             symbols.insert(local_name, Type::Module(mod_path));
             dependencies.push(path);
@@ -91,12 +89,7 @@ impl Resolver {
 
                 for alias in ast_get_list!(node, "names").iter() {
                     let name = ast_get_string!(alias, "name");
-                    let asname_node = ast_getattr!(alias, "asname");
-                    let local_name = if asname_node.is_none() {
-                        name.clone()
-                    } else {
-                        ast_extract!(asname_node, String)
-                    };
+                    let local_name = ast_get_string_or!(alias, "asname", name.clone());
                     let mangled = format!("{}${}", mod_path, name);
                     symbols.insert(local_name, Type::Module(mangled));
                 }
@@ -114,12 +107,7 @@ impl Resolver {
             let path = self.resolve_module(file_dir, level, &module)?;
             let mod_path = self.compute_module_path(&path);
 
-            let asname_node = ast_getattr!(alias, "asname");
-            let local_name = if asname_node.is_none() {
-                name
-            } else {
-                ast_extract!(asname_node, String)
-            };
+            let local_name = ast_get_string_or!(alias, "asname", name);
 
             symbols.insert(local_name, Type::Module(mod_path));
             dependencies.push(path);

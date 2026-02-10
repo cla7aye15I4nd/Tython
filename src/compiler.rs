@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ModuleColor {
-    Gray,  // in progress (dependencies being compiled)
-    Black, // fully compiled
+    Gray,
+    Black,
 }
 
 enum CompileAction {

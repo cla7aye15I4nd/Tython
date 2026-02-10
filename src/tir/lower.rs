@@ -8,11 +8,10 @@ use super::{
     BinOpKind, CmpOp, FunctionParam, TirExpr, TirExprKind, TirFunction, TirModule, TirStmt,
 };
 use crate::ast::Type;
-use crate::symbol_table::SymbolTable;
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 pub struct Lowering {
-    symbol_table: SymbolTable,
+    symbol_table: HashMap<String, Type>,
 
     current_module_name: String,
     current_return_type: Option<Type>,
@@ -28,14 +27,12 @@ impl Default for Lowering {
 impl Lowering {
     pub fn new() -> Self {
         Self {
-            symbol_table: SymbolTable::new(),
+            symbol_table: HashMap::new(),
             current_module_name: String::new(),
             current_return_type: None,
             scopes: Vec::new(),
         }
     }
-
-    // ── Scope helpers ────────────────────────────────────────────
 
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
@@ -58,8 +55,6 @@ impl Lowering {
         None
     }
 
-    // ── Module entry point ───────────────────────────────────────
-
     pub fn lower_module(
         &mut self,
         canonical_path: &Path,
@@ -70,10 +65,8 @@ impl Lowering {
         self.current_return_type = None;
         self.current_module_name = module_path.to_string();
 
-        // Push module scope
         self.push_scope();
 
-        // Populate module scope with imports (all stored as Type::Module(mangled))
         for (local_name, ty) in imports {
             if let Type::Module(mangled) = ty {
                 self.declare(local_name.clone(), Type::Module(mangled.clone()));
@@ -92,14 +85,12 @@ impl Lowering {
     fn lower_py_ast(&mut self, py_ast: &Bound<PyAny>) -> Result<TirModule> {
         let body_list = ast_get_list!(py_ast, "body");
 
-        // Phase 1: collect all function signatures into module scope
         for node in body_list.iter() {
             if ast_type_name!(node) == "FunctionDef" {
                 self.collect_function_signature(&node)?;
             }
         }
 
-        // Phase 2: lower function bodies + collect module-level statements
         let mut functions = HashMap::new();
         let mut module_level_stmts = Vec::new();
 
@@ -126,8 +117,7 @@ impl Lowering {
                 params: func.params.iter().map(|p| p.ty.clone()).collect(),
                 return_type: Box::new(func.return_type.clone()),
             };
-            self.symbol_table
-                .register_function(func.name.clone(), func_type);
+            self.symbol_table.insert(func.name.clone(), func_type);
         }
 
         Ok(TirModule { functions })
@@ -179,7 +169,7 @@ impl Lowering {
 
         let return_type = Self::convert_return_type(node)?;
 
-        self.push_scope(); // function scope
+        self.push_scope();
         for param in &params {
             self.declare(param.name.clone(), param.ty.clone());
         }
@@ -201,7 +191,7 @@ impl Lowering {
             })?);
         }
 
-        self.pop_scope(); // pop function scope
+        self.pop_scope();
         self.current_return_type = None;
 
         Ok(TirFunction {
@@ -225,8 +215,6 @@ impl Lowering {
             body: stmts,
         }
     }
-
-    // ── Statement lowering ───────────────────────────────────────
 
     fn lower_stmt(&mut self, node: &Bound<PyAny>) -> Result<TirStmt> {
         let node_type = ast_type_name!(node);
@@ -387,8 +375,6 @@ impl Lowering {
         }
     }
 
-    // ── Expression lowering ──────────────────────────────────────
-
     fn lower_expr(&mut self, node: &Bound<PyAny>) -> Result<TirExpr> {
         let node_type = ast_type_name!(node);
         let line = Self::get_line(node);
@@ -397,7 +383,6 @@ impl Lowering {
         match node_type.as_str() {
             "Constant" => {
                 let value = ast_getattr!(node, "value");
-                // Check bool before i64 since Python bool is a subclass of int
                 if value.is_instance_of::<pyo3::types::PyBool>() {
                     let bool_val = value.extract::<bool>()?;
                     Ok(TirExpr {
@@ -504,8 +489,6 @@ impl Lowering {
         }
     }
 
-    // ── Call lowering ────────────────────────────────────────────
-
     fn lower_call(&mut self, node: &Bound<PyAny>, line: usize, col: usize) -> Result<TirExpr> {
         let func_node = ast_getattr!(node, "func");
         let args_list = ast_get_list!(node, "args");
@@ -541,7 +524,6 @@ impl Lowering {
 
                 match &scope_type {
                     Type::Function { .. } => {
-                        // Local function defined in this module
                         let return_type =
                             self.check_call_args(&func_name, &scope_type, &tir_args, line)?;
                         let mangled = self.mangle_name(&func_name);
@@ -554,10 +536,9 @@ impl Lowering {
                         })
                     }
                     Type::Module(mangled) => {
-                        // Imported function (from X import func)
                         let func_type = self
                             .symbol_table
-                            .get_type(mangled)
+                            .get(mangled)
                             .ok_or_else(|| {
                                 anyhow::anyhow!(
                                     "Imported symbol '{}' not found in symbol table at line {}",
@@ -602,7 +583,7 @@ impl Lowering {
 
                 let func_type = self
                     .symbol_table
-                    .get_type(&resolved)
+                    .get(&resolved)
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "Undefined function: {}.{} at line {}, column {}",
@@ -669,8 +650,6 @@ impl Lowering {
             _ => bail!("Cannot call non-function type at line {}", line),
         }
     }
-
-    // ── Helpers ──────────────────────────────────────────────────
 
     fn mangle_name(&self, name: &str) -> String {
         format!("{}${}", self.current_module_name, name)
