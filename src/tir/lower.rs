@@ -4,19 +4,19 @@ use pyo3::types::PyModule;
 use std::collections::HashMap;
 use std::path::Path;
 
-use super::{BinOpKind, FunctionParam, TirExpr, TirExprKind, TirFunction, TirModule, TirStmt};
+use super::{
+    BinOpKind, CmpOp, FunctionParam, TirExpr, TirExprKind, TirFunction, TirModule, TirStmt,
+};
 use crate::ast::Type;
 use crate::symbol_table::SymbolTable;
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 pub struct Lowering {
     symbol_table: SymbolTable,
-    module_path: String,
-    functions: HashMap<String, Type>,
-    call_resolution_map: HashMap<String, String>,
-    module_import_map: HashMap<String, String>,
-    variables: HashMap<String, Type>,
+
+    current_module_name: String,
     current_return_type: Option<Type>,
+    scopes: Vec<HashMap<String, Type>>,
 }
 
 impl Default for Lowering {
@@ -29,14 +29,36 @@ impl Lowering {
     pub fn new() -> Self {
         Self {
             symbol_table: SymbolTable::new(),
-            module_path: String::new(),
-            functions: HashMap::new(),
-            call_resolution_map: HashMap::new(),
-            module_import_map: HashMap::new(),
-            variables: HashMap::new(),
+            current_module_name: String::new(),
             current_return_type: None,
+            scopes: Vec::new(),
         }
     }
+
+    // ── Scope helpers ────────────────────────────────────────────
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn declare(&mut self, name: String, ty: Type) {
+        self.scopes.last_mut().unwrap().insert(name, ty);
+    }
+
+    fn lookup(&self, name: &str) -> Option<&Type> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(ty) = scope.get(name) {
+                return Some(ty);
+            }
+        }
+        None
+    }
+
+    // ── Module entry point ───────────────────────────────────────
 
     pub fn lower_module(
         &mut self,
@@ -44,23 +66,17 @@ impl Lowering {
         module_path: &str,
         imports: &HashMap<String, Type>,
     ) -> Result<TirModule> {
-        self.module_path = module_path.to_string();
-        self.functions.clear();
-        self.call_resolution_map.clear();
-        self.module_import_map.clear();
-        self.variables.clear();
+        self.scopes.clear();
         self.current_return_type = None;
+        self.current_module_name = module_path.to_string();
 
+        // Push module scope
+        self.push_scope();
+
+        // Populate module scope with imports (all stored as Type::Module(mangled))
         for (local_name, ty) in imports {
             if let Type::Module(mangled) = ty {
-                if let Some(func_type) = self.symbol_table.get_type(mangled) {
-                    self.functions.insert(local_name.clone(), func_type.clone());
-                    self.call_resolution_map
-                        .insert(local_name.clone(), mangled.clone());
-                } else {
-                    self.module_import_map
-                        .insert(local_name.clone(), mangled.clone());
-                }
+                self.declare(local_name.clone(), Type::Module(mangled.clone()));
             }
         }
 
@@ -76,7 +92,7 @@ impl Lowering {
     fn lower_py_ast(&mut self, py_ast: &Bound<PyAny>) -> Result<TirModule> {
         let body_list = ast_get_list!(py_ast, "body");
 
-        // Phase 1: collect all function signatures
+        // Phase 1: collect all function signatures into module scope
         for node in body_list.iter() {
             if ast_type_name!(node) == "FunctionDef" {
                 self.collect_function_signature(&node)?;
@@ -93,7 +109,7 @@ impl Lowering {
                     let tir_func = self.lower_function(&node)?;
                     functions.insert(tir_func.name.clone(), tir_func);
                 }
-                "Import" | "ImportFrom" | "Assert" => {}
+                "Import" | "ImportFrom" => {}
                 _ => {
                     module_level_stmts.push(self.lower_stmt(&node)?);
                 }
@@ -143,10 +159,7 @@ impl Lowering {
             return_type: Box::new(return_type),
         };
 
-        self.functions.insert(name.clone(), func_type);
-        let mangled = self.mangle_name(&name);
-        self.call_resolution_map.insert(name, mangled);
-
+        self.declare(name, func_type);
         Ok(())
     }
 
@@ -166,9 +179,9 @@ impl Lowering {
 
         let return_type = Self::convert_return_type(node)?;
 
-        self.variables.clear();
+        self.push_scope(); // function scope
         for param in &params {
-            self.variables.insert(param.name.clone(), param.ty.clone());
+            self.declare(param.name.clone(), param.ty.clone());
         }
         self.current_return_type = Some(return_type.clone());
 
@@ -176,7 +189,7 @@ impl Lowering {
         let mut tir_body = Vec::new();
         for stmt_node in body_list.iter() {
             let node_type = ast_type_name!(stmt_node);
-            if node_type == "Import" || node_type == "ImportFrom" || node_type == "Assert" {
+            if node_type == "Import" || node_type == "ImportFrom" {
                 continue;
             }
             tir_body.push(self.lower_stmt(&stmt_node).with_context(|| {
@@ -188,7 +201,7 @@ impl Lowering {
             })?);
         }
 
-        self.variables.clear();
+        self.pop_scope(); // pop function scope
         self.current_return_type = None;
 
         Ok(TirFunction {
@@ -206,12 +219,14 @@ impl Lowering {
         })));
 
         TirFunction {
-            name: format!("{}$$main$", self.module_path),
+            name: self.mangle_name("$main$"),
             params: Vec::new(),
             return_type: Type::Int,
             body: stmts,
         }
     }
+
+    // ── Statement lowering ───────────────────────────────────────
 
     fn lower_stmt(&mut self, node: &Bound<PyAny>) -> Result<TirStmt> {
         let node_type = ast_type_name!(node);
@@ -250,7 +265,7 @@ impl Lowering {
                 }
 
                 let var_type = annotated_ty.unwrap_or_else(|| tir_value.ty.clone());
-                self.variables.insert(target.clone(), var_type.clone());
+                self.declare(target.clone(), var_type.clone());
 
                 Ok(TirStmt::Let {
                     name: target,
@@ -277,7 +292,7 @@ impl Lowering {
                 let value_node = ast_getattr!(node, "value");
                 let tir_value = self.lower_expr(&value_node)?;
                 let var_type = tir_value.ty.clone();
-                self.variables.insert(target.clone(), var_type.clone());
+                self.declare(target.clone(), var_type.clone());
 
                 Ok(TirStmt::Let {
                     name: target,
@@ -320,9 +335,59 @@ impl Lowering {
                 Ok(TirStmt::Expr(self.lower_expr(&value_node)?))
             }
 
+            "If" => {
+                let test_node = ast_getattr!(node, "test");
+                let condition = self.lower_expr(&test_node)?;
+
+                let body_list = ast_get_list!(node, "body");
+                self.push_scope();
+                let mut then_body = Vec::new();
+                for stmt_node in body_list.iter() {
+                    then_body.push(self.lower_stmt(&stmt_node)?);
+                }
+                self.pop_scope();
+
+                let orelse_list = ast_get_list!(node, "orelse");
+                self.push_scope();
+                let mut else_body = Vec::new();
+                for stmt_node in orelse_list.iter() {
+                    else_body.push(self.lower_stmt(&stmt_node)?);
+                }
+                self.pop_scope();
+
+                Ok(TirStmt::If {
+                    condition,
+                    then_body,
+                    else_body,
+                })
+            }
+
+            "While" => {
+                let test_node = ast_getattr!(node, "test");
+                let condition = self.lower_expr(&test_node)?;
+
+                let body_list = ast_get_list!(node, "body");
+                self.push_scope();
+                let mut body = Vec::new();
+                for stmt_node in body_list.iter() {
+                    body.push(self.lower_stmt(&stmt_node)?);
+                }
+                self.pop_scope();
+
+                Ok(TirStmt::While { condition, body })
+            }
+
+            "Assert" => {
+                let test_node = ast_getattr!(node, "test");
+                let condition = self.lower_expr(&test_node)?;
+                Ok(TirStmt::Assert(condition))
+            }
+
             _ => bail!("Unsupported statement type: {} at line {}", node_type, line),
         }
     }
+
+    // ── Expression lowering ──────────────────────────────────────
 
     fn lower_expr(&mut self, node: &Bound<PyAny>) -> Result<TirExpr> {
         let node_type = ast_type_name!(node);
@@ -332,7 +397,14 @@ impl Lowering {
         match node_type.as_str() {
             "Constant" => {
                 let value = ast_getattr!(node, "value");
-                if let Ok(int_val) = value.extract::<i64>() {
+                // Check bool before i64 since Python bool is a subclass of int
+                if value.is_instance_of::<pyo3::types::PyBool>() {
+                    let bool_val = value.extract::<bool>()?;
+                    Ok(TirExpr {
+                        kind: TirExprKind::IntLiteral(if bool_val { 1 } else { 0 }),
+                        ty: Type::Bool,
+                    })
+                } else if let Ok(int_val) = value.extract::<i64>() {
                     Ok(TirExpr {
                         kind: TirExprKind::IntLiteral(int_val),
                         ty: Type::Int,
@@ -344,7 +416,7 @@ impl Lowering {
 
             "Name" => {
                 let id = ast_get_string!(node, "id");
-                let ty = self.variables.get(&id).cloned().ok_or_else(|| {
+                let ty = self.lookup(&id).cloned().ok_or_else(|| {
                     anyhow::anyhow!(
                         "Undefined variable: {} at line {}, column {}",
                         id,
@@ -383,6 +455,38 @@ impl Lowering {
                 })
             }
 
+            "Compare" => {
+                let left = self.lower_expr(&ast_getattr!(node, "left"))?;
+                let ops_list = ast_get_list!(node, "ops");
+                let comparators_list = ast_get_list!(node, "comparators");
+
+                if ops_list.len() != 1 {
+                    bail!("Chained comparisons not yet supported at line {}", line);
+                }
+
+                let op_node = ops_list.get_item(0)?;
+                let cmp_op = Self::convert_cmpop(&op_node)?;
+                let right = self.lower_expr(&comparators_list.get_item(0)?)?;
+
+                if left.ty != right.ty {
+                    bail!(
+                        "Comparison operands must have same type at line {}: got {:?} and {:?}",
+                        line,
+                        left.ty,
+                        right.ty
+                    );
+                }
+
+                Ok(TirExpr {
+                    kind: TirExprKind::Compare {
+                        op: cmp_op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    ty: Type::Bool,
+                })
+            }
+
             "Call" => self.lower_call(node, line, col),
 
             "Attribute" => {
@@ -399,6 +503,8 @@ impl Lowering {
             ),
         }
     }
+
+    // ── Call lowering ────────────────────────────────────────────
 
     fn lower_call(&mut self, node: &Bound<PyAny>, line: usize, col: usize) -> Result<TirExpr> {
         let func_node = ast_getattr!(node, "func");
@@ -424,7 +530,7 @@ impl Lowering {
                     });
                 }
 
-                let func_type = self.functions.get(&func_name).cloned().ok_or_else(|| {
+                let scope_type = self.lookup(&func_name).cloned().ok_or_else(|| {
                     anyhow::anyhow!(
                         "Undefined function: {} at line {}, column {}",
                         func_name,
@@ -433,21 +539,45 @@ impl Lowering {
                     )
                 })?;
 
-                let return_type = self.check_call_args(&func_name, &func_type, &tir_args, line)?;
-
-                let resolved = self
-                    .call_resolution_map
-                    .get(&func_name)
-                    .cloned()
-                    .unwrap_or(func_name);
-
-                Ok(TirExpr {
-                    kind: TirExprKind::Call {
-                        func: resolved,
-                        args: tir_args,
-                    },
-                    ty: return_type,
-                })
+                match &scope_type {
+                    Type::Function { .. } => {
+                        // Local function defined in this module
+                        let return_type =
+                            self.check_call_args(&func_name, &scope_type, &tir_args, line)?;
+                        let mangled = self.mangle_name(&func_name);
+                        Ok(TirExpr {
+                            kind: TirExprKind::Call {
+                                func: mangled,
+                                args: tir_args,
+                            },
+                            ty: return_type,
+                        })
+                    }
+                    Type::Module(mangled) => {
+                        // Imported function (from X import func)
+                        let func_type = self
+                            .symbol_table
+                            .get_type(mangled)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Imported symbol '{}' not found in symbol table at line {}",
+                                    func_name,
+                                    line
+                                )
+                            })?
+                            .clone();
+                        let return_type =
+                            self.check_call_args(&func_name, &func_type, &tir_args, line)?;
+                        Ok(TirExpr {
+                            kind: TirExprKind::Call {
+                                func: mangled.clone(),
+                                args: tir_args,
+                            },
+                            ty: return_type,
+                        })
+                    }
+                    _ => bail!("'{}' is not callable at line {}", func_name, line),
+                }
             }
 
             "Attribute" => {
@@ -459,9 +589,15 @@ impl Lowering {
                 }
                 let mod_name = ast_get_string!(value_node, "id");
 
-                let mod_path = self.module_import_map.get(&mod_name).ok_or_else(|| {
+                let mod_type = self.lookup(&mod_name).cloned().ok_or_else(|| {
                     anyhow::anyhow!("Unknown module: {} at line {}", mod_name, line)
                 })?;
+
+                let mod_path = match &mod_type {
+                    Type::Module(path) => path.clone(),
+                    _ => bail!("'{}' is not a module at line {}", mod_name, line),
+                };
+
                 let resolved = format!("{}${}", mod_path, attr);
 
                 let func_type = self
@@ -534,12 +670,10 @@ impl Lowering {
         }
     }
 
+    // ── Helpers ──────────────────────────────────────────────────
+
     fn mangle_name(&self, name: &str) -> String {
-        if name == "main" {
-            format!("{}$$main$", self.module_path)
-        } else {
-            format!("{}${}", self.module_path, name)
-        }
+        format!("{}${}", self.current_module_name, name)
     }
 
     fn convert_return_type(node: &Bound<PyAny>) -> Result<Type> {
@@ -570,6 +704,19 @@ impl Lowering {
                 }
             }
             _ => bail!("Unsupported type annotation: {}", node_type),
+        }
+    }
+
+    fn convert_cmpop(node: &Bound<PyAny>) -> Result<CmpOp> {
+        let op_type = ast_type_name!(node);
+        match op_type.as_str() {
+            "Eq" => Ok(CmpOp::Eq),
+            "NotEq" => Ok(CmpOp::NotEq),
+            "Lt" => Ok(CmpOp::Lt),
+            "LtE" => Ok(CmpOp::LtEq),
+            "Gt" => Ok(CmpOp::Gt),
+            "GtE" => Ok(CmpOp::GtEq),
+            _ => bail!("Unsupported comparison operator: {}", op_type),
         }
     }
 

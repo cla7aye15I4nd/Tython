@@ -12,6 +12,16 @@ pub enum BinOpKind {
     Mod,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CmpOp {
+    Eq,
+    NotEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+}
+
 #[derive(Debug, Clone)]
 pub struct FunctionParam {
     pub name: String,
@@ -46,6 +56,16 @@ pub enum TirStmt {
     },
     Return(Option<TirExpr>),
     Expr(TirExpr),
+    If {
+        condition: TirExpr,
+        then_body: Vec<TirStmt>,
+        else_body: Vec<TirStmt>,
+    },
+    While {
+        condition: TirExpr,
+        body: Vec<TirStmt>,
+    },
+    Assert(TirExpr),
 }
 
 #[derive(Debug, Clone)]
@@ -66,5 +86,10 @@ pub enum TirExprKind {
     Call {
         func: String,
         args: Vec<TirExpr>,
+    },
+    Compare {
+        op: CmpOp,
+        left: Box<TirExpr>,
+        right: Box<TirExpr>,
     },
 }
