@@ -1,9 +1,16 @@
 use anyhow::{Context, Result};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::ast::Type;
 use crate::{ast_extract, ast_get_int, ast_get_list, ast_get_string, ast_getattr, ast_type_name};
+
+pub struct ResolvedImports {
+    pub dependencies: Vec<PathBuf>,
+    pub symbols: HashMap<String, Type>,
+}
 
 pub struct Resolver {
     base_dir: PathBuf,
@@ -14,7 +21,7 @@ impl Resolver {
         Self { base_dir }
     }
 
-    pub fn resolve_dependencies(&self, file_path: &Path) -> Result<Vec<PathBuf>> {
+    pub fn resolve_imports(&self, file_path: &Path) -> Result<ResolvedImports> {
         assert!(file_path.is_file());
 
         Python::attach(|py| {
@@ -24,17 +31,23 @@ impl Resolver {
             let file_dir = file_path.parent().unwrap();
 
             let mut dependencies = Vec::new();
+            let mut symbols = HashMap::new();
             let body_list = ast_get_list!(&ast, "body");
 
             for node in body_list.iter() {
                 match ast_type_name!(node).as_str() {
-                    "Import" => self.handle_import(&node, &mut dependencies)?,
-                    "ImportFrom" => self.handle_import_from(&node, file_dir, &mut dependencies)?,
+                    "Import" => self.handle_import(&node, &mut dependencies, &mut symbols)?,
+                    "ImportFrom" => {
+                        self.handle_import_from(&node, file_dir, &mut dependencies, &mut symbols)?
+                    }
                     _ => {}
                 }
             }
 
-            Ok(dependencies)
+            Ok(ResolvedImports {
+                dependencies,
+                symbols,
+            })
         })
     }
 
@@ -42,10 +55,22 @@ impl Resolver {
         &self,
         node: &Bound<'_, PyAny>,
         dependencies: &mut Vec<PathBuf>,
+        symbols: &mut HashMap<String, Type>,
     ) -> Result<()> {
         for alias in ast_get_list!(node, "names").iter() {
             let name = ast_get_string!(alias, "name");
-            dependencies.push(self.resolve_absolute_import(&name)?);
+            let path = self.resolve_absolute_import(&name)?;
+            let mod_path = self.compute_module_path(&path);
+
+            let asname_node = ast_getattr!(alias, "asname");
+            let local_name = if asname_node.is_none() {
+                name
+            } else {
+                ast_extract!(asname_node, String)
+            };
+
+            symbols.insert(local_name, Type::Module(mod_path));
+            dependencies.push(path);
         }
         Ok(())
     }
@@ -55,6 +80,7 @@ impl Resolver {
         node: &Bound<'_, PyAny>,
         file_dir: &Path,
         dependencies: &mut Vec<PathBuf>,
+        symbols: &mut HashMap<String, Type>,
     ) -> Result<()> {
         let level = ast_get_int!(node, "level", usize);
         let module_val = ast_getattr!(node, "module");
@@ -62,7 +88,21 @@ impl Resolver {
 
         if let Some(ref mod_name) = module_name {
             if let Ok(module_file) = self.resolve_module(file_dir, level, mod_name) {
+                let mod_path = self.compute_module_path(&module_file);
                 dependencies.push(module_file);
+
+                for alias in ast_get_list!(node, "names").iter() {
+                    let name = ast_get_string!(alias, "name");
+                    let asname_node = ast_getattr!(alias, "asname");
+                    let local_name = if asname_node.is_none() {
+                        name.clone()
+                    } else {
+                        ast_extract!(asname_node, String)
+                    };
+                    let mangled = format!("{}${}", mod_path, name);
+                    symbols.insert(local_name, Type::Module(mangled));
+                }
+
                 return Ok(());
             }
         }
@@ -70,10 +110,21 @@ impl Resolver {
         for alias in ast_get_list!(node, "names").iter() {
             let name = ast_get_string!(alias, "name");
             let module = match &module_name {
-                None => name,
+                None => name.clone(),
                 Some(base) => format!("{}.{}", base, name),
             };
-            dependencies.push(self.resolve_module(file_dir, level, &module)?);
+            let path = self.resolve_module(file_dir, level, &module)?;
+            let mod_path = self.compute_module_path(&path);
+
+            let asname_node = ast_getattr!(alias, "asname");
+            let local_name = if asname_node.is_none() {
+                name
+            } else {
+                ast_extract!(asname_node, String)
+            };
+
+            symbols.insert(local_name, Type::Module(mod_path));
+            dependencies.push(path);
         }
 
         Ok(())
@@ -127,10 +178,6 @@ impl Resolver {
         let relative = file_path.strip_prefix(&self.base_dir).unwrap();
         let without_ext = relative.with_extension("");
         without_ext.to_string_lossy().replace('/', ".")
-    }
-
-    pub fn mangle_function_name(&self, file_path: &Path, func_name: &str) -> String {
-        format!("{}${}", self.compute_module_path(file_path), func_name)
     }
 
     pub fn mangle_synthetic_main(&self, file_path: &Path) -> String {

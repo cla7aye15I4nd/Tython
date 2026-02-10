@@ -5,5 +5,6 @@ pub enum Type {
         params: Vec<Type>,
         return_type: Box<Type>,
     },
+    Module(String),
     Unit,
 }

@@ -1,11 +1,9 @@
+use crate::ast::Type;
 use crate::codegen::Codegen;
 use crate::resolver::Resolver;
-use crate::symbol_table::SymbolTable;
-use crate::tir::lower::LoweringContext;
+use crate::tir::lower::Lowering;
 
 use anyhow::{bail, Result};
-use pyo3::prelude::*;
-use pyo3::types::PyModule;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -17,14 +15,12 @@ enum ModuleColor {
 
 enum CompileAction {
     Enter(PathBuf),
-    Compile(PathBuf, Vec<PathBuf>),
+    Compile(PathBuf, HashMap<String, Type>),
 }
 
 pub struct Compiler {
     entry_point: PathBuf,
     resolver: Resolver,
-    symbol_table: SymbolTable,
-    module_exports: HashMap<PathBuf, Vec<String>>,
 }
 
 impl Compiler {
@@ -38,16 +34,15 @@ impl Compiler {
         Ok(Self {
             entry_point,
             resolver,
-            symbol_table: SymbolTable::new(),
-            module_exports: HashMap::new(),
         })
     }
 
     pub fn compile(&mut self, output_path: PathBuf) -> Result<()> {
         let context = inkwell::context::Context::create();
         let mut codegen = Codegen::new(&context);
+        let mut lowering = Lowering::new();
 
-        self.compile_modules(&self.entry_point.clone(), &mut codegen)?;
+        self.compile_modules(&self.entry_point.clone(), &mut codegen, &mut lowering)?;
 
         let entry_main_mangled = self.resolver.mangle_synthetic_main(&self.entry_point);
 
@@ -58,7 +53,12 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_modules(&mut self, entry: &Path, codegen: &mut Codegen) -> Result<()> {
+    fn compile_modules(
+        &mut self,
+        entry: &Path,
+        codegen: &mut Codegen,
+        lowering: &mut Lowering,
+    ) -> Result<()> {
         let mut colors: HashMap<PathBuf, ModuleColor> = HashMap::new();
         let mut stack = vec![CompileAction::Enter(entry.to_path_buf())];
 
@@ -78,42 +78,15 @@ impl Compiler {
                     log::info!("Compiling module: {}", path.display());
                     colors.insert(path.clone(), ModuleColor::Gray);
 
-                    let dependencies = self.resolver.resolve_dependencies(&path)?;
-                    stack.push(CompileAction::Compile(path, dependencies.clone()));
-                    for dep in dependencies.into_iter().rev() {
+                    let resolved = self.resolver.resolve_imports(&path)?;
+                    stack.push(CompileAction::Compile(path, resolved.symbols));
+                    for dep in resolved.dependencies.into_iter().rev() {
                         stack.push(CompileAction::Enter(dep));
                     }
                 }
-                CompileAction::Compile(path, dependencies) => {
-                    // Single-pass lowering: Python AST → TIR
+                CompileAction::Compile(path, imports) => {
                     let module_path = self.resolver.compute_module_path(&path);
-                    let mut lowering = LoweringContext::new(module_path);
-                    let tir = Python::attach(|py| -> Result<_> {
-                        let source = std::fs::read_to_string(&path)?;
-                        let ast_module = PyModule::import(py, "ast")?;
-                        let py_ast = ast_module.call_method1("parse", (source.as_str(),))?;
-                        lowering.lower_module(
-                            &py_ast,
-                            &path,
-                            &dependencies,
-                            &self.symbol_table,
-                            &self.module_exports,
-                            &self.resolver,
-                        )
-                    })?;
-
-                    // Register functions in symbol table and track module exports
-                    let mut export_names = Vec::new();
-                    for func in tir.functions.values() {
-                        let func_type = crate::ast::Type::Function {
-                            params: func.params.iter().map(|p| p.ty.clone()).collect(),
-                            return_type: Box::new(func.return_type.clone()),
-                        };
-                        self.symbol_table
-                            .register_function(func.name.clone(), func_type);
-                        export_names.push(func.name.clone());
-                    }
-                    self.module_exports.insert(path.to_path_buf(), export_names);
+                    let tir = lowering.lower_module(&path, &module_path, &imports)?;
 
                     for func in tir.functions.values() {
                         codegen.generate(func);

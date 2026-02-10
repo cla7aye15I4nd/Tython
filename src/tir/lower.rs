@@ -1,30 +1,16 @@
 use anyhow::{bail, Context as _, Result};
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::{BinOpKind, FunctionParam, TirExpr, TirExprKind, TirFunction, TirModule, TirStmt};
 use crate::ast::Type;
-use crate::resolver::Resolver;
 use crate::symbol_table::SymbolTable;
-use crate::{ast_get_int, ast_get_list, ast_get_string, ast_getattr, ast_type_name};
+use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ImportKind {
-    Module,
-    Function,
-}
-
-#[derive(Debug, Clone)]
-pub struct ImportDetail {
-    pub kind: ImportKind,
-    pub local_name: String,
-    pub original_name: String,
-    pub source_module: Option<String>,
-    pub level: usize,
-}
-
-pub struct LoweringContext {
+pub struct Lowering {
+    symbol_table: SymbolTable,
     module_path: String,
     functions: HashMap<String, Type>,
     call_resolution_map: HashMap<String, String>,
@@ -33,10 +19,17 @@ pub struct LoweringContext {
     current_return_type: Option<Type>,
 }
 
-impl LoweringContext {
-    pub fn new(module_path: String) -> Self {
+impl Default for Lowering {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Lowering {
+    pub fn new() -> Self {
         Self {
-            module_path,
+            symbol_table: SymbolTable::new(),
+            module_path: String::new(),
             functions: HashMap::new(),
             call_resolution_map: HashMap::new(),
             module_import_map: HashMap::new(),
@@ -47,24 +40,41 @@ impl LoweringContext {
 
     pub fn lower_module(
         &mut self,
-        py_ast: &Bound<PyAny>,
         canonical_path: &Path,
-        dependencies: &[PathBuf],
-        symbol_table: &SymbolTable,
-        module_exports: &HashMap<PathBuf, Vec<String>>,
-        resolver: &Resolver,
+        module_path: &str,
+        imports: &HashMap<String, Type>,
     ) -> Result<TirModule> {
-        let body_list = ast_get_list!(py_ast, "body");
+        self.module_path = module_path.to_string();
+        self.functions.clear();
+        self.call_resolution_map.clear();
+        self.module_import_map.clear();
+        self.variables.clear();
+        self.current_return_type = None;
 
-        let import_details = Self::extract_import_info(py_ast)?;
-        self.register_imports(
-            canonical_path,
-            &import_details,
-            dependencies,
-            symbol_table,
-            module_exports,
-            resolver,
-        )?;
+        for (local_name, ty) in imports {
+            if let Type::Module(mangled) = ty {
+                if let Some(func_type) = self.symbol_table.get_type(mangled) {
+                    self.functions.insert(local_name.clone(), func_type.clone());
+                    self.call_resolution_map
+                        .insert(local_name.clone(), mangled.clone());
+                } else {
+                    self.module_import_map
+                        .insert(local_name.clone(), mangled.clone());
+                }
+            }
+        }
+
+        Python::attach(|py| -> Result<_> {
+            let source = std::fs::read_to_string(canonical_path)?;
+            let ast_module = PyModule::import(py, "ast")?;
+            let py_ast = ast_module.call_method1("parse", (source.as_str(),))?;
+
+            self.lower_py_ast(&py_ast)
+        })
+    }
+
+    fn lower_py_ast(&mut self, py_ast: &Bound<PyAny>) -> Result<TirModule> {
+        let body_list = ast_get_list!(py_ast, "body");
 
         // Phase 1: collect all function signatures
         for node in body_list.iter() {
@@ -95,123 +105,16 @@ impl LoweringContext {
             functions.insert(main_func.name.clone(), main_func);
         }
 
+        for func in functions.values() {
+            let func_type = Type::Function {
+                params: func.params.iter().map(|p| p.ty.clone()).collect(),
+                return_type: Box::new(func.return_type.clone()),
+            };
+            self.symbol_table
+                .register_function(func.name.clone(), func_type);
+        }
+
         Ok(TirModule { functions })
-    }
-
-    fn extract_import_info(py_ast: &Bound<PyAny>) -> Result<Vec<ImportDetail>> {
-        let body_list = ast_get_list!(py_ast, "body");
-        let mut imports = Vec::new();
-
-        for node in body_list.iter() {
-            if ast_type_name!(node) != "ImportFrom" {
-                continue;
-            }
-
-            let level = ast_get_int!(node, "level", usize);
-            let module_val = ast_getattr!(node, "module");
-            let module_name: Option<String> = (!module_val.is_none())
-                .then(|| module_val.extract::<String>())
-                .transpose()?;
-
-            for name_node in ast_get_list!(node, "names").iter() {
-                let name = ast_get_string!(name_node, "name");
-                let asname_node = ast_getattr!(name_node, "asname");
-                let local_name = if asname_node.is_none() {
-                    name.clone()
-                } else {
-                    asname_node.extract::<String>()?
-                };
-
-                let (kind, source_module) = match &module_name {
-                    Some(m) => (ImportKind::Function, Some(m.clone())),
-                    None => (ImportKind::Module, None),
-                };
-
-                imports.push(ImportDetail {
-                    kind,
-                    local_name,
-                    original_name: name,
-                    source_module,
-                    level,
-                });
-            }
-        }
-
-        Ok(imports)
-    }
-
-    fn register_imports(
-        &mut self,
-        canonical_path: &Path,
-        import_details: &[ImportDetail],
-        dependencies: &[PathBuf],
-        symbol_table: &SymbolTable,
-        module_exports: &HashMap<PathBuf, Vec<String>>,
-        resolver: &Resolver,
-    ) -> Result<()> {
-        let file_dir = canonical_path.parent().unwrap();
-
-        for dep_path in dependencies {
-            if let Some(mangled_names) = module_exports.get(dep_path) {
-                for mangled_name in mangled_names {
-                    if mangled_name.contains("$$main$") {
-                        continue;
-                    }
-                    let func_type = symbol_table.get_type(mangled_name).unwrap().clone();
-                    let name = Self::original_name_from_mangled(mangled_name);
-                    self.functions.insert(name, func_type);
-                }
-            }
-        }
-
-        for detail in import_details {
-            if detail.local_name != detail.original_name {
-                for dep_path in dependencies {
-                    let mangled = resolver.mangle_function_name(dep_path, &detail.original_name);
-                    if let Some(func_type) = symbol_table.get_type(&mangled) {
-                        self.functions
-                            .insert(detail.local_name.clone(), func_type.clone());
-                        break;
-                    }
-                }
-            }
-        }
-
-        for detail in import_details {
-            match detail.kind {
-                ImportKind::Module => {
-                    let dep_path =
-                        resolver.resolve_module(file_dir, detail.level, &detail.original_name)?;
-                    let dep_module_path = resolver.compute_module_path(&dep_path);
-                    self.module_import_map
-                        .insert(detail.local_name.clone(), dep_module_path);
-                }
-                ImportKind::Function => {
-                    let source = detail.source_module.as_ref().unwrap();
-                    let source_file = resolver.resolve_module(file_dir, detail.level, source);
-
-                    if let Ok(source_path) = source_file {
-                        let mangled =
-                            resolver.mangle_function_name(&source_path, &detail.original_name);
-                        self.call_resolution_map
-                            .insert(detail.local_name.clone(), mangled);
-                    } else {
-                        let full_module = format!("{}.{}", source, detail.original_name);
-                        let dep_path =
-                            resolver.resolve_module(file_dir, detail.level, &full_module)?;
-                        let dep_module_path = resolver.compute_module_path(&dep_path);
-                        self.module_import_map
-                            .insert(detail.local_name.clone(), dep_module_path);
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn original_name_from_mangled(mangled: &str) -> String {
-        mangled.rsplit('$').next().unwrap_or(mangled).to_string()
     }
 
     fn collect_function_signature(&mut self, node: &Bound<PyAny>) -> Result<()> {
@@ -561,18 +464,23 @@ impl LoweringContext {
                 })?;
                 let resolved = format!("{}${}", mod_path, attr);
 
-                let return_type = match self.functions.get(&attr).cloned() {
-                    Some(func_type) => {
-                        let label = format!("{}.{}", mod_name, attr);
-                        self.check_call_args(&label, &func_type, &tir_args, line)?
-                    }
-                    None => bail!(
-                        "Undefined function: {}.{} at line {}, column {}",
-                        mod_name,
-                        attr,
-                        line,
-                        col
-                    ),
+                let func_type = self
+                    .symbol_table
+                    .get_type(&resolved)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Undefined function: {}.{} at line {}, column {}",
+                            mod_name,
+                            attr,
+                            line,
+                            col
+                        )
+                    })?
+                    .clone();
+
+                let return_type = {
+                    let label = format!("{}.{}", mod_name, attr);
+                    self.check_call_args(&label, &func_type, &tir_args, line)?
                 };
 
                 Ok(TirExpr {
