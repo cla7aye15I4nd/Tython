@@ -107,6 +107,24 @@ def test_bool_neq() -> None:
     assert x == True
 
 
+def test_int_identity_cast() -> None:
+    x: int = 42
+    y: int = int(x)
+    assert y == 42
+
+
+def test_float_identity_cast() -> None:
+    x: float = 3.14
+    y: float = float(x)
+    assert y == 3.14
+
+
+def test_bool_identity_cast() -> None:
+    x: bool = True
+    y: bool = bool(x)
+    assert y == True
+
+
 def run_tests() -> None:
     test_float_to_int_trunc()
     test_float_to_int_exact()
@@ -128,3 +146,6 @@ def run_tests() -> None:
     test_bool_eq_ff()
     test_bool_eq_tf()
     test_bool_neq()
+    test_int_identity_cast()
+    test_float_identity_cast()
+    test_bool_identity_cast()

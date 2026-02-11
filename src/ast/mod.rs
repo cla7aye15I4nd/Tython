@@ -8,6 +8,7 @@ pub enum Type {
     Str,
     Bytes,
     ByteArray,
+    List(Box<Type>),
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,
@@ -21,7 +22,7 @@ impl Type {
     pub fn is_reference_type(&self) -> bool {
         matches!(
             self,
-            Type::Class(_) | Type::Str | Type::Bytes | Type::ByteArray
+            Type::Class(_) | Type::Str | Type::Bytes | Type::ByteArray | Type::List(_)
         )
     }
 }
@@ -35,6 +36,7 @@ impl std::fmt::Display for Type {
             Type::Str => write!(f, "str"),
             Type::Bytes => write!(f, "bytes"),
             Type::ByteArray => write!(f, "bytearray"),
+            Type::List(inner) => write!(f, "list[{}]", inner),
             Type::Unit => write!(f, "None"),
             Type::Module(path) => write!(f, "module '{}'", path),
             Type::Class(name) => write!(f, "{}", name),

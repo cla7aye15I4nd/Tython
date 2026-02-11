@@ -56,11 +56,21 @@ def test_bytearray_clear() -> None:
     assert len(ba) == 0
 
 
+def test_bytearray_identity() -> None:
+    ba: bytearray = bytearray(b"hello")
+    ba2: bytearray = bytearray(ba)
+    assert ba2 == bytearray(b"hello")
+
+
 def test_bytearray_truthiness() -> None:
     if bytearray(b"hello"):
         print("truthy")
     if bytearray():
         print("should not print")
+
+
+def test_bytearray_assert() -> None:
+    assert bytearray(b"hello")
 
 
 def run_tests() -> None:
@@ -74,4 +84,6 @@ def run_tests() -> None:
     test_bytearray_append()
     test_bytearray_extend()
     test_bytearray_clear()
+    test_bytearray_identity()
     test_bytearray_truthiness()
+    test_bytearray_assert()

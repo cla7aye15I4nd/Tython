@@ -15,6 +15,7 @@ pub enum ValueType {
     Str,
     Bytes,
     ByteArray,
+    List(Box<ValueType>),
     Class(String),
 }
 
@@ -27,6 +28,7 @@ impl ValueType {
             Type::Str => Some(ValueType::Str),
             Type::Bytes => Some(ValueType::Bytes),
             Type::ByteArray => Some(ValueType::ByteArray),
+            Type::List(inner) => Some(ValueType::List(Box::new(ValueType::from_type(inner)?))),
             Type::Class(name) => Some(ValueType::Class(name.clone())),
             _ => None,
         }
@@ -40,6 +42,7 @@ impl ValueType {
             ValueType::Str => Type::Str,
             ValueType::Bytes => Type::Bytes,
             ValueType::ByteArray => Type::ByteArray,
+            ValueType::List(inner) => Type::List(Box::new(inner.to_type())),
             ValueType::Class(name) => Type::Class(name.clone()),
         }
     }
@@ -58,6 +61,7 @@ impl std::fmt::Display for ValueType {
             ValueType::Str => write!(f, "str"),
             ValueType::Bytes => write!(f, "bytes"),
             ValueType::ByteArray => write!(f, "bytearray"),
+            ValueType::List(inner) => write!(f, "list[{}]", inner),
             ValueType::Class(name) => write!(f, "{}", name),
         }
     }
@@ -305,6 +309,11 @@ pub enum TirStmt {
         field_index: usize,
         value: TirExpr,
     },
+    ListSet {
+        list: TirExpr,
+        index: TirExpr,
+        value: TirExpr,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -365,6 +374,14 @@ pub enum TirExprKind {
         object: Box<TirExpr>,
         method_mangled_name: String,
         args: Vec<TirExpr>,
+    },
+    ListLiteral {
+        element_type: ValueType,
+        elements: Vec<TirExpr>,
+    },
+    ListGet {
+        list: Box<TirExpr>,
+        index: Box<TirExpr>,
     },
 }
 

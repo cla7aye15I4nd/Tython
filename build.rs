@@ -7,6 +7,7 @@ const RUNTIME_SOURCES: &[&str] = &[
     "runtime/str.c",
     "runtime/bytes.c",
     "runtime/bytearray.c",
+    "runtime/list.c",
 ];
 
 fn main() {

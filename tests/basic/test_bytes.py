@@ -48,11 +48,21 @@ def test_bytes_from_int() -> None:
     assert len(b) == 5
 
 
+def test_bytes_identity() -> None:
+    b: bytes = b"hello"
+    c: bytes = bytes(b)
+    assert c == b"hello"
+
+
 def test_bytes_truthiness() -> None:
     if b"hello":
         print("truthy")
     if b"":
         print("should not print")
+
+
+def test_bytes_assert() -> None:
+    assert b"hello"
 
 
 def run_tests() -> None:
@@ -64,4 +74,6 @@ def run_tests() -> None:
     test_bytes_comparison()
     test_bytes_len()
     test_bytes_from_int()
+    test_bytes_identity()
     test_bytes_truthiness()
+    test_bytes_assert()

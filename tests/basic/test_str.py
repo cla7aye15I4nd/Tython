@@ -69,6 +69,17 @@ def test_str_from_bool() -> None:
     assert str(False) == "False"
 
 
+def test_str_from_float() -> None:
+    s: str = str(3.14)
+    print(s)
+
+
+def test_str_identity() -> None:
+    s: str = "hello"
+    t: str = str(s)
+    assert t == "hello"
+
+
 def test_str_truthiness() -> None:
     if "hello":
         print("truthy")
@@ -91,5 +102,7 @@ def run_tests() -> None:
     test_str_len()
     test_str_from_int()
     test_str_from_bool()
+    test_str_from_float()
+    test_str_identity()
     test_str_truthiness()
     test_str_assert()
