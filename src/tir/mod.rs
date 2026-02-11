@@ -12,6 +12,9 @@ pub enum ValueType {
     Int,
     Float,
     Bool,
+    Str,
+    Bytes,
+    ByteArray,
     Class(String),
 }
 
@@ -21,6 +24,9 @@ impl ValueType {
             Type::Int => Some(ValueType::Int),
             Type::Float => Some(ValueType::Float),
             Type::Bool => Some(ValueType::Bool),
+            Type::Str => Some(ValueType::Str),
+            Type::Bytes => Some(ValueType::Bytes),
+            Type::ByteArray => Some(ValueType::ByteArray),
             Type::Class(name) => Some(ValueType::Class(name.clone())),
             _ => None,
         }
@@ -31,6 +37,9 @@ impl ValueType {
             ValueType::Int => Type::Int,
             ValueType::Float => Type::Float,
             ValueType::Bool => Type::Bool,
+            ValueType::Str => Type::Str,
+            ValueType::Bytes => Type::Bytes,
+            ValueType::ByteArray => Type::ByteArray,
             ValueType::Class(name) => Type::Class(name.clone()),
         }
     }
@@ -46,6 +55,9 @@ impl std::fmt::Display for ValueType {
             ValueType::Int => write!(f, "int"),
             ValueType::Float => write!(f, "float"),
             ValueType::Bool => write!(f, "bool"),
+            ValueType::Str => write!(f, "str"),
+            ValueType::Bytes => write!(f, "bytes"),
+            ValueType::ByteArray => write!(f, "bytearray"),
             ValueType::Class(name) => write!(f, "{}", name),
         }
     }
@@ -234,6 +246,8 @@ pub struct TirExpr {
 pub enum TirExprKind {
     IntLiteral(i64),
     FloatLiteral(f64),
+    StrLiteral(String),
+    BytesLiteral(Vec<u8>),
     Var(String),
     BinOp {
         op: TypedBinOp,

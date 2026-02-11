@@ -105,7 +105,9 @@ impl<'ctx> Codegen<'ctx> {
         match ty {
             ValueType::Int | ValueType::Bool => self.context.i64_type().into(),
             ValueType::Float => self.context.f64_type().into(),
-            ValueType::Class(_) => self.context.ptr_type(AddressSpace::default()).into(),
+            ValueType::Str | ValueType::Bytes | ValueType::ByteArray | ValueType::Class(_) => {
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
         }
     }
 
@@ -155,6 +157,26 @@ impl<'ctx> Codegen<'ctx> {
     ) -> inkwell::values::IntValue<'ctx> {
         match ty {
             ValueType::Float => self.build_float_truthiness_check(value.into_float_value(), label),
+            ValueType::Str | ValueType::Bytes | ValueType::ByteArray => {
+                use crate::tir::builtin::BuiltinFn;
+                let len_fn = match ty {
+                    ValueType::Str => BuiltinFn::StrLen,
+                    ValueType::Bytes => BuiltinFn::BytesLen,
+                    ValueType::ByteArray => BuiltinFn::ByteArrayLen,
+                    _ => unreachable!(),
+                };
+                let func = self.get_or_declare_function(
+                    len_fn.symbol(),
+                    &len_fn.param_types(),
+                    len_fn.return_type(),
+                );
+                let call = self
+                    .builder
+                    .build_call(func, &[value.into()], "len_truth")
+                    .unwrap();
+                let len_val = self.extract_call_value(call).into_int_value();
+                self.build_int_truthiness_check(len_val, label)
+            }
             _ => self.build_int_truthiness_check(value.into_int_value(), label),
         }
     }
@@ -213,6 +235,29 @@ impl<'ctx> Codegen<'ctx> {
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
                 let fn_type = ptr_type.fn_type(&[i64_type.into()], false);
                 self.module.add_function("__tython_malloc", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_str_new(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_str_new")
+            .unwrap_or_else(|| {
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let i64_type = self.context.i64_type();
+                let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                self.module.add_function("__tython_str_new", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_bytes_new(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_bytes_new")
+            .unwrap_or_else(|| {
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let i64_type = self.context.i64_type();
+                let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                self.module
+                    .add_function("__tython_bytes_new", fn_type, None)
             })
     }
 
@@ -486,6 +531,38 @@ impl<'ctx> Codegen<'ctx> {
 
             TirExprKind::FloatLiteral(val) => self.f64_type().const_float(*val).into(),
 
+            TirExprKind::StrLiteral(s) => {
+                let global = self.builder.build_global_string_ptr(s, "str_data").unwrap();
+                let data_ptr = global.as_pointer_value();
+                let len = self.i64_type().const_int(s.len() as u64, false);
+                let str_new_fn = self.get_or_declare_str_new();
+                let call = self
+                    .builder
+                    .build_call(str_new_fn, &[data_ptr.into(), len.into()], "str_new")
+                    .unwrap();
+                self.extract_call_value(call)
+            }
+
+            TirExprKind::BytesLiteral(bytes) => {
+                let byte_values: Vec<_> = bytes
+                    .iter()
+                    .map(|b| self.context.i8_type().const_int(*b as u64, false))
+                    .collect();
+                let array_val = self.context.i8_type().const_array(&byte_values);
+                let array_type = self.context.i8_type().array_type(bytes.len() as u32);
+                let global = self.module.add_global(array_type, None, "bytes_data");
+                global.set_initializer(&array_val);
+                global.set_constant(true);
+                let data_ptr = global.as_pointer_value();
+                let len = self.i64_type().const_int(bytes.len() as u64, false);
+                let bytes_new_fn = self.get_or_declare_bytes_new();
+                let call = self
+                    .builder
+                    .build_call(bytes_new_fn, &[data_ptr.into(), len.into()], "bytes_new")
+                    .unwrap();
+                self.extract_call_value(call)
+            }
+
             TirExprKind::Var(name) => {
                 let ptr = self.variables[name.as_str()];
                 self.builder
@@ -496,6 +573,16 @@ impl<'ctx> Codegen<'ctx> {
             TirExprKind::BinOp { op, left, right } => {
                 let left_val = self.codegen_expr(left);
                 let right_val = self.codegen_expr(right);
+
+                // Sequence operations (concat, repeat)
+                if matches!(
+                    expr.ty,
+                    ValueType::Str | ValueType::Bytes | ValueType::ByteArray
+                ) {
+                    return self.codegen_sequence_binop(
+                        op, &expr.ty, &left.ty, &right.ty, left_val, right_val,
+                    );
+                }
 
                 match op {
                     TypedBinOp::Arith(arith_op) => {
@@ -771,6 +858,13 @@ impl<'ctx> Codegen<'ctx> {
                 let left_val = self.codegen_expr(left);
                 let right_val = self.codegen_expr(right);
 
+                if matches!(
+                    left.ty,
+                    ValueType::Str | ValueType::Bytes | ValueType::ByteArray
+                ) {
+                    return self.codegen_sequence_compare(op, &left.ty, left_val, right_val);
+                }
+
                 let cmp_result = if left.ty == ValueType::Float {
                     self.builder
                         .build_float_compare(
@@ -973,6 +1067,151 @@ impl<'ctx> Codegen<'ctx> {
                     .unwrap();
 
                 self.extract_call_value(call_site)
+            }
+        }
+    }
+
+    fn codegen_sequence_binop(
+        &self,
+        op: &TypedBinOp,
+        result_ty: &ValueType,
+        left_ty: &ValueType,
+        _right_ty: &ValueType,
+        left_val: BasicValueEnum<'ctx>,
+        right_val: BasicValueEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        use crate::tir::builtin::BuiltinFn;
+
+        match op {
+            TypedBinOp::Arith(ArithBinOp::Add) => {
+                let (concat_fn, param_types) = match result_ty {
+                    ValueType::Str => (BuiltinFn::StrConcat, vec![ValueType::Str, ValueType::Str]),
+                    ValueType::Bytes => (
+                        BuiltinFn::BytesConcat,
+                        vec![ValueType::Bytes, ValueType::Bytes],
+                    ),
+                    ValueType::ByteArray => (
+                        BuiltinFn::ByteArrayConcat,
+                        vec![ValueType::ByteArray, ValueType::ByteArray],
+                    ),
+                    _ => unreachable!(),
+                };
+                let func = self.get_or_declare_function(
+                    concat_fn.symbol(),
+                    &param_types,
+                    concat_fn.return_type(),
+                );
+                let call = self
+                    .builder
+                    .build_call(func, &[left_val.into(), right_val.into()], "seq_concat")
+                    .unwrap();
+                self.extract_call_value(call)
+            }
+            TypedBinOp::Arith(ArithBinOp::Mul) => {
+                // Determine which operand is the sequence and which is the int
+                let (seq_val, int_val) = if left_ty == result_ty {
+                    (left_val, right_val)
+                } else {
+                    (right_val, left_val)
+                };
+                let (repeat_fn, param_types) = match result_ty {
+                    ValueType::Str => (BuiltinFn::StrRepeat, vec![ValueType::Str, ValueType::Int]),
+                    ValueType::Bytes => (
+                        BuiltinFn::BytesRepeat,
+                        vec![ValueType::Bytes, ValueType::Int],
+                    ),
+                    ValueType::ByteArray => (
+                        BuiltinFn::ByteArrayRepeat,
+                        vec![ValueType::ByteArray, ValueType::Int],
+                    ),
+                    _ => unreachable!(),
+                };
+                let func = self.get_or_declare_function(
+                    repeat_fn.symbol(),
+                    &param_types,
+                    repeat_fn.return_type(),
+                );
+                let call = self
+                    .builder
+                    .build_call(func, &[seq_val.into(), int_val.into()], "seq_repeat")
+                    .unwrap();
+                self.extract_call_value(call)
+            }
+            _ => unreachable!("ICE: unsupported sequence binop"),
+        }
+    }
+
+    fn codegen_sequence_compare(
+        &mut self,
+        op: &CmpOp,
+        seq_ty: &ValueType,
+        left_val: BasicValueEnum<'ctx>,
+        right_val: BasicValueEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        use crate::tir::builtin::BuiltinFn;
+
+        let param_types = vec![seq_ty.clone(), seq_ty.clone()];
+
+        match op {
+            CmpOp::Eq | CmpOp::NotEq => {
+                let eq_fn = match seq_ty {
+                    ValueType::Str => BuiltinFn::StrEq,
+                    ValueType::Bytes => BuiltinFn::BytesEq,
+                    ValueType::ByteArray => BuiltinFn::ByteArrayEq,
+                    _ => unreachable!(),
+                };
+                let func =
+                    self.get_or_declare_function(eq_fn.symbol(), &param_types, eq_fn.return_type());
+                let call = self
+                    .builder
+                    .build_call(func, &[left_val.into(), right_val.into()], "seq_eq")
+                    .unwrap();
+                let eq_result = self.extract_call_value(call).into_int_value();
+                if *op == CmpOp::NotEq {
+                    let inverted = self
+                        .builder
+                        .build_int_compare(
+                            IntPredicate::EQ,
+                            eq_result,
+                            self.i64_type().const_int(0, false),
+                            "neq",
+                        )
+                        .unwrap();
+                    self.builder
+                        .build_int_z_extend(inverted, self.i64_type(), "neq_zext")
+                        .unwrap()
+                        .into()
+                } else {
+                    eq_result.into()
+                }
+            }
+            _ => {
+                let cmp_fn = match seq_ty {
+                    ValueType::Str => BuiltinFn::StrCmp,
+                    ValueType::Bytes => BuiltinFn::BytesCmp,
+                    ValueType::ByteArray => BuiltinFn::ByteArrayCmp,
+                    _ => unreachable!(),
+                };
+                let func = self.get_or_declare_function(
+                    cmp_fn.symbol(),
+                    &param_types,
+                    cmp_fn.return_type(),
+                );
+                let call = self
+                    .builder
+                    .build_call(func, &[left_val.into(), right_val.into()], "seq_cmp")
+                    .unwrap();
+                let cmp_result = self.extract_call_value(call).into_int_value();
+                let zero = self.i64_type().const_int(0, false);
+                let pred = Self::int_predicate(op);
+                let result = self
+                    .builder
+                    .build_int_compare(pred, cmp_result, zero, "seq_cmp_bool")
+                    .unwrap();
+                self.builder
+                    .build_int_z_extend(result, self.i64_type(), "zext_bool")
+                    .unwrap()
+                    .into()
             }
         }
     }

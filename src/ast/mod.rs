@@ -5,6 +5,9 @@ pub enum Type {
     Int,
     Float,
     Bool,
+    Str,
+    Bytes,
+    ByteArray,
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,
@@ -16,7 +19,10 @@ pub enum Type {
 
 impl Type {
     pub fn is_reference_type(&self) -> bool {
-        matches!(self, Type::Class(_))
+        matches!(
+            self,
+            Type::Class(_) | Type::Str | Type::Bytes | Type::ByteArray
+        )
     }
 }
 
@@ -26,6 +32,9 @@ impl std::fmt::Display for Type {
             Type::Int => write!(f, "int"),
             Type::Float => write!(f, "float"),
             Type::Bool => write!(f, "bool"),
+            Type::Str => write!(f, "str"),
+            Type::Bytes => write!(f, "bytes"),
+            Type::ByteArray => write!(f, "bytearray"),
             Type::Unit => write!(f, "None"),
             Type::Module(path) => write!(f, "module '{}'", path),
             Type::Class(name) => write!(f, "{}", name),

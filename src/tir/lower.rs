@@ -848,21 +848,48 @@ impl Lowering {
         let bool_condition = if condition.ty == ValueType::Bool {
             condition
         } else {
-            let cast_kind = match &condition.ty {
-                ValueType::Int => CastKind::IntToBool,
-                ValueType::Float => CastKind::FloatToBool,
+            match &condition.ty {
+                ValueType::Int => TirExpr {
+                    kind: TirExprKind::Cast {
+                        kind: CastKind::IntToBool,
+                        arg: Box::new(condition),
+                    },
+                    ty: ValueType::Bool,
+                },
+                ValueType::Float => TirExpr {
+                    kind: TirExprKind::Cast {
+                        kind: CastKind::FloatToBool,
+                        arg: Box::new(condition),
+                    },
+                    ty: ValueType::Bool,
+                },
+                ValueType::Str | ValueType::Bytes | ValueType::ByteArray => {
+                    let len_fn = match &condition.ty {
+                        ValueType::Str => builtin::BuiltinFn::StrLen,
+                        ValueType::Bytes => builtin::BuiltinFn::BytesLen,
+                        ValueType::ByteArray => builtin::BuiltinFn::ByteArrayLen,
+                        _ => unreachable!(),
+                    };
+                    let len_expr = TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: len_fn,
+                            args: vec![condition],
+                        },
+                        ty: ValueType::Int,
+                    };
+                    TirExpr {
+                        kind: TirExprKind::Cast {
+                            kind: CastKind::IntToBool,
+                            arg: Box::new(len_expr),
+                        },
+                        ty: ValueType::Bool,
+                    }
+                }
                 _ => {
                     return Err(
                         self.type_error(line, format!("cannot use `{}` in assert", condition.ty))
                     )
                 }
-            };
-            TirExpr {
-                kind: TirExprKind::Cast {
-                    kind: cast_kind,
-                    arg: Box::new(condition),
-                },
-                ty: ValueType::Bool,
             }
         };
 
@@ -1024,6 +1051,12 @@ impl Lowering {
                         kind: TirExprKind::IntLiteral(if bool_val { 1 } else { 0 }),
                         ty: ValueType::Bool,
                     })
+                } else if value.is_instance_of::<pyo3::types::PyBytes>() {
+                    let bytes_val = value.extract::<Vec<u8>>()?;
+                    Ok(TirExpr {
+                        kind: TirExprKind::BytesLiteral(bytes_val),
+                        ty: ValueType::Bytes,
+                    })
                 } else if let Ok(int_val) = value.extract::<i64>() {
                     Ok(TirExpr {
                         kind: TirExprKind::IntLiteral(int_val),
@@ -1033,6 +1066,11 @@ impl Lowering {
                     Ok(TirExpr {
                         kind: TirExprKind::FloatLiteral(float_val),
                         ty: ValueType::Float,
+                    })
+                } else if let Ok(string_val) = value.extract::<String>() {
+                    Ok(TirExpr {
+                        kind: TirExprKind::StrLiteral(string_val),
+                        ty: ValueType::Str,
                     })
                 } else {
                     Err(self.value_error(line, "unsupported constant type"))
@@ -1313,6 +1351,109 @@ impl Lowering {
 
                 if func_name == "print" {
                     return Err(self.syntax_error(line, "print() can only be used as a statement"));
+                }
+
+                // str() constructor
+                if func_name == "str" {
+                    if tir_args.len() != 1 {
+                        return Err(self.type_error(
+                            line,
+                            format!("str() expects exactly 1 argument, got {}", tir_args.len()),
+                        ));
+                    }
+                    let arg = tir_args.remove(0);
+                    if arg.ty == ValueType::Str {
+                        return Ok(CallResult::Expr(arg));
+                    }
+                    let builtin_fn = match &arg.ty {
+                        ValueType::Int => builtin::BuiltinFn::StrFromInt,
+                        ValueType::Float => builtin::BuiltinFn::StrFromFloat,
+                        ValueType::Bool => builtin::BuiltinFn::StrFromBool,
+                        other => {
+                            return Err(
+                                self.type_error(line, format!("str() cannot convert `{}`", other))
+                            )
+                        }
+                    };
+                    return Ok(CallResult::Expr(TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin_fn,
+                            args: vec![arg],
+                        },
+                        ty: ValueType::Str,
+                    }));
+                }
+
+                // bytes() constructor
+                if func_name == "bytes" {
+                    if tir_args.len() != 1 {
+                        return Err(self.type_error(
+                            line,
+                            format!("bytes() expects exactly 1 argument, got {}", tir_args.len()),
+                        ));
+                    }
+                    let arg = tir_args.remove(0);
+                    if arg.ty == ValueType::Bytes {
+                        return Ok(CallResult::Expr(arg));
+                    }
+                    let builtin_fn = match &arg.ty {
+                        ValueType::Int => builtin::BuiltinFn::BytesFromInt,
+                        ValueType::Str => builtin::BuiltinFn::BytesFromStr,
+                        other => {
+                            return Err(self
+                                .type_error(line, format!("bytes() cannot convert `{}`", other)))
+                        }
+                    };
+                    return Ok(CallResult::Expr(TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin_fn,
+                            args: vec![arg],
+                        },
+                        ty: ValueType::Bytes,
+                    }));
+                }
+
+                // bytearray() constructor
+                if func_name == "bytearray" {
+                    if tir_args.is_empty() {
+                        return Ok(CallResult::Expr(TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::ByteArrayEmpty,
+                                args: vec![],
+                            },
+                            ty: ValueType::ByteArray,
+                        }));
+                    }
+                    if tir_args.len() != 1 {
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "bytearray() expects 0 or 1 arguments, got {}",
+                                tir_args.len()
+                            ),
+                        ));
+                    }
+                    let arg = tir_args.remove(0);
+                    if arg.ty == ValueType::ByteArray {
+                        return Ok(CallResult::Expr(arg));
+                    }
+                    let builtin_fn = match &arg.ty {
+                        ValueType::Int => builtin::BuiltinFn::ByteArrayFromInt,
+                        ValueType::Bytes => builtin::BuiltinFn::ByteArrayFromBytes,
+                        other => {
+                            return Err(self.type_error(
+                                line,
+                                format!("bytearray() cannot convert `{}`", other),
+                            ))
+                        }
+                    };
+                    return Ok(CallResult::Expr(TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin_fn,
+                            args: vec![arg],
+                        },
+                        ty: ValueType::ByteArray,
+                    }));
                 }
 
                 if func_name == "int" || func_name == "float" || func_name == "bool" {
@@ -1633,6 +1774,70 @@ impl Lowering {
                             }))
                         }
                     }
+                    ValueType::ByteArray => match attr.as_str() {
+                        "append" => {
+                            if tir_args.len() != 1 {
+                                return Err(self.type_error(
+                                    line,
+                                    format!(
+                                        "bytearray.append() expects 1 argument, got {}",
+                                        tir_args.len()
+                                    ),
+                                ));
+                            }
+                            if tir_args[0].ty != ValueType::Int {
+                                return Err(self.type_error(
+                                    line,
+                                    format!(
+                                        "bytearray.append() expects `int`, got `{}`",
+                                        tir_args[0].ty
+                                    ),
+                                ));
+                            }
+                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                                target: CallTarget::Builtin(builtin::BuiltinFn::ByteArrayAppend),
+                                args: vec![obj_expr, tir_args.remove(0)],
+                            }))
+                        }
+                        "extend" => {
+                            if tir_args.len() != 1 {
+                                return Err(self.type_error(
+                                    line,
+                                    format!(
+                                        "bytearray.extend() expects 1 argument, got {}",
+                                        tir_args.len()
+                                    ),
+                                ));
+                            }
+                            if tir_args[0].ty != ValueType::Bytes {
+                                return Err(self.type_error(
+                                    line,
+                                    format!(
+                                        "bytearray.extend() expects `bytes`, got `{}`",
+                                        tir_args[0].ty
+                                    ),
+                                ));
+                            }
+                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                                target: CallTarget::Builtin(builtin::BuiltinFn::ByteArrayExtend),
+                                args: vec![obj_expr, tir_args.remove(0)],
+                            }))
+                        }
+                        "clear" => {
+                            if !tir_args.is_empty() {
+                                return Err(self.type_error(
+                                    line,
+                                    "bytearray.clear() takes no arguments".to_string(),
+                                ));
+                            }
+                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                                target: CallTarget::Builtin(builtin::BuiltinFn::ByteArrayClear),
+                                args: vec![obj_expr],
+                            }))
+                        }
+                        _ => Err(self
+                            .attribute_error(line, format!("bytearray has no method `{}`", attr))),
+                    },
                     _ => {
                         Err(self
                             .type_error(line, format!("`{}` is not a class instance", obj_expr.ty)))
@@ -1883,6 +2088,9 @@ impl Lowering {
                     "int" => Ok(Type::Int),
                     "float" => Ok(Type::Float),
                     "bool" => Ok(Type::Bool),
+                    "str" => Ok(Type::Str),
+                    "bytes" => Ok(Type::Bytes),
+                    "bytearray" => Ok(Type::ByteArray),
                     other => {
                         if let Some(ty) = self.lookup(other).cloned() {
                             match ty {

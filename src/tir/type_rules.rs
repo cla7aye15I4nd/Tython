@@ -71,10 +71,35 @@ fn standard_numeric_rule(left: &Type, right: &Type) -> Option<BinOpRule> {
     }
 }
 
+/// Check for sequence-type binary operations (concat, repeat).
+fn sequence_binop_rule(op: TypedBinOp, left: &Type, right: &Type) -> Option<BinOpRule> {
+    use Type::*;
+    match op {
+        TypedBinOp::Arith(ArithBinOp::Add) => match (left, right) {
+            (Str, Str) => Some(BinOpRule::same(Str)),
+            (Bytes, Bytes) => Some(BinOpRule::same(Bytes)),
+            (ByteArray, ByteArray) => Some(BinOpRule::same(ByteArray)),
+            _ => None,
+        },
+        TypedBinOp::Arith(ArithBinOp::Mul) => match (left, right) {
+            (Str, Int) | (Int, Str) => Some(BinOpRule::same(Str)),
+            (Bytes, Int) | (Int, Bytes) => Some(BinOpRule::same(Bytes)),
+            (ByteArray, Int) | (Int, ByteArray) => Some(BinOpRule::same(ByteArray)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Look up the type rule for a binary operation.
 /// Returns `None` if the (op, left, right) combination is invalid.
 pub fn lookup_binop(op: TypedBinOp, left: &Type, right: &Type) -> Option<BinOpRule> {
     use Type::*;
+
+    // Sequence operations (concat, repeat)
+    if let Some(rule) = sequence_binop_rule(op, left, right) {
+        return Some(rule);
+    }
 
     match op {
         TypedBinOp::Bitwise(_) => match (left, right) {
@@ -163,7 +188,7 @@ pub enum BuiltinCallRule {
 /// or `None` if the name is not a built-in.
 pub fn builtin_fn_arity(name: &str) -> Option<usize> {
     match name {
-        "abs" | "round" => Some(1),
+        "abs" | "round" | "len" => Some(1),
         "pow" | "min" | "max" => Some(2),
         _ => None,
     }
@@ -212,6 +237,21 @@ fn numeric_binary_builtin(
 
 pub fn lookup_builtin_fn(name: &str, arg_types: &[&ValueType]) -> Option<BuiltinCallRule> {
     match name {
+        "len" => match arg_types {
+            [ValueType::Str] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::StrLen,
+                return_type: ValueType::Int,
+            }),
+            [ValueType::Bytes] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::BytesLen,
+                return_type: ValueType::Int,
+            }),
+            [ValueType::ByteArray] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::ByteArrayLen,
+                return_type: ValueType::Int,
+            }),
+            _ => None,
+        },
         "abs" => numeric_unary_builtin(arg_types, BuiltinFn::AbsInt, BuiltinFn::AbsFloat),
         "min" => numeric_binary_builtin(arg_types, BuiltinFn::MinInt, BuiltinFn::MinFloat),
         "max" => numeric_binary_builtin(arg_types, BuiltinFn::MaxInt, BuiltinFn::MaxFloat),
@@ -238,6 +278,10 @@ pub fn lookup_builtin_fn(name: &str, arg_types: &[&ValueType]) -> Option<Builtin
 /// that has correct arity but invalid argument types.
 pub fn builtin_fn_type_error_message(name: &str, arg_types: &[&ValueType]) -> String {
     match name {
+        "len" => format!(
+            "len() requires a `str`, `bytes`, or `bytearray` argument, got `{}`",
+            arg_types[0]
+        ),
         "abs" => format!("abs() requires a numeric argument, got `{}`", arg_types[0]),
         "round" => format!(
             "round() requires a `float` argument, got `{}`",

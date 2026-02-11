@@ -143,13 +143,24 @@ const ALL_UNARYOPS: &[UnaryOpKind] = &[
     UnaryOpKind::BitNot,
 ];
 
-const TESTABLE_TYPES: &[Type] = &[Type::Int, Type::Float, Type::Bool, Type::Unit];
+const TESTABLE_TYPES: &[Type] = &[
+    Type::Int,
+    Type::Float,
+    Type::Bool,
+    Type::Str,
+    Type::Bytes,
+    Type::ByteArray,
+    Type::Unit,
+];
 
 fn type_to_python(ty: &Type) -> (&str, &str) {
     match ty {
         Type::Int => ("int", "1"),
         Type::Float => ("float", "1.0"),
         Type::Bool => ("bool", "True"),
+        Type::Str => ("str", "\"hello\""),
+        Type::Bytes => ("bytes", "b\"hello\""),
+        Type::ByteArray => ("bytearray", "bytearray(b\"hello\")"),
         Type::Unit => ("None", "None"),
         _ => unreachable!(),
     }

@@ -23,6 +23,9 @@ from . import test_casting
 import basic.test_truthiness as test_truthiness
 import basic.test_class as test_class
 import basic.test_nested_class as test_nested_class
+import basic.test_str as test_str
+import basic.test_bytes as test_bytes
+import basic.test_bytearray as test_bytearray
 
 
 def run_all_tests() -> None:
@@ -51,3 +54,6 @@ def run_all_tests() -> None:
     test_truthiness.run_tests()
     test_class.run_tests()
     test_nested_class.run_tests()
+    test_str.run_tests()
+    test_bytes.run_tests()
+    test_bytearray.run_tests()
