@@ -82,6 +82,11 @@ impl Resolver {
         let module_val = ast_getattr!(node, "module");
         let module_name = (!module_val.is_none()).then(|| ast_extract!(module_val, String));
 
+        // Skip __future__ imports (Python-only, no-op for Tython)
+        if module_name.as_deref() == Some("__future__") {
+            return Ok(());
+        }
+
         if let Some(ref mod_name) = module_name {
             if let Ok(module_file) = self.resolve_module(file_dir, level, mod_name) {
                 let mod_path = self.compute_module_path(&module_file);

@@ -29,19 +29,6 @@ impl Lowering {
                     return Err(self.syntax_error(line, "print() can only be used as a statement"));
                 }
 
-                if tir_args.len() == 1 && matches!(tir_args[0].ty, ValueType::Class(_)) {
-                    if let Some(magic_rule) = type_rules::lookup_builtin_class_magic(&func_name) {
-                        let arg = tir_args.remove(0);
-                        return Ok(CallResult::Expr(self.lower_class_magic_method(
-                            line,
-                            arg,
-                            magic_rule.method_names,
-                            magic_rule.return_type,
-                            &func_name,
-                        )?));
-                    }
-                }
-
                 // sorted(list) → copy + sort + return copy
                 if func_name == "sorted" {
                     if tir_args.len() != 1 {
@@ -114,6 +101,20 @@ impl Lowering {
                             )
                         },
                     )?;
+                    if let type_rules::BuiltinCallRule::ClassMagic {
+                        method_names,
+                        return_type,
+                    } = rule
+                    {
+                        let arg = tir_args.remove(0);
+                        return Ok(CallResult::Expr(self.lower_class_magic_method(
+                            line,
+                            arg,
+                            method_names,
+                            return_type,
+                            &func_name,
+                        )?));
+                    }
                     return Ok(Self::lower_builtin_rule(rule, tir_args));
                 }
 
@@ -122,23 +123,56 @@ impl Lowering {
                 })?;
 
                 match &scope_type {
-                    Type::Function { .. } => {
-                        let return_type =
+                    Type::Function {
+                        ref params,
+                        ref return_type,
+                    } => {
+                        let return_type_resolved =
                             self.check_call_args(line, &func_name, &scope_type, &tir_args)?;
-                        let mangled = self.mangle_name(&func_name);
-                        if return_type == Type::Unit {
-                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                                target: CallTarget::Named(mangled),
-                                args: tir_args,
-                            })))
-                        } else {
-                            Ok(CallResult::Expr(TirExpr {
-                                kind: TirExprKind::Call {
-                                    func: mangled,
+
+                        if let Some(mangled) = self.function_mangled_names.get(&func_name).cloned()
+                        {
+                            // Direct call to a known function definition
+                            if return_type_resolved == Type::Unit {
+                                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                                    target: CallTarget::Named(mangled),
                                     args: tir_args,
+                                })))
+                            } else {
+                                Ok(CallResult::Expr(TirExpr {
+                                    kind: TirExprKind::Call {
+                                        func: mangled,
+                                        args: tir_args,
+                                    },
+                                    ty: Self::to_value_type(&return_type_resolved),
+                                }))
+                            }
+                        } else {
+                            // Indirect call through a function pointer variable
+                            let vt_params: Vec<ValueType> =
+                                params.iter().map(Self::to_value_type).collect();
+                            let vt_ret = Self::to_opt_value_type(return_type);
+                            let callee = TirExpr {
+                                kind: TirExprKind::Var(func_name),
+                                ty: ValueType::Function {
+                                    params: vt_params,
+                                    return_type: vt_ret.clone().map(Box::new),
                                 },
-                                ty: Self::to_value_type(&return_type),
-                            }))
+                            };
+                            if return_type_resolved == Type::Unit {
+                                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                                    target: CallTarget::Indirect(callee),
+                                    args: tir_args,
+                                })))
+                            } else {
+                                Ok(CallResult::Expr(TirExpr {
+                                    kind: TirExprKind::IndirectCall {
+                                        callee: Box::new(callee),
+                                        args: tir_args,
+                                    },
+                                    ty: Self::to_value_type(&return_type_resolved),
+                                }))
+                            }
                         }
                     }
                     Type::Module(mangled) => {
@@ -432,6 +466,9 @@ impl Lowering {
                     },
                     ty: ValueType::Float,
                 })
+            }
+            type_rules::BuiltinCallRule::ClassMagic { .. } => {
+                unreachable!("ICE: ClassMagic should be handled before lower_builtin_rule")
             }
         }
     }

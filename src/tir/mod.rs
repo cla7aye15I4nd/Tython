@@ -19,6 +19,10 @@ pub enum ValueType {
     List(Box<ValueType>),
     Tuple(Vec<ValueType>),
     Class(String),
+    Function {
+        params: Vec<ValueType>,
+        return_type: Option<Box<ValueType>>,
+    },
 }
 
 impl ValueType {
@@ -38,6 +42,23 @@ impl ValueType {
                     .collect::<Option<Vec<_>>>()?,
             )),
             Type::Class(name) => Some(ValueType::Class(name.clone())),
+            Type::Function {
+                params,
+                return_type,
+            } => {
+                let vt_params: Vec<ValueType> = params
+                    .iter()
+                    .map(ValueType::from_type)
+                    .collect::<Option<Vec<_>>>()?;
+                let vt_ret = match return_type.as_ref() {
+                    Type::Unit => None,
+                    other => Some(Box::new(ValueType::from_type(other)?)),
+                };
+                Some(ValueType::Function {
+                    params: vt_params,
+                    return_type: vt_ret,
+                })
+            }
             _ => None,
         }
     }
@@ -55,6 +76,18 @@ impl ValueType {
                 Type::Tuple(elements.iter().map(ValueType::to_type).collect())
             }
             ValueType::Class(name) => Type::Class(name.clone()),
+            ValueType::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params.iter().map(ValueType::to_type).collect(),
+                return_type: Box::new(
+                    return_type
+                        .as_ref()
+                        .map(|vt| vt.to_type())
+                        .unwrap_or(Type::Unit),
+                ),
+            },
         }
     }
 
@@ -71,6 +104,7 @@ impl ValueType {
                 | ValueType::List(_)
                 | ValueType::Tuple(_)
                 | ValueType::Class(_)
+                | ValueType::Function { .. }
         )
     }
 }
@@ -96,6 +130,23 @@ impl std::fmt::Display for ValueType {
                 write!(f, "]")
             }
             ValueType::Class(name) => write!(f, "{}", name),
+            ValueType::Function {
+                params,
+                return_type,
+            } => {
+                write!(f, "callable[[")?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", p)?;
+                }
+                write!(f, "], ")?;
+                match return_type {
+                    Some(rt) => write!(f, "{}]", rt),
+                    None => write!(f, "None]"),
+                }
+            }
         }
     }
 }
@@ -256,6 +307,7 @@ pub enum CallTarget {
         mangled_name: String,
         object: TirExpr,
     },
+    Indirect(TirExpr),
 }
 
 // ── Comparison / unary / logical ops ────────────────────────────────
@@ -515,6 +567,13 @@ pub enum TirExprKind {
     ListToTuple {
         list: Box<TirExpr>,
         element_types: Vec<ValueType>,
+    },
+    FuncRef {
+        mangled_name: String,
+    },
+    IndirectCall {
+        callee: Box<TirExpr>,
+        args: Vec<TirExpr>,
     },
 }
 

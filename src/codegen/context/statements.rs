@@ -90,6 +90,31 @@ impl<'ctx> Codegen<'ctx> {
                     let function = self.get_or_declare_function(mangled_name, &param_types, None);
                     self.build_call_maybe_invoke(function, &all_meta, "void_method_call", true);
                 }
+                CallTarget::Indirect(callee_expr) => {
+                    let callee_ptr = self.codegen_expr(callee_expr).into_pointer_value();
+                    let arg_metadata = self.codegen_call_args(args);
+
+                    let param_types_vt = match &callee_expr.ty {
+                        ValueType::Function { params, .. } => params.clone(),
+                        _ => panic!("ICE: Indirect CallTarget with non-function type"),
+                    };
+
+                    let llvm_params: Vec<inkwell::types::BasicMetadataTypeEnum> = param_types_vt
+                        .iter()
+                        .map(|t| self.get_llvm_type(t).into())
+                        .collect();
+
+                    let fn_type = self.context.void_type().fn_type(&llvm_params, false);
+
+                    self.builder
+                        .build_indirect_call(
+                            fn_type,
+                            callee_ptr,
+                            &arg_metadata,
+                            "void_indirect_call",
+                        )
+                        .unwrap();
+                }
             },
 
             TirStmt::SetField {

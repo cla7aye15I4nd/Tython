@@ -17,9 +17,7 @@ impl Lowering {
         let line = Self::get_line(node);
 
         let stmts = match node_type.as_str() {
-            "FunctionDef" => {
-                Err(self.syntax_error(line, "nested function definitions are not supported"))
-            }
+            "FunctionDef" => self.handle_nested_function_def(node, line),
             "ClassDef" => self.handle_class_def_stmt(node, line),
             "AnnAssign" => self.handle_ann_assign(node, line),
             "Assign" => self.handle_assign(node, line),
@@ -92,6 +90,100 @@ impl Lowering {
         self.deferred_classes.extend(class_infos);
         self.deferred_functions.extend(methods);
 
+        Ok(vec![])
+    }
+
+    fn handle_nested_function_def(
+        &mut self,
+        node: &Bound<PyAny>,
+        line: usize,
+    ) -> Result<Vec<TirStmt>> {
+        use crate::tir::FunctionParam;
+
+        let name = ast_get_string!(node, "name");
+
+        // Build mangled name: module$enclosing$nested
+        let enclosing = self
+            .current_function_name
+            .as_deref()
+            .unwrap_or("_")
+            .to_string();
+        let mangled_name = format!("{}${}${}", self.current_module_name, enclosing, name);
+
+        // Parse parameters
+        let args_node = ast_getattr!(node, "args");
+        let py_args = ast_get_list!(&args_node, "args");
+        let mut param_types = Vec::new();
+        let mut params = Vec::new();
+        for arg in py_args.iter() {
+            let param_name = ast_get_string!(arg, "arg");
+            let annotation = ast_getattr!(arg, "annotation");
+            if annotation.is_none() {
+                return Err(self.syntax_error(
+                    line,
+                    format!(
+                        "parameter `{}` in nested function `{}` requires a type annotation",
+                        param_name, name
+                    ),
+                ));
+            }
+            let ty = self.convert_type_annotation(&annotation)?;
+            let vty = Self::to_value_type(&ty);
+            param_types.push(ty);
+            params.push(FunctionParam::new(param_name, vty));
+        }
+
+        let return_type_ast = self.convert_return_type(node)?;
+        let return_type = Self::to_opt_value_type(&return_type_ast);
+
+        // Declare the function in the current scope so it can be referenced
+        let func_type = crate::ast::Type::Function {
+            params: param_types,
+            return_type: Box::new(return_type_ast.clone()),
+        };
+        self.declare(name.clone(), func_type);
+        self.function_mangled_names
+            .insert(name.clone(), mangled_name.clone());
+
+        // Save enclosing function context
+        let saved_return_type = self.current_return_type.take();
+        let saved_function_name = self.current_function_name.take();
+
+        // Set up context for the nested function
+        self.current_return_type = Some(return_type_ast);
+        self.current_function_name = Some(format!("{}.{}", enclosing, name));
+
+        // Lower the body in a fresh scope (no closure capture)
+        self.push_scope();
+        for param in &params {
+            self.declare(param.name.clone(), param.ty.to_type());
+        }
+
+        let body_list = ast_get_list!(node, "body");
+        let mut tir_body = Vec::new();
+        for stmt_node in body_list.iter() {
+            let node_type = ast_type_name!(stmt_node);
+            if node_type == "Import" || node_type == "ImportFrom" {
+                continue;
+            }
+            tir_body.extend(self.lower_stmt(&stmt_node)?);
+        }
+
+        self.pop_scope();
+
+        // Restore enclosing function context
+        self.current_return_type = saved_return_type;
+        self.current_function_name = saved_function_name;
+
+        // Push the nested function to deferred_functions (lifted to module level)
+        self.deferred_functions.push(crate::tir::TirFunction {
+            name: mangled_name,
+            params,
+            return_type,
+            body: tir_body,
+        });
+
+        // The nested function def produces no statements at the call site
         Ok(vec![])
     }
 

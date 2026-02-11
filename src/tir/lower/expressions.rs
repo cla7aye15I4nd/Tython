@@ -55,6 +55,30 @@ impl Lowering {
                     .lookup(&id)
                     .cloned()
                     .ok_or_else(|| self.name_error(line, format!("undefined variable `{}`", id)))?;
+
+                // If it's a function type and a known function definition,
+                // produce a FuncRef (function pointer) expression.
+                if let Type::Function {
+                    ref params,
+                    ref return_type,
+                } = ty
+                {
+                    if let Some(mangled) = self.function_mangled_names.get(&id).cloned() {
+                        let vt_params: Vec<ValueType> =
+                            params.iter().map(Self::to_value_type).collect();
+                        let vt_ret = Self::to_opt_value_type(return_type);
+                        return Ok(TirExpr {
+                            kind: TirExprKind::FuncRef {
+                                mangled_name: mangled,
+                            },
+                            ty: ValueType::Function {
+                                params: vt_params,
+                                return_type: vt_ret.map(Box::new),
+                            },
+                        });
+                    }
+                }
+
                 let vty = Self::to_value_type(&ty);
                 Ok(TirExpr {
                     kind: TirExprKind::Var(id),
@@ -422,15 +446,17 @@ impl Lowering {
                 });
             }
             let print_arg = if matches!(arg.ty, ValueType::Class(_)) {
-                let magic_rule = type_rules::lookup_builtin_class_magic("str")
-                    .expect("ICE: missing magic method registration for str()");
-                self.lower_class_magic_method(
-                    line,
-                    arg,
-                    magic_rule.method_names,
-                    magic_rule.return_type,
-                    "str",
-                )?
+                let rule = type_rules::lookup_builtin_call("str", &[&arg.ty])
+                    .expect("ICE: missing builtin rule for str() on class");
+                match rule {
+                    type_rules::BuiltinCallRule::ClassMagic {
+                        method_names,
+                        return_type,
+                    } => {
+                        self.lower_class_magic_method(line, arg, method_names, return_type, "str")?
+                    }
+                    _ => unreachable!("ICE: str() on class should resolve to ClassMagic"),
+                }
             } else {
                 arg
             };

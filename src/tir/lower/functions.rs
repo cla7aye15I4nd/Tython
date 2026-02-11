@@ -36,6 +36,8 @@ impl Lowering {
             return_type: Box::new(return_type),
         };
 
+        let mangled = self.mangle_name(&name);
+        self.function_mangled_names.insert(name.clone(), mangled);
         self.declare(name, func_type);
         Ok(())
     }

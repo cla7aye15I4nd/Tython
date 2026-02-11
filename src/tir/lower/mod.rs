@@ -54,6 +54,10 @@ pub struct Lowering {
     // `return` is forbidden inside such blocks because the codegen cannot
     // guarantee that the finally block executes before the function exits.
     in_try_finally_depth: usize,
+
+    // Maps local function names to their mangled names, used to distinguish
+    // direct calls (to known functions) from indirect calls (through variables).
+    function_mangled_names: HashMap<String, String>,
 }
 
 impl Default for Lowering {
@@ -78,6 +82,7 @@ impl Lowering {
             deferred_classes: Vec::new(),
             internal_tmp_counter: 0,
             pre_stmts: Vec::new(),
+            function_mangled_names: HashMap::new(),
             in_try_finally_depth: 0,
         }
     }
@@ -375,17 +380,31 @@ impl Lowering {
                     Ok(Type::Unit)
                 } else if let Ok(s) = value.extract::<String>() {
                     // String literal as forward reference, e.g. -> "Countdown"
-                    // Parse the string as a type name
+                    // First try simple class name lookup
                     if let Some(ty) = self.lookup(&s).cloned() {
-                        match ty {
-                            Type::Class(_) => Ok(ty),
-                            _ => bail!("'{}' is not a type", s),
+                        if let Type::Class(_) = ty {
+                            return Ok(ty);
                         }
-                    } else if self.class_registry.contains_key(&s) {
-                        Ok(Type::Class(s))
-                    } else {
-                        bail!("unsupported forward reference type `{}`", s)
                     }
+                    if self.class_registry.contains_key(&s) {
+                        return Ok(Type::Class(s));
+                    }
+                    // If not a simple name, parse as a type expression
+                    // (e.g., "callable[[int, int], int]")
+                    Python::attach(|py| {
+                        let ast_module = PyModule::import(py, "ast")?;
+                        let parsed = ast_module.call_method1("parse", (s.as_str(),))?;
+                        let body = ast_get_list!(&parsed, "body");
+                        if body.len() != 1 {
+                            bail!("unsupported forward reference type `{}`", s);
+                        }
+                        let expr_stmt = body.get_item(0)?;
+                        if ast_type_name!(expr_stmt) != "Expr" {
+                            bail!("unsupported forward reference type `{}`", s);
+                        }
+                        let inner_node = ast_getattr!(expr_stmt, "value");
+                        self.convert_type_annotation(&inner_node)
+                    })
                 } else {
                     bail!("unsupported constant type annotation")
                 }
@@ -437,6 +456,36 @@ impl Lowering {
                             bail!("unsupported tuple element type in annotation");
                         }
                         Ok(Type::Tuple(element_types))
+                    }
+                    "callable" => {
+                        // callable[[int, int], int]
+                        // Python AST: Subscript(value=Name("callable"),
+                        //   slice=Tuple(elts=[List(elts=[param_types...]), return_type]))
+                        if ast_type_name!(slice_node) != "Tuple" {
+                            bail!("callable type annotation must have form callable[[params], return_type]");
+                        }
+                        let slice_elts = ast_get_list!(slice_node, "elts");
+                        if slice_elts.len() != 2 {
+                            bail!("callable type annotation must have exactly 2 elements: [params], return_type");
+                        }
+                        let params_node = slice_elts.get_item(0)?;
+                        let return_node = slice_elts.get_item(1)?;
+
+                        if ast_type_name!(params_node) != "List" {
+                            bail!("callable parameter types must be a list, e.g., callable[[int, int], int]");
+                        }
+                        let param_elts = ast_get_list!(params_node, "elts");
+                        let mut param_types = Vec::new();
+                        for elt in param_elts.iter() {
+                            param_types.push(self.convert_type_annotation(&elt)?);
+                        }
+
+                        let return_type = self.convert_type_annotation(&return_node)?;
+
+                        Ok(Type::Function {
+                            params: param_types,
+                            return_type: Box::new(return_type),
+                        })
                     }
                     _ => bail!("unsupported generic type `{}`", container_name),
                 }

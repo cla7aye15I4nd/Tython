@@ -22,6 +22,13 @@ pub enum BuiltinCallRule {
     ConstInt(i64),
     /// `pow(float, float)` lowers to a `BinOp(**)` instead of a runtime call.
     PowFloat,
+    /// Dispatch to a dunder method on a user-defined class.
+    ClassMagic {
+        method_names: &'static [&'static str],
+        /// `Some(ty)` = validate the method returns exactly `ty`.
+        /// `None` = infer the return type from the method declaration.
+        return_type: Option<ValueType>,
+    },
 }
 
 pub fn is_builtin_call(name: &str) -> bool {
@@ -233,6 +240,29 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
         ("any", [ValueType::List(_)]) => Some(BuiltinCallRule::ExternalCall {
             func: BuiltinFn::AnyList,
             return_type: ValueType::Bool,
+        }),
+
+        // Class dunder-method dispatch: when a builtin is called on a user-defined class,
+        // resolve to the corresponding magic method(s).
+        ("str", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
+            method_names: &["__str__", "__repr__"],
+            return_type: Some(ValueType::Str),
+        }),
+        ("repr", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
+            method_names: &["__repr__"],
+            return_type: Some(ValueType::Str),
+        }),
+        ("len", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
+            method_names: &["__len__"],
+            return_type: Some(ValueType::Int),
+        }),
+        ("iter", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
+            method_names: &["__iter__"],
+            return_type: None,
+        }),
+        ("next", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
+            method_names: &["__next__"],
+            return_type: None,
         }),
 
         _ => None,

@@ -146,7 +146,8 @@ impl<'ctx> Codegen<'ctx> {
             | ValueType::ByteArray
             | ValueType::List(_)
             | ValueType::Tuple(_)
-            | ValueType::Class(_) => self.context.ptr_type(AddressSpace::default()).into(),
+            | ValueType::Class(_)
+            | ValueType::Function { .. } => self.context.ptr_type(AddressSpace::default()).into(),
         }
     }
 
@@ -234,7 +235,7 @@ impl<'ctx> Codegen<'ctx> {
                         .context
                         .bool_type()
                         .const_int((!elements.is_empty()) as u64, false),
-                    ValueType::Class(_) => self.i64_type().const_int(1, false),
+                    ValueType::Class(_) | ValueType::Function { .. } => self.i64_type().const_int(1, false),
                     _ => self.build_int_truthiness_check(value.into_int_value(), label),
                 }
             };

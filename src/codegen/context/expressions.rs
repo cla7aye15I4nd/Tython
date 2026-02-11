@@ -1,3 +1,4 @@
+use inkwell::types::BasicType;
 use inkwell::values::BasicValueEnum;
 use inkwell::AddressSpace;
 use inkwell::IntPredicate;
@@ -776,6 +777,54 @@ impl<'ctx> Codegen<'ctx> {
                         .unwrap();
                     self.extract_call_value(call)
                 }
+            }
+
+            TirExprKind::FuncRef { mangled_name } => {
+                let func = if let ValueType::Function {
+                    ref params,
+                    ref return_type,
+                } = expr.ty
+                {
+                    self.get_or_declare_function(
+                        mangled_name,
+                        params,
+                        return_type.as_ref().map(|b| *b.clone()),
+                    )
+                } else {
+                    panic!("ICE: FuncRef with non-function type");
+                };
+                func.as_global_value().as_pointer_value().into()
+            }
+
+            TirExprKind::IndirectCall { callee, args } => {
+                let callee_ptr = self.codegen_expr(callee).into_pointer_value();
+
+                let (param_types_vt, return_type_vt) = match &callee.ty {
+                    ValueType::Function {
+                        params,
+                        return_type,
+                    } => (params.clone(), return_type.clone()),
+                    _ => panic!("ICE: IndirectCall callee is not a function type"),
+                };
+
+                let llvm_params: Vec<inkwell::types::BasicMetadataTypeEnum> = param_types_vt
+                    .iter()
+                    .map(|t| self.get_llvm_type(t).into())
+                    .collect();
+
+                let fn_type = match &return_type_vt {
+                    None => self.context.void_type().fn_type(&llvm_params, false),
+                    Some(rt) => self.get_llvm_type(rt).fn_type(&llvm_params, false),
+                };
+
+                let arg_metadata = self.codegen_call_args(args);
+
+                let call_site = self
+                    .builder
+                    .build_indirect_call(fn_type, callee_ptr, &arg_metadata, "indirect_call")
+                    .unwrap();
+
+                self.extract_call_value(call_site)
             }
         }
     }
