@@ -260,6 +260,9 @@ pub enum CallTarget {
 
 // ── Comparison / unary / logical ops ────────────────────────────────
 
+/// Raw comparison operator — used during parsing / lowering.
+/// `In`, `NotIn`, `Is`, `IsNot` are desugared by the lowerer and never
+/// appear in the final TIR `Compare` node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CmpOp {
     Eq,
@@ -272,6 +275,37 @@ pub enum CmpOp {
     NotIn,
     Is,
     IsNot,
+}
+
+/// Ordered comparison operator — the only variants that survive into TIR
+/// `Compare` nodes and map directly to LLVM int/float predicates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrderedCmpOp {
+    Eq,
+    NotEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+}
+
+impl OrderedCmpOp {
+    /// Convert a raw `CmpOp` that is known to be an ordered comparison.
+    /// Panics on `In`/`NotIn`/`Is`/`IsNot` — those must be desugared first.
+    pub fn from_cmp_op(op: CmpOp) -> Self {
+        match op {
+            CmpOp::Eq => OrderedCmpOp::Eq,
+            CmpOp::NotEq => OrderedCmpOp::NotEq,
+            CmpOp::Lt => OrderedCmpOp::Lt,
+            CmpOp::LtEq => OrderedCmpOp::LtEq,
+            CmpOp::Gt => OrderedCmpOp::Gt,
+            CmpOp::GtEq => OrderedCmpOp::GtEq,
+            other => panic!(
+                "ICE: cannot convert {:?} to OrderedCmpOp — must be desugared first",
+                other
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,7 +465,7 @@ pub enum TirExprKind {
         arg: Box<TirExpr>,
     },
     Compare {
-        op: CmpOp,
+        op: OrderedCmpOp,
         left: Box<TirExpr>,
         right: Box<TirExpr>,
     },
@@ -461,15 +495,18 @@ pub enum TirExprKind {
     },
     TupleLiteral {
         elements: Vec<TirExpr>,
+        element_types: Vec<ValueType>,
     },
     TupleGet {
         tuple: Box<TirExpr>,
         index: usize,
+        element_types: Vec<ValueType>,
     },
     TupleGetDynamic {
         tuple: Box<TirExpr>,
         index: Box<TirExpr>,
         len: usize,
+        element_types: Vec<ValueType>,
     },
     ListLiteral {
         element_type: ValueType,

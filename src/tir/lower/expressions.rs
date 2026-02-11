@@ -2,8 +2,8 @@ use anyhow::Result;
 use pyo3::prelude::*;
 
 use crate::tir::{
-    builtin, type_rules, ArithBinOp, CallResult, CallTarget, CastKind, CmpOp, LogicalOp, RawBinOp,
-    TirExpr, TirExprKind, TirStmt, Type, ValueType,
+    builtin, type_rules, ArithBinOp, CallResult, CallTarget, CastKind, CmpOp, LogicalOp,
+    OrderedCmpOp, RawBinOp, TirExpr, TirExprKind, TirStmt, Type, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -268,9 +268,13 @@ impl Lowering {
                 for elt in elts_list.iter() {
                     elements.push(self.lower_expr(&elt)?);
                 }
-                let element_types = elements.iter().map(|elt| elt.ty.clone()).collect();
+                let element_types: Vec<ValueType> =
+                    elements.iter().map(|elt| elt.ty.clone()).collect();
                 Ok(TirExpr {
-                    kind: TirExprKind::TupleLiteral { elements },
+                    kind: TirExprKind::TupleLiteral {
+                        elements,
+                        element_types: element_types.clone(),
+                    },
                     ty: ValueType::Tuple(element_types),
                 })
             }
@@ -330,6 +334,7 @@ impl Lowering {
                                 kind: TirExprKind::TupleGet {
                                     tuple: Box::new(obj_expr),
                                     index: idx,
+                                    element_types: elements.clone(),
                                 },
                                 ty: elem_ty,
                             })
@@ -349,6 +354,7 @@ impl Lowering {
                                     tuple: Box::new(obj_expr),
                                     index: Box::new(index_expr),
                                     len: elements.len(),
+                                    element_types: elements.clone(),
                                 },
                                 ty: first.clone(),
                             })
@@ -603,9 +609,9 @@ impl Lowering {
         // `is` / `is not` — identity (pointer equality for ref types, value equality for primitives)
         if matches!(cmp_op, CmpOp::Is | CmpOp::IsNot) {
             let eq_op = if cmp_op == CmpOp::Is {
-                CmpOp::Eq
+                OrderedCmpOp::Eq
             } else {
-                CmpOp::NotEq
+                OrderedCmpOp::NotEq
             };
             return Ok(TirExpr {
                 kind: TirExprKind::Compare {
@@ -629,7 +635,11 @@ impl Lowering {
                 ));
             }
             return Ok(Self::build_seq_comparison(
-                cmp_op, eq_fn, cmp_fn, left, right,
+                OrderedCmpOp::from_cmp_op(cmp_op),
+                eq_fn,
+                cmp_fn,
+                left,
+                right,
             ));
         }
 
@@ -653,7 +663,7 @@ impl Lowering {
             if cmp_op == CmpOp::NotEq {
                 return Ok(TirExpr {
                     kind: TirExprKind::Compare {
-                        op: CmpOp::Eq,
+                        op: OrderedCmpOp::Eq,
                         left: Box::new(eq_expr),
                         right: Box::new(TirExpr {
                             kind: TirExprKind::IntLiteral(0),
@@ -687,7 +697,7 @@ impl Lowering {
             if cmp_op == CmpOp::NotEq {
                 return Ok(TirExpr {
                     kind: TirExprKind::Compare {
-                        op: CmpOp::Eq,
+                        op: OrderedCmpOp::Eq,
                         left: Box::new(eq_expr),
                         right: Box::new(TirExpr {
                             kind: TirExprKind::IntLiteral(0),
@@ -704,7 +714,7 @@ impl Lowering {
         let (fl, fr) = self.promote_for_comparison(line, left, right)?;
         Ok(TirExpr {
             kind: TirExprKind::Compare {
-                op: cmp_op,
+                op: OrderedCmpOp::from_cmp_op(cmp_op),
                 left: Box::new(fl),
                 right: Box::new(fr),
             },
@@ -905,7 +915,7 @@ impl Lowering {
         loop_body.push(TirStmt::If {
             condition: TirExpr {
                 kind: TirExprKind::Compare {
-                    op: CmpOp::Eq,
+                    op: OrderedCmpOp::Eq,
                     left: Box::new(elem_eq),
                     right: Box::new(TirExpr {
                         kind: TirExprKind::IntLiteral(0),
@@ -933,7 +943,7 @@ impl Lowering {
         stmts.push(TirStmt::If {
             condition: TirExpr {
                 kind: TirExprKind::Compare {
-                    op: CmpOp::NotEq,
+                    op: OrderedCmpOp::NotEq,
                     left: Box::new(TirExpr {
                         kind: TirExprKind::Var(len_a_var),
                         ty: ValueType::Int,
@@ -1019,6 +1029,7 @@ impl Lowering {
                 kind: TirExprKind::TupleGet {
                     tuple: Box::new(left.clone()),
                     index: i,
+                    element_types: elements.clone(),
                 },
                 ty: elem_ty.clone(),
             };
@@ -1026,6 +1037,7 @@ impl Lowering {
                 kind: TirExprKind::TupleGet {
                     tuple: Box::new(right.clone()),
                     index: i,
+                    element_types: elements.clone(),
                 },
                 ty: elem_ty.clone(),
             };
@@ -1057,7 +1069,7 @@ impl Lowering {
         match ty {
             ValueType::Int | ValueType::Float | ValueType::Bool => TirExpr {
                 kind: TirExprKind::Compare {
-                    op: CmpOp::Eq,
+                    op: OrderedCmpOp::Eq,
                     left: Box::new(left),
                     right: Box::new(right),
                 },
@@ -1076,7 +1088,7 @@ impl Lowering {
                 // Fallback: bitwise compare (works for primitives stored as i64)
                 TirExpr {
                     kind: TirExprKind::Compare {
-                        op: CmpOp::Eq,
+                        op: OrderedCmpOp::Eq,
                         left: Box::new(left),
                         right: Box::new(right),
                     },
@@ -1099,7 +1111,7 @@ impl Lowering {
     }
 
     fn build_seq_comparison(
-        cmp_op: CmpOp,
+        cmp_op: OrderedCmpOp,
         eq_fn: builtin::BuiltinFn,
         cmp_fn: builtin::BuiltinFn,
         left: TirExpr,
@@ -1111,7 +1123,7 @@ impl Lowering {
         };
 
         match cmp_op {
-            CmpOp::Eq => {
+            OrderedCmpOp::Eq => {
                 // str_eq returns 1 if equal, 0 if not — usable directly as Bool.
                 TirExpr {
                     kind: TirExprKind::ExternalCall {
@@ -1121,7 +1133,7 @@ impl Lowering {
                     ty: ValueType::Bool,
                 }
             }
-            CmpOp::NotEq => {
+            OrderedCmpOp::NotEq => {
                 // str_eq(a,b) == 0 means "not equal"
                 let eq_call = TirExpr {
                     kind: TirExprKind::ExternalCall {
@@ -1132,7 +1144,7 @@ impl Lowering {
                 };
                 TirExpr {
                     kind: TirExprKind::Compare {
-                        op: CmpOp::Eq,
+                        op: OrderedCmpOp::Eq,
                         left: Box::new(eq_call),
                         right: Box::new(zero),
                     },
@@ -1600,6 +1612,10 @@ impl Lowering {
                 let step_name = self.fresh_internal("comp_step");
 
                 // Prepend: var_name = tuple[idx_var]
+                let tuple_element_types = match &tuple_expr.ty {
+                    ValueType::Tuple(types) => types.clone(),
+                    _ => vec![elem_ty.clone(); *len],
+                };
                 let mut full_body = vec![TirStmt::Let {
                     name: var_name.to_string(),
                     ty: elem_ty.clone(),
@@ -1614,6 +1630,7 @@ impl Lowering {
                                 ty: ValueType::Int,
                             }),
                             len: *len,
+                            element_types: tuple_element_types,
                         },
                         ty: elem_ty.clone(),
                     },

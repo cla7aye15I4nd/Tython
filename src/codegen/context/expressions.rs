@@ -537,11 +537,10 @@ impl<'ctx> Codegen<'ctx> {
                 self.extract_call_value(call_site)
             }
 
-            TirExprKind::TupleLiteral { elements } => {
-                let element_types = match &expr.ty {
-                    ValueType::Tuple(types) => types,
-                    _ => unreachable!("ICE: TupleLiteral must have tuple type"),
-                };
+            TirExprKind::TupleLiteral {
+                elements,
+                element_types,
+            } => {
                 let struct_type = self.get_or_create_tuple_struct(element_types);
                 let size = struct_type.size_of().unwrap();
                 let size_i64 = self
@@ -566,12 +565,12 @@ impl<'ctx> Codegen<'ctx> {
                 tuple_ptr.into()
             }
 
-            TirExprKind::TupleGet { tuple, index } => {
+            TirExprKind::TupleGet {
+                tuple,
+                index,
+                element_types,
+            } => {
                 let tuple_ptr = self.codegen_expr(tuple).into_pointer_value();
-                let element_types = match &tuple.ty {
-                    ValueType::Tuple(types) => types,
-                    _ => unreachable!("ICE: TupleGet source must have tuple type"),
-                };
                 let struct_type = self.get_or_create_tuple_struct(element_types);
                 let field_ptr = self
                     .builder
@@ -582,13 +581,14 @@ impl<'ctx> Codegen<'ctx> {
                     .unwrap()
             }
 
-            TirExprKind::TupleGetDynamic { tuple, index, len } => {
+            TirExprKind::TupleGetDynamic {
+                tuple,
+                index,
+                len,
+                element_types,
+            } => {
                 let tuple_ptr = self.codegen_expr(tuple).into_pointer_value();
                 let idx_val = self.codegen_expr(index).into_int_value();
-                let element_types = match &tuple.ty {
-                    ValueType::Tuple(types) => types,
-                    _ => unreachable!("ICE: TupleGetDynamic source must have tuple type"),
-                };
                 let struct_type = self.get_or_create_tuple_struct(element_types);
 
                 let result_alloca = self

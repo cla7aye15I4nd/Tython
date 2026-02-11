@@ -191,7 +191,7 @@ impl Lowering {
                             });
                         }
 
-                        let vty = ValueType::Tuple(element_types);
+                        let vty = ValueType::Tuple(element_types.clone());
                         self.declare(target.clone(), tuple_ty);
 
                         return Ok(vec![TirStmt::Let {
@@ -200,6 +200,7 @@ impl Lowering {
                             value: TirExpr {
                                 kind: TirExprKind::TupleLiteral {
                                     elements: tuple_elements,
+                                    element_types,
                                 },
                                 ty: vty,
                             },
@@ -727,6 +728,10 @@ impl Lowering {
         let else_body = self.lower_block(&ast_get_list!(node, "orelse"))?;
 
         // Prepend: loop_var = tuple[idx_var]
+        let tuple_element_types = match &tuple_expr.ty {
+            ValueType::Tuple(types) => types.clone(),
+            _ => vec![elem_ty.clone(); tuple_len],
+        };
         let mut full_body = vec![TirStmt::Let {
             name: loop_var.to_string(),
             ty: elem_ty.clone(),
@@ -741,6 +746,7 @@ impl Lowering {
                         ty: ValueType::Int,
                     }),
                     len: tuple_len,
+                    element_types: tuple_element_types,
                 },
                 ty: elem_ty,
             },

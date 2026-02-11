@@ -13,7 +13,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::ast::ClassInfo;
-use crate::tir::{CmpOp, TirExpr, TirFunction, TirStmt, ValueType};
+use crate::tir::{OrderedCmpOp, TirExpr, TirFunction, TirStmt, ValueType};
 
 mod expressions;
 mod statements;
@@ -547,7 +547,15 @@ impl<'ctx> Codegen<'ctx> {
                         return true;
                     }
                 }
-                _ => {}
+                TirStmt::Let { .. }
+                | TirStmt::Return(_)
+                | TirStmt::Expr(_)
+                | TirStmt::VoidCall { .. }
+                | TirStmt::Break
+                | TirStmt::Continue
+                | TirStmt::SetField { .. }
+                | TirStmt::ListSet { .. }
+                | TirStmt::Raise { .. } => {}
             }
         }
         false
@@ -641,29 +649,27 @@ impl<'ctx> Codegen<'ctx> {
         self.builder.position_at_end(dead_bb);
     }
 
-    /// Map a CmpOp to LLVM float predicate.
-    fn float_predicate(op: &CmpOp) -> FloatPredicate {
+    /// Map an OrderedCmpOp to LLVM float predicate.
+    fn float_predicate(op: &OrderedCmpOp) -> FloatPredicate {
         match op {
-            CmpOp::Eq => FloatPredicate::OEQ,
-            CmpOp::NotEq => FloatPredicate::ONE,
-            CmpOp::Lt => FloatPredicate::OLT,
-            CmpOp::LtEq => FloatPredicate::OLE,
-            CmpOp::Gt => FloatPredicate::OGT,
-            CmpOp::GtEq => FloatPredicate::OGE,
-            _ => unreachable!("unsupported float comparison op: {:?}", op),
+            OrderedCmpOp::Eq => FloatPredicate::OEQ,
+            OrderedCmpOp::NotEq => FloatPredicate::ONE,
+            OrderedCmpOp::Lt => FloatPredicate::OLT,
+            OrderedCmpOp::LtEq => FloatPredicate::OLE,
+            OrderedCmpOp::Gt => FloatPredicate::OGT,
+            OrderedCmpOp::GtEq => FloatPredicate::OGE,
         }
     }
 
-    /// Map a CmpOp to LLVM int predicate.
-    fn int_predicate(op: &CmpOp) -> IntPredicate {
+    /// Map an OrderedCmpOp to LLVM int predicate.
+    fn int_predicate(op: &OrderedCmpOp) -> IntPredicate {
         match op {
-            CmpOp::Eq => IntPredicate::EQ,
-            CmpOp::NotEq => IntPredicate::NE,
-            CmpOp::Lt => IntPredicate::SLT,
-            CmpOp::LtEq => IntPredicate::SLE,
-            CmpOp::Gt => IntPredicate::SGT,
-            CmpOp::GtEq => IntPredicate::SGE,
-            _ => unreachable!("unsupported int comparison op: {:?}", op),
+            OrderedCmpOp::Eq => IntPredicate::EQ,
+            OrderedCmpOp::NotEq => IntPredicate::NE,
+            OrderedCmpOp::Lt => IntPredicate::SLT,
+            OrderedCmpOp::LtEq => IntPredicate::SLE,
+            OrderedCmpOp::Gt => IntPredicate::SGT,
+            OrderedCmpOp::GtEq => IntPredicate::SGE,
         }
     }
 
