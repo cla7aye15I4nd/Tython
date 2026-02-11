@@ -24,6 +24,8 @@ import basic.test_truthiness as test_truthiness
 import basic.test_class as test_class
 import basic.test_nested_class as test_nested_class
 import basic.test_str as test_str
+import basic.test_magic_str_repr as test_magic_str_repr
+import basic.test_magic_len as test_magic_len
 import basic.test_bytes as test_bytes
 import basic.test_bytearray as test_bytearray
 import basic.test_list as test_list
@@ -56,6 +58,8 @@ def run_all_tests() -> None:
     test_class.run_tests()
     test_nested_class.run_tests()
     test_str.run_tests()
+    test_magic_str_repr.run_tests()
+    test_magic_len.run_tests()
     test_bytes.run_tests()
     test_bytearray.run_tests()
     test_list.run_tests()

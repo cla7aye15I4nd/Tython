@@ -26,6 +26,7 @@ pub fn is_builtin_call(name: &str) -> bool {
     matches!(
         name,
         "str"
+            | "repr"
             | "bytes"
             | "bytearray"
             | "int"
@@ -101,6 +102,18 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
             return_type: ValueType::Str,
         }),
         ("str", [ValueType::Bool]) => Some(BuiltinCallRule::ExternalCall {
+            func: BuiltinFn::StrFromBool,
+            return_type: ValueType::Str,
+        }),
+        ("repr", [ValueType::Int]) => Some(BuiltinCallRule::ExternalCall {
+            func: BuiltinFn::StrFromInt,
+            return_type: ValueType::Str,
+        }),
+        ("repr", [ValueType::Float]) => Some(BuiltinCallRule::ExternalCall {
+            func: BuiltinFn::StrFromFloat,
+            return_type: ValueType::Str,
+        }),
+        ("repr", [ValueType::Bool]) => Some(BuiltinCallRule::ExternalCall {
             func: BuiltinFn::StrFromBool,
             return_type: ValueType::Str,
         }),
@@ -189,6 +202,16 @@ pub fn builtin_call_error_message(name: &str, arg_types: &[&ValueType], provided
                 format!("{}() cannot convert `{}`", name, arg_types[0])
             }
         }
+        "repr" => {
+            if provided != 1 {
+                format!("repr() expects exactly 1 argument, got {}", provided)
+            } else {
+                format!(
+                    "repr() requires a class with `__repr__() -> str` or a numeric/bool value, got `{}`",
+                    arg_types[0]
+                )
+            }
+        }
         "bytearray" => {
             if provided > 1 {
                 format!("bytearray() expects 0 or 1 arguments, got {}", provided)
@@ -201,7 +224,7 @@ pub fn builtin_call_error_message(name: &str, arg_types: &[&ValueType], provided
                 format!("len() expects exactly 1 argument, got {}", provided)
             } else {
                 format!(
-                    "len() requires a `str`, `bytes`, `bytearray`, or `list` argument, got `{}`",
+                    "len() requires a `str`, `bytes`, `bytearray`, `list`, or a class with `__len__() -> int`, got `{}`",
                     arg_types[0]
                 )
             }

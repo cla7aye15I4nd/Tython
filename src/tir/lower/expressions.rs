@@ -325,12 +325,28 @@ impl Lowering {
                     args: vec![],
                 });
             }
-            let print_fn = builtin::resolve_print(&arg.ty).ok_or_else(|| {
-                self.type_error(line, format!("cannot print value of type `{}`", arg.ty))
+            let print_arg = if matches!(arg.ty, ValueType::Class(_)) {
+                let magic_rule = type_rules::lookup_builtin_class_magic("str")
+                    .expect("ICE: missing magic method registration for str()");
+                self.lower_class_magic_method(
+                    line,
+                    arg,
+                    magic_rule.method_names,
+                    magic_rule.return_type,
+                    "str",
+                )?
+            } else {
+                arg
+            };
+            let print_fn = builtin::resolve_print(&print_arg.ty).ok_or_else(|| {
+                self.type_error(
+                    line,
+                    format!("cannot print value of type `{}`", print_arg.ty),
+                )
             })?;
             stmts.push(TirStmt::VoidCall {
                 target: CallTarget::Builtin(print_fn),
-                args: vec![arg],
+                args: vec![print_arg],
             });
         }
         stmts.push(TirStmt::VoidCall {

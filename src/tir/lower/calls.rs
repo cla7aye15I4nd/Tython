@@ -29,6 +29,19 @@ impl Lowering {
                     return Err(self.syntax_error(line, "print() can only be used as a statement"));
                 }
 
+                if tir_args.len() == 1 && matches!(tir_args[0].ty, ValueType::Class(_)) {
+                    if let Some(magic_rule) = type_rules::lookup_builtin_class_magic(&func_name) {
+                        let arg = tir_args.remove(0);
+                        return Ok(CallResult::Expr(self.lower_class_magic_method(
+                            line,
+                            arg,
+                            magic_rule.method_names,
+                            magic_rule.return_type,
+                            &func_name,
+                        )?));
+                    }
+                }
+
                 if type_rules::is_builtin_call(&func_name) {
                     let arg_types: Vec<&ValueType> = tir_args.iter().map(|a| &a.ty).collect();
                     let rule = type_rules::lookup_builtin_call(&func_name, &arg_types).ok_or_else(
@@ -563,5 +576,89 @@ impl Lowering {
             },
             ty: ValueType::Class(qualified_name.to_string()),
         }))
+    }
+
+    pub(super) fn lower_class_magic_method(
+        &self,
+        line: usize,
+        object: TirExpr,
+        method_names: &[&str],
+        expected_return_type: ValueType,
+        caller_name: &str,
+    ) -> Result<TirExpr> {
+        if method_names.is_empty() {
+            return Err(self.syntax_error(
+                line,
+                format!(
+                    "internal error: {}() magic method list is empty",
+                    caller_name
+                ),
+            ));
+        }
+
+        let class_name = match &object.ty {
+            ValueType::Class(name) => name.clone(),
+            _ => {
+                return Err(self.type_error(
+                    line,
+                    format!("{}() cannot convert `{}`", caller_name, object.ty),
+                ))
+            }
+        };
+
+        let class_info = self.lookup_class(line, &class_name)?;
+
+        let method = method_names
+            .iter()
+            .find_map(|name| class_info.methods.get(*name))
+            .ok_or_else(|| {
+                if method_names.len() == 1 {
+                    self.attribute_error(
+                        line,
+                        format!("class `{}` has no method `{}`", class_name, method_names[0]),
+                    )
+                } else {
+                    let choices = method_names
+                        .iter()
+                        .map(|name| format!("`{}`", name))
+                        .collect::<Vec<_>>()
+                        .join(" or ");
+                    self.attribute_error(
+                        line,
+                        format!("class `{}` has no method {}", class_name, choices),
+                    )
+                }
+            })?;
+
+        if !method.params.is_empty() {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "{}.{}() must take no arguments besides `self`, found {}",
+                    class_name,
+                    method.name,
+                    method.params.len()
+                ),
+            ));
+        }
+
+        if method.return_type != expected_return_type.to_type() {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "{}.{}() must return `{}`, got `{}`",
+                    class_name, method.name, expected_return_type, method.return_type
+                ),
+            ));
+        }
+
+        Ok(TirExpr {
+            kind: TirExprKind::MethodCall {
+                object: Box::new(object),
+                method_mangled_name: method.mangled_name.clone(),
+                args: vec![],
+            },
+            ty: expected_return_type,
+        })
     }
 }
