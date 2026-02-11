@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tython::ast::Type;
 use tython::tir::lower::Lowering;
 use tython::tir::type_rules;
-use tython::tir::{ArithBinOp, BitwiseBinOp, TypedBinOp, UnaryOpKind};
+use tython::tir::{ArithBinOp, BitwiseBinOp, RawBinOp, UnaryOpKind};
 
 #[test]
 fn test_tython_python_compatibility() {
@@ -123,19 +123,19 @@ fn test_invalid_programs_produce_compilation_errors() {
     }
 }
 
-const ALL_BINOPS: &[TypedBinOp] = &[
-    TypedBinOp::Arith(ArithBinOp::Add),
-    TypedBinOp::Arith(ArithBinOp::Sub),
-    TypedBinOp::Arith(ArithBinOp::Mul),
-    TypedBinOp::Arith(ArithBinOp::Div),
-    TypedBinOp::Arith(ArithBinOp::FloorDiv),
-    TypedBinOp::Arith(ArithBinOp::Mod),
-    TypedBinOp::Arith(ArithBinOp::Pow),
-    TypedBinOp::Bitwise(BitwiseBinOp::BitAnd),
-    TypedBinOp::Bitwise(BitwiseBinOp::BitOr),
-    TypedBinOp::Bitwise(BitwiseBinOp::BitXor),
-    TypedBinOp::Bitwise(BitwiseBinOp::LShift),
-    TypedBinOp::Bitwise(BitwiseBinOp::RShift),
+const ALL_BINOPS: &[RawBinOp] = &[
+    RawBinOp::Arith(ArithBinOp::Add),
+    RawBinOp::Arith(ArithBinOp::Sub),
+    RawBinOp::Arith(ArithBinOp::Mul),
+    RawBinOp::Arith(ArithBinOp::Div),
+    RawBinOp::Arith(ArithBinOp::FloorDiv),
+    RawBinOp::Arith(ArithBinOp::Mod),
+    RawBinOp::Arith(ArithBinOp::Pow),
+    RawBinOp::Bitwise(BitwiseBinOp::BitAnd),
+    RawBinOp::Bitwise(BitwiseBinOp::BitOr),
+    RawBinOp::Bitwise(BitwiseBinOp::BitXor),
+    RawBinOp::Bitwise(BitwiseBinOp::LShift),
+    RawBinOp::Bitwise(BitwiseBinOp::RShift),
 ];
 
 const ALL_UNARYOPS: &[UnaryOpKind] = &[

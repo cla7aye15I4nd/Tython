@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 
 use crate::ast::{ClassInfo, Type};
 use crate::tir::{
-    builtin, type_rules, ArithBinOp, CallResult, CallTarget, TirExpr, TirExprKind, TirStmt,
+    builtin, type_rules, CallResult, CallTarget, FloatArithOp, TirExpr, TirExprKind, TirStmt,
     TypedBinOp, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
@@ -226,7 +226,7 @@ impl Lowering {
                             let left = tir_args.remove(0);
                             Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::BinOp {
-                                    op: TypedBinOp::Arith(ArithBinOp::Pow),
+                                    op: TypedBinOp::FloatArith(FloatArithOp::Pow),
                                     left: Box::new(left),
                                     right: Box::new(right),
                                 },

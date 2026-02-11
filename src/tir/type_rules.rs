@@ -1,5 +1,5 @@
 use super::builtin::BuiltinFn;
-use super::{ArithBinOp, TypedBinOp, UnaryOpKind, ValueType};
+use super::{ArithBinOp, FloatArithOp, IntArithOp, RawBinOp, TypedBinOp, UnaryOpKind, ValueType};
 use crate::ast::Type;
 
 /// Describes what coercion to apply to an operand before the operation.
@@ -11,7 +11,7 @@ pub enum Coercion {
     ToFloat,
 }
 
-/// Result of looking up a valid (TypedBinOp, left_type, right_type) combination.
+/// Result of looking up a valid (RawBinOp, left_type, right_type) combination.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BinOpRule {
     pub left_coercion: Coercion,
@@ -72,16 +72,16 @@ fn standard_numeric_rule(left: &Type, right: &Type) -> Option<BinOpRule> {
 }
 
 /// Check for sequence-type binary operations (concat, repeat).
-fn sequence_binop_rule(op: TypedBinOp, left: &Type, right: &Type) -> Option<BinOpRule> {
+fn sequence_binop_rule(op: RawBinOp, left: &Type, right: &Type) -> Option<BinOpRule> {
     use Type::*;
     match op {
-        TypedBinOp::Arith(ArithBinOp::Add) => match (left, right) {
+        RawBinOp::Arith(ArithBinOp::Add) => match (left, right) {
             (Str, Str) => Some(BinOpRule::same(Str)),
             (Bytes, Bytes) => Some(BinOpRule::same(Bytes)),
             (ByteArray, ByteArray) => Some(BinOpRule::same(ByteArray)),
             _ => None,
         },
-        TypedBinOp::Arith(ArithBinOp::Mul) => match (left, right) {
+        RawBinOp::Arith(ArithBinOp::Mul) => match (left, right) {
             (Str, Int) | (Int, Str) => Some(BinOpRule::same(Str)),
             (Bytes, Int) | (Int, Bytes) => Some(BinOpRule::same(Bytes)),
             (ByteArray, Int) | (Int, ByteArray) => Some(BinOpRule::same(ByteArray)),
@@ -93,7 +93,7 @@ fn sequence_binop_rule(op: TypedBinOp, left: &Type, right: &Type) -> Option<BinO
 
 /// Look up the type rule for a binary operation.
 /// Returns `None` if the (op, left, right) combination is invalid.
-pub fn lookup_binop(op: TypedBinOp, left: &Type, right: &Type) -> Option<BinOpRule> {
+pub fn lookup_binop(op: RawBinOp, left: &Type, right: &Type) -> Option<BinOpRule> {
     use Type::*;
 
     // Sequence operations (concat, repeat)
@@ -102,17 +102,17 @@ pub fn lookup_binop(op: TypedBinOp, left: &Type, right: &Type) -> Option<BinOpRu
     }
 
     match op {
-        TypedBinOp::Bitwise(_) => match (left, right) {
+        RawBinOp::Bitwise(_) => match (left, right) {
             (Int, Int) => Some(BinOpRule::same(Int)),
             _ => None,
         },
         // True division: always produces Float (even Int / Int)
-        TypedBinOp::Arith(ArithBinOp::Div) => match (left, right) {
+        RawBinOp::Arith(ArithBinOp::Div) => match (left, right) {
             (Int, Int) => Some(BinOpRule::promote_both_to_float()),
             _ => standard_numeric_rule(left, right),
         },
         // All other arithmetic: standard numeric rules
-        TypedBinOp::Arith(_) => standard_numeric_rule(left, right),
+        RawBinOp::Arith(_) => standard_numeric_rule(left, right),
     }
 }
 
@@ -141,15 +141,15 @@ pub fn lookup_unaryop(op: UnaryOpKind, operand: &Type) -> Option<UnaryOpRule> {
 }
 
 /// Generate a descriptive error message for an invalid BinOp type combination.
-pub fn binop_type_error_message(op: TypedBinOp, left: &Type, right: &Type) -> String {
+pub fn binop_type_error_message(op: RawBinOp, left: &Type, right: &Type) -> String {
     match op {
-        TypedBinOp::Bitwise(_) => {
+        RawBinOp::Bitwise(_) => {
             format!(
                 "bitwise operator `{}` requires `int` operands, got `{}` and `{}`",
                 op, left, right
             )
         }
-        TypedBinOp::Arith(_) => {
+        RawBinOp::Arith(_) => {
             format!(
                 "operator `{}` requires numeric operands, got `{}` and `{}`",
                 op, left, right
@@ -301,5 +301,43 @@ pub fn builtin_fn_type_error_message(name: &str, arg_types: &[&ValueType]) -> St
             }
         }
         _ => unreachable!("not a built-in function: {}", name),
+    }
+}
+
+// ── Raw → Typed resolution ──────────────────────────────────────────
+
+/// Convert a raw binary operator + result type into a fully-typed `TypedBinOp`.
+/// Must only be called after `lookup_binop` has validated the combination.
+pub fn resolve_typed_binop(raw_op: RawBinOp, result_ty: &Type) -> TypedBinOp {
+    use Type::*;
+
+    // Sequence operations are handled by the lowering layer (emitted as ExternalCall).
+    // This function must only be called for arithmetic/bitwise operations.
+
+    match raw_op {
+        RawBinOp::Bitwise(bw) => TypedBinOp::Bitwise(bw),
+        RawBinOp::Arith(arith) => {
+            if *result_ty == Float {
+                TypedBinOp::FloatArith(match arith {
+                    ArithBinOp::Add => FloatArithOp::Add,
+                    ArithBinOp::Sub => FloatArithOp::Sub,
+                    ArithBinOp::Mul => FloatArithOp::Mul,
+                    ArithBinOp::Div => FloatArithOp::Div,
+                    ArithBinOp::FloorDiv => FloatArithOp::FloorDiv,
+                    ArithBinOp::Mod => FloatArithOp::Mod,
+                    ArithBinOp::Pow => FloatArithOp::Pow,
+                })
+            } else {
+                TypedBinOp::IntArith(match arith {
+                    ArithBinOp::Add => IntArithOp::Add,
+                    ArithBinOp::Sub => IntArithOp::Sub,
+                    ArithBinOp::Mul => IntArithOp::Mul,
+                    ArithBinOp::Div => unreachable!("ICE: int result for true division"),
+                    ArithBinOp::FloorDiv => IntArithOp::FloorDiv,
+                    ArithBinOp::Mod => IntArithOp::Mod,
+                    ArithBinOp::Pow => IntArithOp::Pow,
+                })
+            }
+        }
     }
 }

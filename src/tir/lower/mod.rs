@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::{
-    ArithBinOp, BitwiseBinOp, CmpOp, TirFunction, TirModule, TirStmt, TypedBinOp, UnaryOpKind,
+    ArithBinOp, BitwiseBinOp, CmpOp, RawBinOp, TirFunction, TirModule, TirStmt, UnaryOpKind,
     ValueType,
 };
 use crate::ast::{ClassInfo, Type};
@@ -384,21 +384,21 @@ impl Lowering {
         }
     }
 
-    fn convert_binop(node: &Bound<PyAny>) -> Result<TypedBinOp> {
+    fn convert_binop(node: &Bound<PyAny>) -> Result<RawBinOp> {
         let op_type = ast_type_name!(node);
         match op_type.as_str() {
-            "Add" => Ok(TypedBinOp::Arith(ArithBinOp::Add)),
-            "Sub" => Ok(TypedBinOp::Arith(ArithBinOp::Sub)),
-            "Mult" => Ok(TypedBinOp::Arith(ArithBinOp::Mul)),
-            "Div" => Ok(TypedBinOp::Arith(ArithBinOp::Div)),
-            "FloorDiv" => Ok(TypedBinOp::Arith(ArithBinOp::FloorDiv)),
-            "Mod" => Ok(TypedBinOp::Arith(ArithBinOp::Mod)),
-            "Pow" => Ok(TypedBinOp::Arith(ArithBinOp::Pow)),
-            "BitAnd" => Ok(TypedBinOp::Bitwise(BitwiseBinOp::BitAnd)),
-            "BitOr" => Ok(TypedBinOp::Bitwise(BitwiseBinOp::BitOr)),
-            "BitXor" => Ok(TypedBinOp::Bitwise(BitwiseBinOp::BitXor)),
-            "LShift" => Ok(TypedBinOp::Bitwise(BitwiseBinOp::LShift)),
-            "RShift" => Ok(TypedBinOp::Bitwise(BitwiseBinOp::RShift)),
+            "Add" => Ok(RawBinOp::Arith(ArithBinOp::Add)),
+            "Sub" => Ok(RawBinOp::Arith(ArithBinOp::Sub)),
+            "Mult" => Ok(RawBinOp::Arith(ArithBinOp::Mul)),
+            "Div" => Ok(RawBinOp::Arith(ArithBinOp::Div)),
+            "FloorDiv" => Ok(RawBinOp::Arith(ArithBinOp::FloorDiv)),
+            "Mod" => Ok(RawBinOp::Arith(ArithBinOp::Mod)),
+            "Pow" => Ok(RawBinOp::Arith(ArithBinOp::Pow)),
+            "BitAnd" => Ok(RawBinOp::Bitwise(BitwiseBinOp::BitAnd)),
+            "BitOr" => Ok(RawBinOp::Bitwise(BitwiseBinOp::BitOr)),
+            "BitXor" => Ok(RawBinOp::Bitwise(BitwiseBinOp::BitXor)),
+            "LShift" => Ok(RawBinOp::Bitwise(BitwiseBinOp::LShift)),
+            "RShift" => Ok(RawBinOp::Bitwise(BitwiseBinOp::RShift)),
             _ => bail!("unsupported binary operator: `{}`", op_type),
         }
     }

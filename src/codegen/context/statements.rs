@@ -77,15 +77,11 @@ impl<'ctx> Codegen<'ctx> {
 
             TirStmt::SetField {
                 object,
-                field_name: _,
+                class_name,
                 field_index,
                 value,
             } => {
                 let obj_ptr = self.codegen_expr(object).into_pointer_value();
-                let class_name = match &object.ty {
-                    ValueType::Class(name) => name,
-                    _ => unreachable!("ICE: SetField on non-class type"),
-                };
                 let struct_type = self.class_types[class_name.as_str()];
 
                 let field_ptr = self

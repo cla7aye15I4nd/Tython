@@ -1,10 +1,9 @@
 use anyhow::Result;
 use pyo3::prelude::*;
 
-use crate::ast::Type;
 use crate::tir::{
-    builtin, type_rules, CallResult, CallTarget, CastKind, LogicalOp, TirExpr, TirExprKind,
-    TirStmt, TypedBinOp, ValueType,
+    builtin, type_rules, ArithBinOp, CallResult, CallTarget, CastKind, CmpOp, LogicalOp, RawBinOp,
+    TirExpr, TirExprKind, TirStmt, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -66,19 +65,8 @@ impl Lowering {
             "BinOp" => {
                 let left = self.lower_expr(&ast_getattr!(node, "left"))?;
                 let right = self.lower_expr(&ast_getattr!(node, "right"))?;
-                let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
-
-                let (final_left, final_right, result_ty) =
-                    self.resolve_binop_types(line, op, left, right)?;
-
-                Ok(TirExpr {
-                    kind: TirExprKind::BinOp {
-                        op,
-                        left: Box::new(final_left),
-                        right: Box::new(final_right),
-                    },
-                    ty: Self::to_value_type(&result_ty),
-                })
+                let raw_op = Self::convert_binop(&ast_getattr!(node, "op"))?;
+                self.resolve_binop(line, raw_op, left, right)
             }
 
             "Compare" => {
@@ -90,15 +78,7 @@ impl Lowering {
                     let op_node = ops_list.get_item(0)?;
                     let cmp_op = Self::convert_cmpop(&op_node)?;
                     let right = self.lower_expr(&comparators_list.get_item(0)?)?;
-                    let (fl, fr) = self.promote_for_comparison(line, left, right)?;
-                    return Ok(TirExpr {
-                        kind: TirExprKind::Compare {
-                            op: cmp_op,
-                            left: Box::new(fl),
-                            right: Box::new(fr),
-                        },
-                        ty: ValueType::Bool,
-                    });
+                    return self.lower_single_comparison(line, cmp_op, left, right);
                 }
 
                 let mut comparisons: Vec<TirExpr> = Vec::new();
@@ -109,17 +89,12 @@ impl Lowering {
                     let cmp_op = Self::convert_cmpop(&op_node)?;
                     let right = self.lower_expr(&comparators_list.get_item(i)?)?;
 
-                    let (fl, fr) =
-                        self.promote_for_comparison(line, current_left.clone(), right.clone())?;
-
-                    comparisons.push(TirExpr {
-                        kind: TirExprKind::Compare {
-                            op: cmp_op,
-                            left: Box::new(fl),
-                            right: Box::new(fr),
-                        },
-                        ty: ValueType::Bool,
-                    });
+                    comparisons.push(self.lower_single_comparison(
+                        line,
+                        cmp_op,
+                        current_left.clone(),
+                        right.clone(),
+                    )?);
 
                     current_left = right;
                 }
@@ -250,7 +225,7 @@ impl Lowering {
                 Ok(TirExpr {
                     kind: TirExprKind::GetField {
                         object: Box::new(obj_expr),
-                        field_name: attr_name,
+                        class_name,
                         field_index,
                     },
                     ty: field_ty,
@@ -306,28 +281,82 @@ impl Lowering {
         Ok(stmts)
     }
 
-    // ── type promotion / binary ops ────────────────────────────────────
+    // ── binary ops ───────────────────────────────────────────────────────
 
-    pub(super) fn resolve_binop_types(
+    /// Resolve a binary operation into a TIR expression.
+    /// Sequence operations (concat, repeat) become `ExternalCall`;
+    /// arithmetic/bitwise operations become `BinOp`.
+    pub(super) fn resolve_binop(
         &self,
         line: usize,
-        op: TypedBinOp,
+        raw_op: RawBinOp,
         left: TirExpr,
         right: TirExpr,
-    ) -> Result<(TirExpr, TirExpr, Type)> {
+    ) -> Result<TirExpr> {
         let left_ast = left.ty.to_type();
         let right_ast = right.ty.to_type();
-        let rule = type_rules::lookup_binop(op, &left_ast, &right_ast).ok_or_else(|| {
+        let rule = type_rules::lookup_binop(raw_op, &left_ast, &right_ast).ok_or_else(|| {
             self.type_error(
                 line,
-                type_rules::binop_type_error_message(op, &left_ast, &right_ast),
+                type_rules::binop_type_error_message(raw_op, &left_ast, &right_ast),
             )
         })?;
 
+        let result_vty = Self::to_value_type(&rule.result_type);
+
+        // Sequence operations → ExternalCall
+        if let Some(func) = Self::resolve_seq_binop(raw_op, &result_vty) {
+            let args = if matches!(raw_op, RawBinOp::Arith(ArithBinOp::Mul))
+                && left.ty == ValueType::Int
+            {
+                // Repeat with int on left: normalize to (seq, int)
+                vec![right, left]
+            } else {
+                vec![left, right]
+            };
+            return Ok(TirExpr {
+                kind: TirExprKind::ExternalCall { func, args },
+                ty: result_vty,
+            });
+        }
+
+        // Arithmetic/bitwise → BinOp
+        let typed_op = type_rules::resolve_typed_binop(raw_op, &rule.result_type);
         let final_left = Self::apply_coercion(left, rule.left_coercion);
         let final_right = Self::apply_coercion(right, rule.right_coercion);
 
-        Ok((final_left, final_right, rule.result_type))
+        Ok(TirExpr {
+            kind: TirExprKind::BinOp {
+                op: typed_op,
+                left: Box::new(final_left),
+                right: Box::new(final_right),
+            },
+            ty: result_vty,
+        })
+    }
+
+    fn resolve_seq_binop(raw_op: RawBinOp, result_ty: &ValueType) -> Option<builtin::BuiltinFn> {
+        match (raw_op, result_ty) {
+            (RawBinOp::Arith(ArithBinOp::Add), ValueType::Str) => {
+                Some(builtin::BuiltinFn::StrConcat)
+            }
+            (RawBinOp::Arith(ArithBinOp::Add), ValueType::Bytes) => {
+                Some(builtin::BuiltinFn::BytesConcat)
+            }
+            (RawBinOp::Arith(ArithBinOp::Add), ValueType::ByteArray) => {
+                Some(builtin::BuiltinFn::ByteArrayConcat)
+            }
+            (RawBinOp::Arith(ArithBinOp::Mul), ValueType::Str) => {
+                Some(builtin::BuiltinFn::StrRepeat)
+            }
+            (RawBinOp::Arith(ArithBinOp::Mul), ValueType::Bytes) => {
+                Some(builtin::BuiltinFn::BytesRepeat)
+            }
+            (RawBinOp::Arith(ArithBinOp::Mul), ValueType::ByteArray) => {
+                Some(builtin::BuiltinFn::ByteArrayRepeat)
+            }
+            _ => None,
+        }
     }
 
     fn apply_coercion(expr: TirExpr, coercion: type_rules::Coercion) -> TirExpr {
@@ -354,6 +383,117 @@ impl Lowering {
         }
     }
 
+    // ── comparisons ──────────────────────────────────────────────────────
+
+    fn lower_single_comparison(
+        &self,
+        line: usize,
+        cmp_op: CmpOp,
+        left: TirExpr,
+        right: TirExpr,
+    ) -> Result<TirExpr> {
+        // Sequence comparison: dispatch to runtime functions
+        if let Some((eq_fn, cmp_fn)) = Self::seq_compare_builtins(&left.ty) {
+            if left.ty != right.ty {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "comparison operands must have compatible types: `{}` vs `{}`",
+                        left.ty, right.ty
+                    ),
+                ));
+            }
+            return Ok(Self::build_seq_comparison(
+                cmp_op, eq_fn, cmp_fn, left, right,
+            ));
+        }
+
+        // Numeric comparison with optional promotion
+        let (fl, fr) = self.promote_for_comparison(line, left, right)?;
+        Ok(TirExpr {
+            kind: TirExprKind::Compare {
+                op: cmp_op,
+                left: Box::new(fl),
+                right: Box::new(fr),
+            },
+            ty: ValueType::Bool,
+        })
+    }
+
+    fn seq_compare_builtins(ty: &ValueType) -> Option<(builtin::BuiltinFn, builtin::BuiltinFn)> {
+        match ty {
+            ValueType::Str => Some((builtin::BuiltinFn::StrEq, builtin::BuiltinFn::StrCmp)),
+            ValueType::Bytes => Some((builtin::BuiltinFn::BytesEq, builtin::BuiltinFn::BytesCmp)),
+            ValueType::ByteArray => Some((
+                builtin::BuiltinFn::ByteArrayEq,
+                builtin::BuiltinFn::ByteArrayCmp,
+            )),
+            _ => None,
+        }
+    }
+
+    fn build_seq_comparison(
+        cmp_op: CmpOp,
+        eq_fn: builtin::BuiltinFn,
+        cmp_fn: builtin::BuiltinFn,
+        left: TirExpr,
+        right: TirExpr,
+    ) -> TirExpr {
+        let zero = TirExpr {
+            kind: TirExprKind::IntLiteral(0),
+            ty: ValueType::Int,
+        };
+
+        match cmp_op {
+            CmpOp::Eq => {
+                // str_eq returns 1 if equal, 0 if not — usable directly as Bool.
+                TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: eq_fn,
+                        args: vec![left, right],
+                    },
+                    ty: ValueType::Bool,
+                }
+            }
+            CmpOp::NotEq => {
+                // str_eq(a,b) == 0 means "not equal"
+                let eq_call = TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: eq_fn,
+                        args: vec![left, right],
+                    },
+                    ty: ValueType::Int,
+                };
+                TirExpr {
+                    kind: TirExprKind::Compare {
+                        op: CmpOp::Eq,
+                        left: Box::new(eq_call),
+                        right: Box::new(zero),
+                    },
+                    ty: ValueType::Bool,
+                }
+            }
+            ordered => {
+                // str_cmp(a,b) <op> 0
+                let cmp_call = TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: cmp_fn,
+                        args: vec![left, right],
+                    },
+                    ty: ValueType::Int,
+                };
+                TirExpr {
+                    kind: TirExprKind::Compare {
+                        op: ordered,
+                        left: Box::new(cmp_call),
+                        right: Box::new(zero),
+                    },
+                    ty: ValueType::Bool,
+                }
+            }
+        }
+    }
+
     fn promote_for_comparison(
         &self,
         line: usize,
@@ -366,7 +506,6 @@ impl Lowering {
             (&left.ty, &right.ty),
             (ValueType::Int, ValueType::Float) | (ValueType::Float, ValueType::Int)
         ) {
-            // Promote whichever side is Int to Float; apply_coercion is a no-op on Float.
             Ok((
                 Self::apply_coercion(left, type_rules::Coercion::ToFloat),
                 Self::apply_coercion(right, type_rules::Coercion::ToFloat),

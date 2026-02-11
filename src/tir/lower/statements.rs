@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use crate::ast::{ClassInfo, Type};
 use crate::tir::{
-    builtin, ArithBinOp, CallResult, CallTarget, CastKind, TirExpr, TirExprKind, TirStmt,
-    TypedBinOp, ValueType,
+    builtin, ArithBinOp, CallResult, CallTarget, CastKind, RawBinOp, TirExpr, TirExprKind, TirStmt,
+    ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -157,7 +157,7 @@ impl Lowering {
                 let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
                 let value_expr = self.lower_expr(&ast_getattr!(node, "value"))?;
 
-                if op == TypedBinOp::Arith(ArithBinOp::Div) && target_ty == Type::Int {
+                if op == RawBinOp::Arith(ArithBinOp::Div) && target_ty == Type::Int {
                     return Err(self.type_error(
                         line,
                         format!("`/=` on `int` variable `{}` would change type to `float`; use `//=` for integer division", target),
@@ -169,24 +169,12 @@ impl Lowering {
                     ty: Self::to_value_type(&target_ty),
                 };
 
-                let (final_left, final_right, result_ty) =
-                    self.resolve_binop_types(line, op, target_ref, value_expr)?;
-
-                let result_vty = Self::to_value_type(&result_ty);
-                let binop_expr = TirExpr {
-                    kind: TirExprKind::BinOp {
-                        op,
-                        left: Box::new(final_left),
-                        right: Box::new(final_right),
-                    },
-                    ty: result_vty.clone(),
-                };
-
-                self.declare(target.clone(), result_ty);
+                let binop_expr = self.resolve_binop(line, op, target_ref, value_expr)?;
+                self.declare(target.clone(), binop_expr.ty.to_type());
 
                 Ok(vec![TirStmt::Let {
                     name: target,
-                    ty: result_vty,
+                    ty: binop_expr.ty.clone(),
                     value: binop_expr,
                 }])
             }
@@ -366,7 +354,7 @@ impl Lowering {
 
         Ok(vec![TirStmt::SetField {
             object: obj_expr,
-            field_name,
+            class_name,
             field_index,
             value: tir_value,
         }])
@@ -401,7 +389,7 @@ impl Lowering {
         let current_val = TirExpr {
             kind: TirExprKind::GetField {
                 object: Box::new(obj_expr.clone()),
-                field_name: field_name.clone(),
+                class_name: class_name.clone(),
                 field_index,
             },
             ty: field_vty,
@@ -410,32 +398,21 @@ impl Lowering {
         let op = Self::convert_binop(&ast_getattr!(aug_node, "op"))?;
         let rhs = self.lower_expr(&ast_getattr!(aug_node, "value"))?;
 
-        let (final_left, final_right, result_ty) =
-            self.resolve_binop_types(line, op, current_val, rhs)?;
+        let binop_expr = self.resolve_binop(line, op, current_val, rhs)?;
 
-        if result_ty != field.ty {
+        if binop_expr.ty.to_type() != field.ty {
             return Err(self.type_error(
                 line,
                 format!(
                     "augmented assignment would change field `{}.{}` type from `{}` to `{}`",
-                    class_name, field_name, field.ty, result_ty
+                    class_name, field_name, field.ty, binop_expr.ty
                 ),
             ));
         }
 
-        let result_vty = Self::to_value_type(&result_ty);
-        let binop_expr = TirExpr {
-            kind: TirExprKind::BinOp {
-                op,
-                left: Box::new(final_left),
-                right: Box::new(final_right),
-            },
-            ty: result_vty,
-        };
-
         Ok(vec![TirStmt::SetField {
             object: obj_expr,
-            field_name,
+            class_name,
             field_index,
             value: binop_expr,
         }])
