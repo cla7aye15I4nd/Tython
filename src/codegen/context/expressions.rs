@@ -207,10 +207,7 @@ impl<'ctx> Codegen<'ctx> {
                 let function =
                     self.get_or_declare_function(func, &arg_types, Some(expr.ty.clone()));
                 let arg_metadata = self.codegen_call_args(args);
-                let call_site = self
-                    .builder
-                    .build_call(function, &arg_metadata, "call")
-                    .unwrap();
+                let call_site = self.build_call_maybe_invoke(function, &arg_metadata, "call", true);
                 self.extract_call_value(call_site)
             }
 
@@ -450,9 +447,7 @@ impl<'ctx> Codegen<'ctx> {
                 param_types.extend(args.iter().map(|a| a.ty.clone()));
                 let init_fn = self.get_or_declare_function(init_mangled_name, &param_types, None);
 
-                self.builder
-                    .build_call(init_fn, &init_args, "init")
-                    .unwrap();
+                self.build_call_maybe_invoke(init_fn, &init_args, "init", true);
 
                 ptr.into()
             }
@@ -497,10 +492,8 @@ impl<'ctx> Codegen<'ctx> {
                     Some(expr.ty.clone()),
                 );
 
-                let call_site = self
-                    .builder
-                    .build_call(method_fn, &all_meta, "method_call")
-                    .unwrap();
+                let call_site =
+                    self.build_call_maybe_invoke(method_fn, &all_meta, "method_call", true);
 
                 self.extract_call_value(call_site)
             }
@@ -560,9 +553,7 @@ impl<'ctx> Codegen<'ctx> {
                 let struct_type = self.get_or_create_tuple_struct(element_types);
 
                 let result_alloca = self
-                    .builder
-                    .build_alloca(self.get_llvm_type(&expr.ty), "tuple_dyn_get_tmp")
-                    .unwrap();
+                    .build_entry_block_alloca(self.get_llvm_type(&expr.ty), "tuple_dyn_get_tmp");
 
                 let default_val: BasicValueEnum<'ctx> = match &expr.ty {
                     ValueType::Int | ValueType::Bool => self.i64_type().const_zero().into(),
@@ -651,6 +642,50 @@ impl<'ctx> Codegen<'ctx> {
                     .unwrap()
             }
 
+            TirExprKind::ListToTuple {
+                list,
+                element_types,
+            } => {
+                let list_val = self.codegen_expr(list);
+                let struct_type = self.get_or_create_tuple_struct(element_types);
+
+                // Allocate tuple struct
+                let size = struct_type.size_of().unwrap();
+                let size_i64 = self
+                    .builder
+                    .build_int_cast(size, self.i64_type(), "l2t_size")
+                    .unwrap();
+                let malloc_fn = self.get_or_declare_malloc();
+                let call = self
+                    .builder
+                    .build_call(malloc_fn, &[size_i64.into()], "l2t_malloc")
+                    .unwrap();
+                let tuple_ptr = self.extract_call_value(call).into_pointer_value();
+
+                // Read elements from list into tuple fields
+                let list_get_fn = self.get_or_declare_function(
+                    "__tython_list_get",
+                    &[ValueType::List(Box::new(ValueType::Int)), ValueType::Int],
+                    Some(ValueType::Int),
+                );
+                for (i, elem_ty) in element_types.iter().enumerate() {
+                    let idx = self.i64_type().const_int(i as u64, false);
+                    let call = self
+                        .builder
+                        .build_call(list_get_fn, &[list_val.into(), idx.into()], "l2t_get")
+                        .unwrap();
+                    let elem_i64 = self.extract_call_value(call).into_int_value();
+                    let elem_val = self.bitcast_from_i64(elem_i64, elem_ty);
+                    let field_ptr = self
+                        .builder
+                        .build_struct_gep(struct_type, tuple_ptr, i as u32, "l2t_field_ptr")
+                        .unwrap();
+                    self.builder.build_store(field_ptr, elem_val).unwrap();
+                }
+
+                tuple_ptr.into()
+            }
+
             TirExprKind::ListLiteral {
                 element_type,
                 elements,
@@ -670,7 +705,7 @@ impl<'ctx> Codegen<'ctx> {
                     let len = elements.len();
                     let i64_ty = self.i64_type();
                     let array_ty = i64_ty.array_type(len as u32);
-                    let array_alloca = self.builder.build_alloca(array_ty, "list_data").unwrap();
+                    let array_alloca = self.build_entry_block_alloca(array_ty.into(), "list_data");
 
                     for (i, elem) in elements.iter().enumerate() {
                         let val = self.codegen_expr(elem);

@@ -29,6 +29,96 @@ impl Lowering {
                     return Err(self.syntax_error(line, "print() can only be used as a statement"));
                 }
 
+                // iter(obj) → obj.__iter__()
+                if func_name == "iter" {
+                    if tir_args.len() != 1 {
+                        return Err(self.type_error(
+                            line,
+                            format!("iter() expects 1 argument, got {}", tir_args.len()),
+                        ));
+                    }
+                    let arg = tir_args.remove(0);
+                    match &arg.ty {
+                        ValueType::Class(class_name) => {
+                            let class_info = self.lookup_class(line, class_name)?;
+                            let iter_method =
+                                class_info.methods.get("__iter__").ok_or_else(|| {
+                                    self.type_error(
+                                        line,
+                                        format!(
+                                            "class `{}` does not implement `__iter__`",
+                                            class_name
+                                        ),
+                                    )
+                                })?;
+                            let ret_ty = Self::to_value_type(&iter_method.return_type);
+                            let mangled = iter_method.mangled_name.clone();
+                            return Ok(CallResult::Expr(TirExpr {
+                                kind: TirExprKind::MethodCall {
+                                    object: Box::new(arg),
+                                    method_mangled_name: mangled,
+                                    args: vec![],
+                                },
+                                ty: ret_ty,
+                            }));
+                        }
+                        _ => {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "iter() argument must be a class with `__iter__`, got `{}`",
+                                    arg.ty
+                                ),
+                            ))
+                        }
+                    }
+                }
+
+                // next(obj) → obj.__next__()
+                if func_name == "next" {
+                    if tir_args.len() != 1 {
+                        return Err(self.type_error(
+                            line,
+                            format!("next() expects 1 argument, got {}", tir_args.len()),
+                        ));
+                    }
+                    let arg = tir_args.remove(0);
+                    match &arg.ty {
+                        ValueType::Class(class_name) => {
+                            let class_info = self.lookup_class(line, class_name)?;
+                            let next_method =
+                                class_info.methods.get("__next__").ok_or_else(|| {
+                                    self.type_error(
+                                        line,
+                                        format!(
+                                            "class `{}` does not implement `__next__`",
+                                            class_name
+                                        ),
+                                    )
+                                })?;
+                            let ret_ty = Self::to_value_type(&next_method.return_type);
+                            let mangled = next_method.mangled_name.clone();
+                            return Ok(CallResult::Expr(TirExpr {
+                                kind: TirExprKind::MethodCall {
+                                    object: Box::new(arg),
+                                    method_mangled_name: mangled,
+                                    args: vec![],
+                                },
+                                ty: ret_ty,
+                            }));
+                        }
+                        _ => {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "next() argument must be a class with `__next__`, got `{}`",
+                                    arg.ty
+                                ),
+                            ))
+                        }
+                    }
+                }
+
                 if tir_args.len() == 1 && matches!(tir_args[0].ty, ValueType::Class(_)) {
                     if let Some(magic_rule) = type_rules::lookup_builtin_class_magic(&func_name) {
                         let arg = tir_args.remove(0);

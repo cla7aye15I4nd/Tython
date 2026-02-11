@@ -7,6 +7,7 @@
 #include <string.h>
 #include <math.h>
 
+
 /* ── types ─────────────────────────────────────────────────────────── */
 
 typedef struct {
@@ -111,5 +112,34 @@ void        __tython_print_list_bool(TythonList* lst);
 void        __tython_print_list_str(TythonList* lst);
 void        __tython_print_list_bytes(TythonList* lst);
 void        __tython_print_list_bytearray(TythonList* lst);
+
+int64_t     __tython_list_eq_shallow(TythonList* a, TythonList* b);
+int64_t     __tython_list_eq_deep(TythonList* a, TythonList* b, int64_t depth);
+
+/* ── exception handling ───────────────────────────────────────────── */
+
+#define TYTHON_EXC_NONE            0
+#define TYTHON_EXC_EXCEPTION       1
+#define TYTHON_EXC_STOP_ITERATION  2
+#define TYTHON_EXC_VALUE_ERROR     3
+#define TYTHON_EXC_TYPE_ERROR      4
+#define TYTHON_EXC_KEY_ERROR       5
+#define TYTHON_EXC_RUNTIME_ERROR   6
+#define TYTHON_EXC_ZERO_DIVISION   7
+#define TYTHON_EXC_OVERFLOW_ERROR  8
+#define TYTHON_EXC_INDEX_ERROR     9
+#define TYTHON_EXC_ATTRIBUTE_ERROR 10
+#define TYTHON_EXC_NOT_IMPLEMENTED 11
+#define TYTHON_EXC_NAME_ERROR      12
+typedef struct {
+    int64_t    type_tag;
+    TythonStr* message;
+} TythonException;
+
+void    __tython_raise(int64_t type_tag, void* message);
+int64_t __tython_caught_type_tag(void* caught_ptr);
+void*   __tython_caught_message(void* caught_ptr);
+int64_t __tython_caught_matches(void* caught_ptr, int64_t type_tag);
+void    __tython_print_unhandled(int64_t type_tag, void* message);
 
 #endif /* TYTHON_H */

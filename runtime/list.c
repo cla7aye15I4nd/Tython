@@ -65,6 +65,36 @@ void __tython_list_clear(TythonList* lst) {
     lst->len = 0;
 }
 
+/* ── equality ────────────────────────────────────────────────────── */
+
+int64_t __tython_list_eq_shallow(TythonList* a, TythonList* b) {
+    if (a == b) return 1;
+    if (a->len != b->len) return 0;
+    for (int64_t i = 0; i < a->len; i++) {
+        if (a->data[i] != b->data[i]) return 0;
+    }
+    return 1;
+}
+
+int64_t __tython_list_eq_deep(TythonList* a, TythonList* b, int64_t depth) {
+    if (a == b) return 1;
+    if (a->len != b->len) return 0;
+    if (depth <= 0) {
+        /* leaf level: bitwise compare */
+        for (int64_t i = 0; i < a->len; i++) {
+            if (a->data[i] != b->data[i]) return 0;
+        }
+    } else {
+        /* recurse into nested lists */
+        for (int64_t i = 0; i < a->len; i++) {
+            TythonList* ai = (TythonList*)(uintptr_t)a->data[i];
+            TythonList* bi = (TythonList*)(uintptr_t)b->data[i];
+            if (!__tython_list_eq_deep(ai, bi, depth - 1)) return 0;
+        }
+    }
+    return 1;
+}
+
 /* ── print helpers ────────────────────────────────────────────────── */
 
 void __tython_print_list_int(TythonList* lst) {

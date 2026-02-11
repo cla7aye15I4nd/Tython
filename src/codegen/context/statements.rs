@@ -1,4 +1,4 @@
-use inkwell::IntPredicate;
+use inkwell::{AddressSpace, IntPredicate};
 
 use crate::tir::{CallTarget, TirStmt, ValueType};
 
@@ -13,10 +13,7 @@ impl<'ctx> Codegen<'ctx> {
                 if let Some(&existing_ptr) = self.variables.get(name.as_str()) {
                     self.builder.build_store(existing_ptr, value_llvm).unwrap();
                 } else {
-                    let alloca = self
-                        .builder
-                        .build_alloca(self.get_llvm_type(ty), name)
-                        .unwrap();
+                    let alloca = self.build_entry_block_alloca(self.get_llvm_type(ty), name);
                     self.builder.build_store(alloca, value_llvm).unwrap();
                     self.variables.insert(name.clone(), alloca);
                 }
@@ -40,9 +37,7 @@ impl<'ctx> Codegen<'ctx> {
                     let arg_metadata = self.codegen_call_args(args);
                     let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty.clone()).collect();
                     let function = self.get_or_declare_function(func_name, &arg_types, None);
-                    self.builder
-                        .build_call(function, &arg_metadata, "void_call")
-                        .unwrap();
+                    self.build_call_maybe_invoke(function, &arg_metadata, "void_call", true);
                 }
                 CallTarget::Builtin(builtin_fn) => {
                     use crate::tir::builtin::BuiltinFn;
@@ -79,9 +74,7 @@ impl<'ctx> Codegen<'ctx> {
                     param_types.extend(args.iter().map(|a| a.ty.clone()));
 
                     let function = self.get_or_declare_function(mangled_name, &param_types, None);
-                    self.builder
-                        .build_call(function, &all_meta, "void_method_call")
-                        .unwrap();
+                    self.build_call_maybe_invoke(function, &all_meta, "void_method_call", true);
                 }
             },
 
@@ -160,7 +153,9 @@ impl<'ctx> Codegen<'ctx> {
                 }
             }
 
-            TirStmt::While { condition, body } => {
+            TirStmt::While {
+                condition, body, ..
+            } => {
                 let function = self
                     .builder
                     .get_insert_block()
@@ -199,6 +194,7 @@ impl<'ctx> Codegen<'ctx> {
                 stop_var,
                 step_var,
                 body,
+                ..
             } => {
                 let function = self
                     .builder
@@ -216,9 +212,7 @@ impl<'ctx> Codegen<'ctx> {
                     existing_ptr
                 } else {
                     let alloca = self
-                        .builder
-                        .build_alloca(self.get_llvm_type(&ValueType::Int), loop_var)
-                        .unwrap();
+                        .build_entry_block_alloca(self.get_llvm_type(&ValueType::Int), loop_var);
                     self.variables.insert(loop_var.clone(), alloca);
                     alloca
                 };
@@ -296,6 +290,625 @@ impl<'ctx> Codegen<'ctx> {
                     .unwrap();
                 self.builder.build_store(loop_ptr, i_next).unwrap();
                 self.builder.build_unconditional_branch(header_bb).unwrap();
+
+                self.builder.position_at_end(after_bb);
+            }
+
+            // ── exception handling (LLVM landingpad-based) ────────────────
+            TirStmt::Raise {
+                exc_type_tag,
+                message,
+            } => {
+                if let Some(tag) = exc_type_tag {
+                    let tag_val = self.i64_type().const_int(*tag as u64, false);
+                    let msg_val = if let Some(msg_expr) = message {
+                        self.codegen_expr(msg_expr)
+                    } else {
+                        self.context
+                            .ptr_type(AddressSpace::default())
+                            .const_null()
+                            .into()
+                    };
+                    let raise_fn = self.get_or_declare_exc_raise();
+                    // __tython_raise calls __cxa_throw (noreturn). When inside
+                    // a try block we must use invoke so the landing pad catches it.
+                    if self.try_depth > 0 {
+                        let function = self
+                            .builder
+                            .get_insert_block()
+                            .unwrap()
+                            .get_parent()
+                            .unwrap();
+                        let dead_bb = self.context.append_basic_block(function, "raise.dead");
+                        let unwind_bb = *self.unwind_dest_stack.last().unwrap();
+                        let basic_args: [inkwell::values::BasicValueEnum; 2] =
+                            [tag_val.into(), msg_val];
+                        self.builder
+                            .build_invoke(raise_fn, &basic_args, dead_bb, unwind_bb, "raise")
+                            .unwrap();
+                        self.builder.position_at_end(dead_bb);
+                        self.builder.build_unreachable().unwrap();
+                    } else {
+                        self.builder
+                            .build_call(raise_fn, &[tag_val.into(), msg_val.into()], "raise")
+                            .unwrap();
+                        self.builder.build_unreachable().unwrap();
+                    }
+                } else {
+                    // Bare raise: re-raise via __cxa_rethrow
+                    let rethrow_fn = self.get_or_declare_cxa_rethrow();
+                    self.builder.build_call(rethrow_fn, &[], "rethrow").unwrap();
+                    self.builder.build_unreachable().unwrap();
+                }
+                self.append_dead_block("raise.after");
+            }
+
+            TirStmt::TryCatch {
+                try_body,
+                except_clauses,
+                finally_body,
+                has_finally,
+                ..
+            } => {
+                let function = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+
+                let personality = self.get_or_declare_personality_fn();
+                if !function.has_personality_function() {
+                    function.set_personality_function(personality);
+                }
+
+                let landing_type = self.get_exception_landing_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+                // Create basic blocks
+                let try_body_bb = self.context.append_basic_block(function, "try.body");
+                let landingpad_bb = self.context.append_basic_block(function, "try.lp");
+                let except_dispatch_bb =
+                    self.context.append_basic_block(function, "except.dispatch");
+                let unhandled_bb = self.context.append_basic_block(function, "exc.unhandled");
+                let finally_bb = if *has_finally {
+                    Some(self.context.append_basic_block(function, "finally"))
+                } else {
+                    None
+                };
+                let after_bb = self.context.append_basic_block(function, "try.after");
+                let target_bb = finally_bb.unwrap_or(after_bb);
+
+                // Allocas for catch state
+                let caught_alloca = self.build_entry_block_alloca(ptr_type.into(), "caught_alloca");
+                let lp_alloca = self.build_entry_block_alloca(landing_type.into(), "lp_alloca");
+
+                // Allocate flag for finally re-raise
+                let exc_flag = if *has_finally {
+                    let alloca = self.build_entry_block_alloca(self.i64_type().into(), "exc_flag");
+                    self.builder
+                        .build_store(alloca, self.i64_type().const_zero())
+                        .unwrap();
+                    Some(alloca)
+                } else {
+                    None
+                };
+
+                self.builder
+                    .build_unconditional_branch(try_body_bb)
+                    .unwrap();
+
+                // ── Try body ──────────────────────────────────────────────
+                self.builder.position_at_end(try_body_bb);
+                self.unwind_dest_stack.push(landingpad_bb);
+                self.try_depth += 1;
+
+                for s in try_body {
+                    self.codegen_stmt(s);
+                }
+
+                self.try_depth -= 1;
+                self.unwind_dest_stack.pop();
+                self.branch_if_unterminated(target_bb);
+
+                // ── Landing pad ───────────────────────────────────────────
+                self.builder.position_at_end(landingpad_bb);
+                let null_ptr = ptr_type.const_null();
+                let lp = self
+                    .builder
+                    .build_landing_pad(
+                        landing_type,
+                        personality,
+                        &[null_ptr.into()], // catch i8* null = catch all
+                        false,
+                        "try.lp",
+                    )
+                    .unwrap();
+
+                // Save full LP value for potential resume
+                self.builder.build_store(lp_alloca, lp).unwrap();
+
+                let exc_ptr = self
+                    .builder
+                    .build_extract_value(lp.into_struct_value(), 0, "exc_ptr")
+                    .unwrap();
+
+                let begin_catch = self.get_or_declare_cxa_begin_catch();
+                let caught = self
+                    .builder
+                    .build_call(begin_catch, &[exc_ptr.into()], "caught")
+                    .unwrap();
+                let caught_ptr = self.extract_call_value(caught);
+                self.builder.build_store(caught_alloca, caught_ptr).unwrap();
+
+                self.builder
+                    .build_unconditional_branch(except_dispatch_bb)
+                    .unwrap();
+
+                // ── Except dispatch ───────────────────────────────────────
+                self.builder.position_at_end(except_dispatch_bb);
+
+                let caught_matches_fn = self.get_or_declare_caught_matches();
+                let caught_message_fn = self.get_or_declare_caught_message();
+                let end_catch_fn = self.get_or_declare_cxa_end_catch();
+
+                let handler_bbs: Vec<_> = except_clauses
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| {
+                        self.context
+                            .append_basic_block(function, &format!("handler_{}", i))
+                    })
+                    .collect();
+
+                if except_clauses.is_empty() {
+                    self.builder
+                        .build_unconditional_branch(unhandled_bb)
+                        .unwrap();
+                } else {
+                    let caught_reload = self
+                        .builder
+                        .build_load(ptr_type, caught_alloca, "caught_reload")
+                        .unwrap();
+                    for (i, clause) in except_clauses.iter().enumerate() {
+                        if let Some(tag) = clause.exc_type_tag {
+                            let tag_val = self.i64_type().const_int(tag as u64, false);
+                            let matches = self
+                                .builder
+                                .build_call(
+                                    caught_matches_fn,
+                                    &[caught_reload.into(), tag_val.into()],
+                                    "exc_match",
+                                )
+                                .unwrap();
+                            let matches_val = self.extract_call_value(matches).into_int_value();
+                            let matches_bool =
+                                self.build_int_truthiness_check(matches_val, "exc_match_bool");
+
+                            let next_bb = if i + 1 < except_clauses.len() {
+                                let bb = self
+                                    .context
+                                    .append_basic_block(function, &format!("exc_check_{}", i + 1));
+                                self.builder
+                                    .build_conditional_branch(matches_bool, handler_bbs[i], bb)
+                                    .unwrap();
+                                self.builder.position_at_end(bb);
+                                bb
+                            } else {
+                                self.builder
+                                    .build_conditional_branch(
+                                        matches_bool,
+                                        handler_bbs[i],
+                                        unhandled_bb,
+                                    )
+                                    .unwrap();
+                                unhandled_bb
+                            };
+                            let _ = next_bb;
+                        } else {
+                            // Bare except — catch all
+                            self.builder
+                                .build_unconditional_branch(handler_bbs[i])
+                                .unwrap();
+                        }
+                    }
+                }
+
+                // ── Handler bodies ────────────────────────────────────────
+                for (i, clause) in except_clauses.iter().enumerate() {
+                    self.builder.position_at_end(handler_bbs[i]);
+
+                    if let Some(var_name) = &clause.var_name {
+                        let caught_reload = self
+                            .builder
+                            .build_load(ptr_type, caught_alloca, "caught_for_msg")
+                            .unwrap();
+                        let msg = self
+                            .builder
+                            .build_call(caught_message_fn, &[caught_reload.into()], "exc_msg")
+                            .unwrap();
+                        let msg_val = self.extract_call_value(msg);
+                        let alloca = self.build_entry_block_alloca(ptr_type.into(), var_name);
+                        self.builder.build_store(alloca, msg_val).unwrap();
+                        self.variables.insert(var_name.clone(), alloca);
+                    }
+
+                    // End the catch before handler body so the handler can throw new exceptions
+                    self.builder
+                        .build_call(end_catch_fn, &[], "end_catch")
+                        .unwrap();
+
+                    for s in &clause.body {
+                        self.codegen_stmt(s);
+                    }
+                    self.branch_if_unterminated(target_bb);
+                }
+
+                // ── Unhandled block ───────────────────────────────────────
+                self.builder.position_at_end(unhandled_bb);
+                if *has_finally {
+                    self.builder
+                        .build_store(exc_flag.unwrap(), self.i64_type().const_int(1, false))
+                        .unwrap();
+                    self.builder
+                        .build_call(end_catch_fn, &[], "end_catch_unhandled")
+                        .unwrap();
+                    self.builder
+                        .build_unconditional_branch(finally_bb.unwrap())
+                        .unwrap();
+                } else {
+                    self.builder
+                        .build_call(end_catch_fn, &[], "end_catch_unhandled")
+                        .unwrap();
+                    let lp_val = self
+                        .builder
+                        .build_load(landing_type, lp_alloca, "lp_for_resume")
+                        .unwrap();
+                    self.builder.build_resume(lp_val).unwrap();
+                }
+
+                // ── Finally block ─────────────────────────────────────────
+                if let Some(finally_bb) = finally_bb {
+                    self.builder.position_at_end(finally_bb);
+                    for s in finally_body {
+                        self.codegen_stmt(s);
+                    }
+
+                    let reraise_bb = self.context.append_basic_block(function, "finally.reraise");
+                    let flag_val = self
+                        .builder
+                        .build_load(self.i64_type(), exc_flag.unwrap(), "exc_flag_val")
+                        .unwrap()
+                        .into_int_value();
+                    let need_reraise = self.build_int_truthiness_check(flag_val, "need_reraise");
+                    self.builder
+                        .build_conditional_branch(need_reraise, reraise_bb, after_bb)
+                        .unwrap();
+
+                    self.builder.position_at_end(reraise_bb);
+                    let lp_val = self
+                        .builder
+                        .build_load(landing_type, lp_alloca, "lp_resume")
+                        .unwrap();
+                    self.builder.build_resume(lp_val).unwrap();
+                }
+
+                self.builder.position_at_end(after_bb);
+            }
+
+            // ── for-in loops ─────────────────────────────────────────────
+            TirStmt::ForList {
+                loop_var,
+                loop_var_ty,
+                list_var,
+                index_var,
+                len_var,
+                body,
+                ..
+            } => {
+                let function = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+
+                let header_bb = self.context.append_basic_block(function, "forlist.header");
+                let body_bb = self.context.append_basic_block(function, "forlist.body");
+                let incr_bb = self.context.append_basic_block(function, "forlist.incr");
+                let after_bb = self.context.append_basic_block(function, "forlist.after");
+
+                // Get list pointer
+                let list_ptr = self.variables[list_var.as_str()];
+
+                // Create index variable (idx = 0)
+                let idx_alloca =
+                    self.build_entry_block_alloca(self.get_llvm_type(&ValueType::Int), index_var);
+                self.builder
+                    .build_store(idx_alloca, self.i64_type().const_zero())
+                    .unwrap();
+                self.variables.insert(index_var.clone(), idx_alloca);
+
+                // Compute list length
+                let list_val = self
+                    .builder
+                    .build_load(
+                        self.context.ptr_type(AddressSpace::default()),
+                        list_ptr,
+                        "forlist.list",
+                    )
+                    .unwrap();
+                let list_len_fn = self.get_or_declare_function(
+                    "__tython_list_len",
+                    &[ValueType::List(Box::new(ValueType::Int))],
+                    Some(ValueType::Int),
+                );
+                let len_call = self
+                    .builder
+                    .build_call(list_len_fn, &[list_val.into()], "forlist.len_call")
+                    .unwrap();
+                let len_val = self.extract_call_value(len_call);
+
+                // Create len variable
+                let len_alloca =
+                    self.build_entry_block_alloca(self.get_llvm_type(&ValueType::Int), len_var);
+                self.builder.build_store(len_alloca, len_val).unwrap();
+                self.variables.insert(len_var.clone(), len_alloca);
+
+                // Ensure loop var has an alloca
+                if !self.variables.contains_key(loop_var.as_str()) {
+                    let alloca =
+                        self.build_entry_block_alloca(self.get_llvm_type(loop_var_ty), loop_var);
+                    self.variables.insert(loop_var.clone(), alloca);
+                }
+
+                self.builder.build_unconditional_branch(header_bb).unwrap();
+
+                // Header: idx < len
+                self.builder.position_at_end(header_bb);
+                let idx_val = self
+                    .builder
+                    .build_load(
+                        self.get_llvm_type(&ValueType::Int),
+                        idx_alloca,
+                        "forlist.idx",
+                    )
+                    .unwrap()
+                    .into_int_value();
+                let len_loaded = self
+                    .builder
+                    .build_load(
+                        self.get_llvm_type(&ValueType::Int),
+                        len_alloca,
+                        "forlist.len",
+                    )
+                    .unwrap()
+                    .into_int_value();
+                let cond = self
+                    .builder
+                    .build_int_compare(IntPredicate::SLT, idx_val, len_loaded, "forlist.cond")
+                    .unwrap();
+                self.builder
+                    .build_conditional_branch(cond, body_bb, after_bb)
+                    .unwrap();
+
+                // Body: loop_var = list_get(list, idx)
+                self.builder.position_at_end(body_bb);
+                let list_reload = self
+                    .builder
+                    .build_load(
+                        self.context.ptr_type(AddressSpace::default()),
+                        list_ptr,
+                        "forlist.list2",
+                    )
+                    .unwrap();
+                let idx_reload = self
+                    .builder
+                    .build_load(
+                        self.get_llvm_type(&ValueType::Int),
+                        idx_alloca,
+                        "forlist.idx2",
+                    )
+                    .unwrap();
+                let list_get_fn = self.get_or_declare_function(
+                    "__tython_list_get",
+                    &[ValueType::List(Box::new(ValueType::Int)), ValueType::Int],
+                    Some(ValueType::Int),
+                );
+                let call = self
+                    .builder
+                    .build_call(
+                        list_get_fn,
+                        &[list_reload.into(), idx_reload.into()],
+                        "forlist.elem_i64",
+                    )
+                    .unwrap();
+                let elem_i64 = self.extract_call_value(call).into_int_value();
+                let elem_val = self.bitcast_from_i64(elem_i64, loop_var_ty);
+                let loop_var_ptr = self.variables[loop_var.as_str()];
+                self.builder.build_store(loop_var_ptr, elem_val).unwrap();
+
+                // Body statements
+                self.loop_stack.push((incr_bb, after_bb));
+                for s in body {
+                    self.codegen_stmt(s);
+                }
+                self.loop_stack.pop();
+                self.branch_if_unterminated(incr_bb);
+
+                // Increment: idx++
+                self.builder.position_at_end(incr_bb);
+                let idx_curr = self
+                    .builder
+                    .build_load(
+                        self.get_llvm_type(&ValueType::Int),
+                        idx_alloca,
+                        "forlist.idx3",
+                    )
+                    .unwrap()
+                    .into_int_value();
+                let idx_next = self
+                    .builder
+                    .build_int_add(
+                        idx_curr,
+                        self.i64_type().const_int(1, false),
+                        "forlist.idx_next",
+                    )
+                    .unwrap();
+                self.builder.build_store(idx_alloca, idx_next).unwrap();
+                self.builder.build_unconditional_branch(header_bb).unwrap();
+
+                self.builder.position_at_end(after_bb);
+            }
+
+            TirStmt::ForIter {
+                loop_var,
+                loop_var_ty,
+                iterator_var,
+                iterator_class,
+                next_mangled,
+                body,
+                ..
+            } => {
+                let function = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+
+                let personality = self.get_or_declare_personality_fn();
+                if !function.has_personality_function() {
+                    function.set_personality_function(personality);
+                }
+
+                let landing_type = self.get_exception_landing_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+
+                let call_next_bb = self
+                    .context
+                    .append_basic_block(function, "foriter.call_next");
+                let got_next_bb = self
+                    .context
+                    .append_basic_block(function, "foriter.got_next");
+                let lp_bb = self.context.append_basic_block(function, "foriter.lp");
+                let stop_bb = self.context.append_basic_block(function, "foriter.stop");
+                let reraise_bb = self.context.append_basic_block(function, "foriter.reraise");
+                let body_bb = self.context.append_basic_block(function, "foriter.body");
+                let after_bb = self.context.append_basic_block(function, "foriter.after");
+
+                let iter_ptr = self.variables[iterator_var.as_str()];
+
+                // Ensure loop var has an alloca
+                if !self.variables.contains_key(loop_var.as_str()) {
+                    let alloca =
+                        self.build_entry_block_alloca(self.get_llvm_type(loop_var_ty), loop_var);
+                    self.variables.insert(loop_var.clone(), alloca);
+                }
+
+                // Alloca to save LP value for reraise
+                let lp_alloca =
+                    self.build_entry_block_alloca(landing_type.into(), "foriter.lp_alloca");
+
+                self.builder
+                    .build_unconditional_branch(call_next_bb)
+                    .unwrap();
+
+                // ── Call __next__ via invoke ───────────────────────────────
+                self.builder.position_at_end(call_next_bb);
+                let iter_val = self
+                    .builder
+                    .build_load(ptr_type, iter_ptr, "foriter.iter")
+                    .unwrap();
+                let next_fn = self.get_or_declare_function(
+                    next_mangled,
+                    &[ValueType::Class(iterator_class.clone())],
+                    Some(loop_var_ty.clone()),
+                );
+                let call_site = self
+                    .builder
+                    .build_invoke(next_fn, &[iter_val], got_next_bb, lp_bb, "foriter.next")
+                    .unwrap();
+
+                // ── Got next: store and enter body ────────────────────────
+                self.builder.position_at_end(got_next_bb);
+                let next_val = self.extract_call_value(call_site);
+                let loop_var_ptr = self.variables[loop_var.as_str()];
+                self.builder.build_store(loop_var_ptr, next_val).unwrap();
+                self.builder.build_unconditional_branch(body_bb).unwrap();
+
+                // ── Landing pad: check StopIteration ──────────────────────
+                self.builder.position_at_end(lp_bb);
+                let null_ptr = ptr_type.const_null();
+                let lp = self
+                    .builder
+                    .build_landing_pad(
+                        landing_type,
+                        personality,
+                        &[null_ptr.into()],
+                        false,
+                        "foriter.lp",
+                    )
+                    .unwrap();
+
+                // Save LP for potential resume
+                self.builder.build_store(lp_alloca, lp).unwrap();
+
+                let exc_ptr = self
+                    .builder
+                    .build_extract_value(lp.into_struct_value(), 0, "foriter.exc_ptr")
+                    .unwrap();
+
+                let begin_catch = self.get_or_declare_cxa_begin_catch();
+                let caught = self
+                    .builder
+                    .build_call(begin_catch, &[exc_ptr.into()], "foriter.caught")
+                    .unwrap();
+                let caught_ptr = self.extract_call_value(caught);
+
+                let type_tag_fn = self.get_or_declare_caught_type_tag();
+                let tag = self
+                    .builder
+                    .build_call(type_tag_fn, &[caught_ptr.into()], "foriter.tag")
+                    .unwrap();
+                let tag_val = self.extract_call_value(tag).into_int_value();
+
+                let stop_tag = self.i64_type().const_int(2, false); // TYTHON_EXC_STOP_ITERATION
+                let is_stop = self
+                    .builder
+                    .build_int_compare(IntPredicate::EQ, tag_val, stop_tag, "foriter.is_stop")
+                    .unwrap();
+                self.builder
+                    .build_conditional_branch(is_stop, stop_bb, reraise_bb)
+                    .unwrap();
+
+                // ── Stop: end catch and exit loop ─────────────────────────
+                self.builder.position_at_end(stop_bb);
+                let end_catch = self.get_or_declare_cxa_end_catch();
+                self.builder
+                    .build_call(end_catch, &[], "foriter.end_catch")
+                    .unwrap();
+                self.builder.build_unconditional_branch(after_bb).unwrap();
+
+                // ── Re-raise: not StopIteration ───────────────────────────
+                self.builder.position_at_end(reraise_bb);
+                self.builder
+                    .build_call(end_catch, &[], "foriter.end_catch2")
+                    .unwrap();
+                let lp_val = self
+                    .builder
+                    .build_load(landing_type, lp_alloca, "foriter.lp_resume")
+                    .unwrap();
+                self.builder.build_resume(lp_val).unwrap();
+
+                // ── Body ──────────────────────────────────────────────────
+                self.builder.position_at_end(body_bb);
+                self.loop_stack.push((call_next_bb, after_bb));
+                for s in body {
+                    self.codegen_stmt(s);
+                }
+                self.loop_stack.pop();
+                self.branch_if_unterminated(call_next_bb);
 
                 self.builder.position_at_end(after_bb);
             }

@@ -1,16 +1,19 @@
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::module::Module;
+use inkwell::module::{Linkage, Module};
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, FloatType, IntType, StructType};
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::values::{
+    BasicMetadataValueEnum, BasicValueEnum, CallSiteValue, FunctionValue, PointerValue,
+};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
 use crate::ast::ClassInfo;
-use crate::tir::{CmpOp, TirExpr, TirFunction, ValueType};
+use crate::tir::{CmpOp, TirExpr, TirFunction, TirStmt, ValueType};
 
 mod expressions;
 mod statements;
@@ -20,12 +23,13 @@ pub struct Codegen<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     variables: HashMap<String, PointerValue<'ctx>>,
-    loop_stack: Vec<(
-        inkwell::basic_block::BasicBlock<'ctx>,
-        inkwell::basic_block::BasicBlock<'ctx>,
-    )>,
+    loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
     class_types: HashMap<String, StructType<'ctx>>,
     tuple_types: HashMap<String, StructType<'ctx>>,
+    /// > 0 when inside a try/except or ForIter — calls use `invoke` instead of `call`.
+    try_depth: usize,
+    /// Stack of unwind destinations for nested try/ForIter blocks.
+    unwind_dest_stack: Vec<BasicBlock<'ctx>>,
 }
 
 impl<'ctx> Codegen<'ctx> {
@@ -59,6 +63,8 @@ impl<'ctx> Codegen<'ctx> {
             loop_stack: Vec::new(),
             class_types: HashMap::new(),
             tuple_types: HashMap::new(),
+            try_depth: 0,
+            unwind_dest_stack: Vec::new(),
         }
     }
 
@@ -69,7 +75,7 @@ impl<'ctx> Codegen<'ctx> {
 
         self.module.write_bitcode_to_path(&bc_path);
 
-        Command::new("clang")
+        Command::new("clang++")
             .arg("-static")
             .arg("-flto")
             .arg("-O2")
@@ -338,6 +344,213 @@ impl<'ctx> Codegen<'ctx> {
             })
     }
 
+    // ── exception helpers (LLVM landingpad-based) ────────────────────
+
+    fn get_or_declare_personality_fn(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__gxx_personality_v0")
+            .unwrap_or_else(|| {
+                let i32_type = self.context.i32_type();
+                let fn_type = i32_type.fn_type(&[], true); // variadic
+                self.module
+                    .add_function("__gxx_personality_v0", fn_type, Some(Linkage::External))
+            })
+    }
+
+    fn get_or_declare_exc_raise(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_raise")
+            .unwrap_or_else(|| {
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = self
+                    .context
+                    .void_type()
+                    .fn_type(&[i64_type.into(), ptr_type.into()], false);
+                self.module.add_function("__tython_raise", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_cxa_begin_catch(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__cxa_begin_catch")
+            .unwrap_or_else(|| {
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                self.module.add_function("__cxa_begin_catch", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_cxa_end_catch(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__cxa_end_catch")
+            .unwrap_or_else(|| {
+                let fn_type = self.context.void_type().fn_type(&[], false);
+                self.module.add_function("__cxa_end_catch", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_cxa_rethrow(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__cxa_rethrow")
+            .unwrap_or_else(|| {
+                let fn_type = self.context.void_type().fn_type(&[], false);
+                let func = self.module.add_function("__cxa_rethrow", fn_type, None);
+                func.add_attribute(
+                    inkwell::attributes::AttributeLoc::Function,
+                    self.context.create_enum_attribute(
+                        inkwell::attributes::Attribute::get_named_enum_kind_id("noreturn"),
+                        0,
+                    ),
+                );
+                func
+            })
+    }
+
+    fn get_or_declare_caught_type_tag(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_caught_type_tag")
+            .unwrap_or_else(|| {
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+                self.module
+                    .add_function("__tython_caught_type_tag", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_caught_message(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_caught_message")
+            .unwrap_or_else(|| {
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+                self.module
+                    .add_function("__tython_caught_message", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_caught_matches(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_caught_matches")
+            .unwrap_or_else(|| {
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = i64_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                self.module
+                    .add_function("__tython_caught_matches", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_print_unhandled(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_print_unhandled")
+            .unwrap_or_else(|| {
+                let i64_type = self.context.i64_type();
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fn_type = self
+                    .context
+                    .void_type()
+                    .fn_type(&[i64_type.into(), ptr_type.into()], false);
+                self.module
+                    .add_function("__tython_print_unhandled", fn_type, None)
+            })
+    }
+
+    /// The LLVM struct type returned by a landingpad: `{ ptr, i32 }`.
+    fn get_exception_landing_type(&self) -> StructType<'ctx> {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i32_type = self.context.i32_type();
+        self.context
+            .struct_type(&[ptr_type.into(), i32_type.into()], false)
+    }
+
+    /// Convert a `BasicMetadataValueEnum` to `BasicValueEnum`.
+    /// Panics if the value is a MetadataValue (never used for function args).
+    fn metadata_to_basic(val: BasicMetadataValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        match val {
+            BasicMetadataValueEnum::IntValue(v) => v.into(),
+            BasicMetadataValueEnum::FloatValue(v) => v.into(),
+            BasicMetadataValueEnum::PointerValue(v) => v.into(),
+            BasicMetadataValueEnum::StructValue(v) => v.into(),
+            BasicMetadataValueEnum::ArrayValue(v) => v.into(),
+            BasicMetadataValueEnum::VectorValue(v) => v.into(),
+            _ => panic!("ICE: MetadataValue in function call position"),
+        }
+    }
+
+    /// Emit a function call. When inside a try block (`try_depth > 0`) and
+    /// `may_throw` is true, emits an `invoke` instruction that unwinds to the
+    /// current landing pad; otherwise emits a regular `call`.
+    fn build_call_maybe_invoke(
+        &self,
+        function: FunctionValue<'ctx>,
+        args: &[BasicMetadataValueEnum<'ctx>],
+        name: &str,
+        may_throw: bool,
+    ) -> CallSiteValue<'ctx> {
+        if may_throw && self.try_depth > 0 {
+            let basic_args: Vec<BasicValueEnum<'ctx>> =
+                args.iter().map(|a| Self::metadata_to_basic(*a)).collect();
+
+            let current_fn = self
+                .builder
+                .get_insert_block()
+                .unwrap()
+                .get_parent()
+                .unwrap();
+            let cont_bb = self
+                .context
+                .append_basic_block(current_fn, &format!("{}.cont", name));
+            let unwind_bb = *self
+                .unwind_dest_stack
+                .last()
+                .expect("ICE: try_depth > 0 but no unwind destination");
+
+            let call_site = self
+                .builder
+                .build_invoke(function, &basic_args, cont_bb, unwind_bb, name)
+                .unwrap();
+
+            self.builder.position_at_end(cont_bb);
+            call_site
+        } else {
+            self.builder.build_call(function, args, name).unwrap()
+        }
+    }
+
+    /// Recursively check whether any statement contains TryCatch or ForIter,
+    /// which means the enclosing function needs a personality function.
+    fn stmts_need_personality(stmts: &[TirStmt]) -> bool {
+        for stmt in stmts {
+            match stmt {
+                TirStmt::TryCatch { .. } | TirStmt::ForIter { .. } => return true,
+                TirStmt::If {
+                    then_body,
+                    else_body,
+                    ..
+                } => {
+                    if Self::stmts_need_personality(then_body)
+                        || Self::stmts_need_personality(else_body)
+                    {
+                        return true;
+                    }
+                }
+                TirStmt::While { body, .. }
+                | TirStmt::ForRange { body, .. }
+                | TirStmt::ForList { body, .. } => {
+                    if Self::stmts_need_personality(body) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    // ── bitcast helpers ──────────────────────────────────────────────
+
     fn bitcast_to_i64(
         &self,
         val: BasicValueEnum<'ctx>,
@@ -386,6 +599,32 @@ impl<'ctx> Codegen<'ctx> {
             .collect()
     }
 
+    /// Create an alloca in the entry basic block of the current function.
+    /// Entry-block allocas are promoted to registers by LLVM's mem2reg pass
+    /// and ensure stable stack offsets.
+    fn build_entry_block_alloca(
+        &self,
+        ty: inkwell::types::BasicTypeEnum<'ctx>,
+        name: &str,
+    ) -> PointerValue<'ctx> {
+        let function = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
+        let entry_bb = function.get_first_basic_block().unwrap();
+
+        // Create a temporary builder positioned at the start of the entry block
+        let entry_builder = self.context.create_builder();
+        if let Some(first_instr) = entry_bb.get_first_instruction() {
+            entry_builder.position_before(&first_instr);
+        } else {
+            entry_builder.position_at_end(entry_bb);
+        }
+        entry_builder.build_alloca(ty, name).unwrap()
+    }
+
     /// Create a dead basic block after an unconditional branch (break/continue).
     fn append_dead_block(&self, label: &str) {
         let function = self
@@ -407,6 +646,7 @@ impl<'ctx> Codegen<'ctx> {
             CmpOp::LtEq => FloatPredicate::OLE,
             CmpOp::Gt => FloatPredicate::OGT,
             CmpOp::GtEq => FloatPredicate::OGE,
+            _ => unreachable!("unsupported float comparison op: {:?}", op),
         }
     }
 
@@ -419,6 +659,7 @@ impl<'ctx> Codegen<'ctx> {
             CmpOp::LtEq => IntPredicate::SLE,
             CmpOp::Gt => IntPredicate::SGT,
             CmpOp::GtEq => IntPredicate::SGE,
+            _ => unreachable!("unsupported int comparison op: {:?}", op),
         }
     }
 
@@ -427,10 +668,18 @@ impl<'ctx> Codegen<'ctx> {
         let function =
             self.get_or_declare_function(&func.name, &param_types, func.return_type.clone());
 
+        // Set personality function if this function contains try/except or for-iter.
+        if Self::stmts_need_personality(&func.body) {
+            let personality = self.get_or_declare_personality_fn();
+            function.set_personality_function(personality);
+        }
+
         let entry_bb = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry_bb);
 
         self.variables.clear();
+        self.try_depth = 0;
+        self.unwind_dest_stack.clear();
         for (i, param) in func.params.iter().enumerate() {
             let param_value = function.get_nth_param(i as u32).unwrap();
             let alloca = self
@@ -460,13 +709,75 @@ impl<'ctx> Codegen<'ctx> {
     pub fn add_c_main_wrapper(&mut self, entry_main_name: &str) {
         let c_main_type = self.context.i32_type().fn_type(&[], false);
         let c_main = self.module.add_function("main", c_main_type, None);
-        let entry = self.context.append_basic_block(c_main, "entry");
-        self.builder.position_at_end(entry);
 
+        // Set personality so we can catch unhandled exceptions.
+        let personality = self.get_or_declare_personality_fn();
+        c_main.set_personality_function(personality);
+
+        let entry = self.context.append_basic_block(c_main, "entry");
+        let normal_bb = self.context.append_basic_block(c_main, "normal");
+        let unwind_bb = self.context.append_basic_block(c_main, "unwind");
+
+        // entry: invoke the user's __main__ function
+        self.builder.position_at_end(entry);
         let entry_fn = self.module.get_function(entry_main_name).unwrap();
-        self.builder.build_call(entry_fn, &[], "call_main").unwrap();
+        self.builder
+            .build_invoke(entry_fn, &[], normal_bb, unwind_bb, "call_main")
+            .unwrap();
+
+        // normal: return 0
+        self.builder.position_at_end(normal_bb);
         self.builder
             .build_return(Some(&self.context.i32_type().const_int(0, false)))
+            .unwrap();
+
+        // unwind: catch all, print error, return 1
+        self.builder.position_at_end(unwind_bb);
+        let landing_type = self.get_exception_landing_type();
+        let null_ptr = self.context.ptr_type(AddressSpace::default()).const_null();
+        let lp = self
+            .builder
+            .build_landing_pad(landing_type, personality, &[null_ptr.into()], false, "lp")
+            .unwrap();
+
+        let exc_ptr = self
+            .builder
+            .build_extract_value(lp.into_struct_value(), 0, "exc_ptr")
+            .unwrap();
+
+        let begin_catch = self.get_or_declare_cxa_begin_catch();
+        let caught = self
+            .builder
+            .build_call(begin_catch, &[exc_ptr.into()], "caught")
+            .unwrap();
+        let caught_ptr = self.extract_call_value(caught);
+
+        let type_tag_fn = self.get_or_declare_caught_type_tag();
+        let tag = self
+            .builder
+            .build_call(type_tag_fn, &[caught_ptr.into()], "tag")
+            .unwrap();
+        let tag_val = self.extract_call_value(tag);
+
+        let message_fn = self.get_or_declare_caught_message();
+        let msg = self
+            .builder
+            .build_call(message_fn, &[caught_ptr.into()], "msg")
+            .unwrap();
+        let msg_val = self.extract_call_value(msg);
+
+        let end_catch = self.get_or_declare_cxa_end_catch();
+        self.builder
+            .build_call(end_catch, &[], "end_catch")
+            .unwrap();
+
+        let print_fn = self.get_or_declare_print_unhandled();
+        self.builder
+            .build_call(print_fn, &[tag_val.into(), msg_val.into()], "print_exc")
+            .unwrap();
+
+        self.builder
+            .build_return(Some(&self.context.i32_type().const_int(1, false)))
             .unwrap();
     }
 }

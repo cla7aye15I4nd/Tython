@@ -8,6 +8,7 @@ const RUNTIME_SOURCES: &[&str] = &[
     "runtime/bytes.c",
     "runtime/bytearray.c",
     "runtime/list.c",
+    "runtime/exception.c",
 ];
 
 fn main() {
@@ -25,6 +26,7 @@ fn main() {
             .arg("-c")
             .arg("-flto")
             .arg("-O2")
+            .arg("-fexceptions")
             .arg("-Iruntime")
             .arg("-o")
             .arg(&obj)

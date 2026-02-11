@@ -31,6 +31,8 @@ import basic.test_bytearray as test_bytearray
 import basic.test_list as test_list
 import basic.test_tuple as test_tuple
 import basic.test_for as test_for
+import basic.test_comprehension as test_comprehension
+import basic.test_exception_iter_stress as test_exception_iter_stress
 
 
 def run_all_tests() -> None:
@@ -67,3 +69,5 @@ def run_all_tests() -> None:
     test_list.run_tests()
     test_tuple.run_tests()
     test_for.run_tests()
+    test_comprehension.run_tests()
+    test_exception_iter_stress.run_tests()

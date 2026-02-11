@@ -256,6 +256,10 @@ pub enum CmpOp {
     LtEq,
     Gt,
     GtEq,
+    In,
+    NotIn,
+    Is,
+    IsNot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,6 +274,15 @@ pub enum UnaryOpKind {
 pub enum LogicalOp {
     And,
     Or,
+}
+
+// ── Exception handling ──────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct ExceptClause {
+    pub exc_type_tag: Option<i64>, // None = bare except (catch-all)
+    pub var_name: Option<String>,  // `as e` variable (bound as str)
+    pub body: Vec<TirStmt>,
 }
 
 // ── TIR nodes ───────────────────────────────────────────────────────
@@ -321,6 +334,7 @@ pub enum TirStmt {
     While {
         condition: TirExpr,
         body: Vec<TirStmt>,
+        else_body: Vec<TirStmt>,
     },
     ForRange {
         loop_var: String,
@@ -328,6 +342,7 @@ pub enum TirStmt {
         stop_var: String,
         step_var: String,
         body: Vec<TirStmt>,
+        else_body: Vec<TirStmt>,
     },
     Break,
     Continue,
@@ -341,6 +356,35 @@ pub enum TirStmt {
         list: TirExpr,
         index: TirExpr,
         value: TirExpr,
+    },
+    TryCatch {
+        try_body: Vec<TirStmt>,
+        except_clauses: Vec<ExceptClause>,
+        else_body: Vec<TirStmt>,
+        finally_body: Vec<TirStmt>,
+        has_finally: bool,
+    },
+    Raise {
+        exc_type_tag: Option<i64>,
+        message: Option<TirExpr>,
+    },
+    ForList {
+        loop_var: String,
+        loop_var_ty: ValueType,
+        list_var: String,
+        index_var: String,
+        len_var: String,
+        body: Vec<TirStmt>,
+        else_body: Vec<TirStmt>,
+    },
+    ForIter {
+        loop_var: String,
+        loop_var_ty: ValueType,
+        iterator_var: String,
+        iterator_class: String,
+        next_mangled: String,
+        body: Vec<TirStmt>,
+        else_body: Vec<TirStmt>,
     },
 }
 
@@ -418,6 +462,10 @@ pub enum TirExprKind {
     ListLiteral {
         element_type: ValueType,
         elements: Vec<TirExpr>,
+    },
+    ListToTuple {
+        list: Box<TirExpr>,
+        element_types: Vec<ValueType>,
     },
 }
 

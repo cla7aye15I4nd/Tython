@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 
 use crate::tir::{
     builtin, type_rules, ArithBinOp, CallResult, CallTarget, CastKind, CmpOp, LogicalOp, RawBinOp,
-    TirExpr, TirExprKind, TirStmt, ValueType,
+    TirExpr, TirExprKind, TirStmt, Type, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -274,6 +274,8 @@ impl Lowering {
                     ty: ValueType::Tuple(element_types),
                 })
             }
+
+            "ListComp" => self.lower_list_comprehension(node, line),
 
             "Subscript" => {
                 let value_node = ast_getattr!(node, "value");
@@ -550,7 +552,7 @@ impl Lowering {
     // ── comparisons ──────────────────────────────────────────────────────
 
     fn lower_single_comparison(
-        &self,
+        &mut self,
         line: usize,
         cmp_op: CmpOp,
         left: TirExpr,
@@ -572,6 +574,73 @@ impl Lowering {
             ));
         }
 
+        // List equality
+        if matches!(&left.ty, ValueType::List(_)) && matches!(&right.ty, ValueType::List(_)) {
+            if left.ty != right.ty {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "comparison operands must have compatible types: `{}` vs `{}`",
+                        left.ty, right.ty
+                    ),
+                ));
+            }
+            if cmp_op != CmpOp::Eq && cmp_op != CmpOp::NotEq {
+                return Err(
+                    self.type_error(line, "only `==` and `!=` are supported for list comparison")
+                );
+            }
+            let eq_expr = self.generate_list_eq(left, right);
+            if cmp_op == CmpOp::NotEq {
+                return Ok(TirExpr {
+                    kind: TirExprKind::Compare {
+                        op: CmpOp::Eq,
+                        left: Box::new(eq_expr),
+                        right: Box::new(TirExpr {
+                            kind: TirExprKind::IntLiteral(0),
+                            ty: ValueType::Int,
+                        }),
+                    },
+                    ty: ValueType::Bool,
+                });
+            }
+            return Ok(eq_expr);
+        }
+
+        // Tuple equality
+        if matches!(&left.ty, ValueType::Tuple(_)) && matches!(&right.ty, ValueType::Tuple(_)) {
+            if left.ty != right.ty {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "comparison operands must have compatible types: `{}` vs `{}`",
+                        left.ty, right.ty
+                    ),
+                ));
+            }
+            if cmp_op != CmpOp::Eq && cmp_op != CmpOp::NotEq {
+                return Err(self.type_error(
+                    line,
+                    "only `==` and `!=` are supported for tuple comparison",
+                ));
+            }
+            let eq_expr = self.generate_tuple_eq(left, right);
+            if cmp_op == CmpOp::NotEq {
+                return Ok(TirExpr {
+                    kind: TirExprKind::Compare {
+                        op: CmpOp::Eq,
+                        left: Box::new(eq_expr),
+                        right: Box::new(TirExpr {
+                            kind: TirExprKind::IntLiteral(0),
+                            ty: ValueType::Int,
+                        }),
+                    },
+                    ty: ValueType::Bool,
+                });
+            }
+            return Ok(eq_expr);
+        }
+
         // Numeric comparison with optional promotion
         let (fl, fr) = self.promote_for_comparison(line, left, right)?;
         Ok(TirExpr {
@@ -582,6 +651,380 @@ impl Lowering {
             },
             ty: ValueType::Bool,
         })
+    }
+
+    /// Generate equality check for two lists.
+    /// For primitive inner types, uses ListEqShallow.
+    /// For nested lists with primitive leaves, uses ListEqDeep.
+    /// For complex inner types (tuples), generates a comparison loop.
+    fn generate_list_eq(&mut self, left: TirExpr, right: TirExpr) -> TirExpr {
+        let inner = match &left.ty {
+            ValueType::List(inner) => (**inner).clone(),
+            _ => unreachable!(),
+        };
+
+        // Check if we can use shallow comparison (primitive elements)
+        if matches!(inner, ValueType::Int | ValueType::Float | ValueType::Bool) {
+            return TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::ListEqShallow,
+                    args: vec![left, right],
+                },
+                ty: ValueType::Bool,
+            };
+        }
+
+        // Check for nested lists → ListEqDeep with computed depth
+        if let Some(depth) = Self::list_nesting_depth(&inner) {
+            return TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::ListEqDeep,
+                    args: vec![
+                        left,
+                        right,
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(depth),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Bool,
+            };
+        }
+
+        // Complex inner type (tuples, etc.) — generate comparison loop
+        self.generate_list_eq_loop(left, right, &inner)
+    }
+
+    /// Returns Some(depth) if the type is a list nesting ending in primitives.
+    /// e.g., list[int] → Some(0), list[list[int]] → Some(1), list[list[list[int]]] → Some(2)
+    /// Returns None for non-list or lists containing non-primitive leaves.
+    fn list_nesting_depth(ty: &ValueType) -> Option<i64> {
+        match ty {
+            ValueType::Int | ValueType::Float | ValueType::Bool => Some(0),
+            ValueType::List(inner) => Self::list_nesting_depth(inner).map(|d| d + 1),
+            _ => None,
+        }
+    }
+
+    /// Generate a loop-based list equality check for complex inner types.
+    /// Pushes setup + loop stmts into self.pre_stmts, returns a Var expression.
+    fn generate_list_eq_loop(
+        &mut self,
+        left: TirExpr,
+        right: TirExpr,
+        inner_ty: &ValueType,
+    ) -> TirExpr {
+        let result_var = self.fresh_internal("listeq_res");
+        let left_var = self.fresh_internal("listeq_a");
+        let right_var = self.fresh_internal("listeq_b");
+        let len_a_var = self.fresh_internal("listeq_len_a");
+        let len_b_var = self.fresh_internal("listeq_len_b");
+        let idx_var = self.fresh_internal("listeq_idx");
+        let stop_var = self.fresh_internal("listeq_stop");
+        let step_var = self.fresh_internal("listeq_step");
+        let start_var = self.fresh_internal("listeq_start");
+        let elem_a_var = self.fresh_internal("listeq_ea");
+        let elem_b_var = self.fresh_internal("listeq_eb");
+
+        let left_ty = left.ty.clone();
+        let right_ty = right.ty.clone();
+
+        // Let result = 1 (true)
+        let mut stmts = vec![
+            TirStmt::Let {
+                name: result_var.clone(),
+                ty: ValueType::Bool,
+                value: TirExpr {
+                    kind: TirExprKind::IntLiteral(1),
+                    ty: ValueType::Bool,
+                },
+            },
+            TirStmt::Let {
+                name: left_var.clone(),
+                ty: left_ty.clone(),
+                value: left,
+            },
+            TirStmt::Let {
+                name: right_var.clone(),
+                ty: right_ty.clone(),
+                value: right,
+            },
+            // len_a = list_len(left)
+            TirStmt::Let {
+                name: len_a_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::ListLen,
+                        args: vec![TirExpr {
+                            kind: TirExprKind::Var(left_var.clone()),
+                            ty: left_ty.clone(),
+                        }],
+                    },
+                    ty: ValueType::Int,
+                },
+            },
+            // len_b = list_len(right)
+            TirStmt::Let {
+                name: len_b_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::ListLen,
+                        args: vec![TirExpr {
+                            kind: TirExprKind::Var(right_var.clone()),
+                            ty: right_ty.clone(),
+                        }],
+                    },
+                    ty: ValueType::Int,
+                },
+            },
+        ];
+
+        // Build the element comparison expression
+        let elem_a_expr = TirExpr {
+            kind: TirExprKind::Var(elem_a_var.clone()),
+            ty: inner_ty.clone(),
+        };
+        let elem_b_expr = TirExpr {
+            kind: TirExprKind::Var(elem_b_var.clone()),
+            ty: inner_ty.clone(),
+        };
+        let elem_eq = self.generate_equality_check(elem_a_expr, elem_b_expr, inner_ty);
+        // Drain any pre_stmts generated by nested equality checks
+        let nested_pre = std::mem::take(&mut self.pre_stmts);
+
+        // for i in range(0, len_a):
+        //   elem_a = list_get(left, i)
+        //   elem_b = list_get(right, i)
+        //   if !(elem_a == elem_b): result = 0; break
+        let idx_expr = TirExpr {
+            kind: TirExprKind::Var(idx_var.clone()),
+            ty: ValueType::Int,
+        };
+
+        let mut loop_body = vec![
+            TirStmt::Let {
+                name: elem_a_var,
+                ty: inner_ty.clone(),
+                value: TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::ListGet,
+                        args: vec![
+                            TirExpr {
+                                kind: TirExprKind::Var(left_var),
+                                ty: left_ty,
+                            },
+                            idx_expr.clone(),
+                        ],
+                    },
+                    ty: inner_ty.clone(),
+                },
+            },
+            TirStmt::Let {
+                name: elem_b_var,
+                ty: inner_ty.clone(),
+                value: TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::ListGet,
+                        args: vec![
+                            TirExpr {
+                                kind: TirExprKind::Var(right_var),
+                                ty: right_ty,
+                            },
+                            idx_expr,
+                        ],
+                    },
+                    ty: inner_ty.clone(),
+                },
+            },
+        ];
+        // Add any nested pre_stmts
+        loop_body.extend(nested_pre);
+        // if not eq: result = false; break
+        loop_body.push(TirStmt::If {
+            condition: TirExpr {
+                kind: TirExprKind::Compare {
+                    op: CmpOp::Eq,
+                    left: Box::new(elem_eq),
+                    right: Box::new(TirExpr {
+                        kind: TirExprKind::IntLiteral(0),
+                        ty: ValueType::Int,
+                    }),
+                },
+                ty: ValueType::Bool,
+            },
+            then_body: vec![
+                TirStmt::Let {
+                    name: result_var.clone(),
+                    ty: ValueType::Bool,
+                    value: TirExpr {
+                        kind: TirExprKind::IntLiteral(0),
+                        ty: ValueType::Bool,
+                    },
+                },
+                TirStmt::Break,
+            ],
+            else_body: vec![],
+        });
+
+        // if len_a != len_b: result = 0
+        // else: for loop
+        stmts.push(TirStmt::If {
+            condition: TirExpr {
+                kind: TirExprKind::Compare {
+                    op: CmpOp::NotEq,
+                    left: Box::new(TirExpr {
+                        kind: TirExprKind::Var(len_a_var),
+                        ty: ValueType::Int,
+                    }),
+                    right: Box::new(TirExpr {
+                        kind: TirExprKind::Var(len_b_var.clone()),
+                        ty: ValueType::Int,
+                    }),
+                },
+                ty: ValueType::Bool,
+            },
+            then_body: vec![TirStmt::Let {
+                name: result_var.clone(),
+                ty: ValueType::Bool,
+                value: TirExpr {
+                    kind: TirExprKind::IntLiteral(0),
+                    ty: ValueType::Bool,
+                },
+            }],
+            else_body: vec![
+                TirStmt::Let {
+                    name: start_var.clone(),
+                    ty: ValueType::Int,
+                    value: TirExpr {
+                        kind: TirExprKind::IntLiteral(0),
+                        ty: ValueType::Int,
+                    },
+                },
+                TirStmt::Let {
+                    name: stop_var.clone(),
+                    ty: ValueType::Int,
+                    value: TirExpr {
+                        kind: TirExprKind::Var(len_b_var),
+                        ty: ValueType::Int,
+                    },
+                },
+                TirStmt::Let {
+                    name: step_var.clone(),
+                    ty: ValueType::Int,
+                    value: TirExpr {
+                        kind: TirExprKind::IntLiteral(1),
+                        ty: ValueType::Int,
+                    },
+                },
+                TirStmt::ForRange {
+                    loop_var: idx_var,
+                    start_var,
+                    stop_var,
+                    step_var,
+                    body: loop_body,
+                    else_body: vec![],
+                },
+            ],
+        });
+
+        self.pre_stmts.extend(stmts);
+
+        TirExpr {
+            kind: TirExprKind::Var(result_var),
+            ty: ValueType::Bool,
+        }
+    }
+
+    /// Generate equality expression for two tuples.
+    /// Produces: a[0] == b[0] && a[1] == b[1] && ... && a[N-1] == b[N-1]
+    fn generate_tuple_eq(&mut self, left: TirExpr, right: TirExpr) -> TirExpr {
+        let elements = match &left.ty {
+            ValueType::Tuple(elems) => elems.clone(),
+            _ => unreachable!(),
+        };
+
+        if elements.is_empty() {
+            return TirExpr {
+                kind: TirExprKind::IntLiteral(1),
+                ty: ValueType::Bool,
+            };
+        }
+
+        let mut comparisons = Vec::new();
+
+        for (i, elem_ty) in elements.iter().enumerate() {
+            let left_elem = TirExpr {
+                kind: TirExprKind::TupleGet {
+                    tuple: Box::new(left.clone()),
+                    index: i,
+                },
+                ty: elem_ty.clone(),
+            };
+            let right_elem = TirExpr {
+                kind: TirExprKind::TupleGet {
+                    tuple: Box::new(right.clone()),
+                    index: i,
+                },
+                ty: elem_ty.clone(),
+            };
+            comparisons.push(self.generate_equality_check(left_elem, right_elem, elem_ty));
+        }
+
+        // Chain with LogicalAnd
+        let mut result = comparisons.remove(0);
+        for cmp in comparisons {
+            result = TirExpr {
+                kind: TirExprKind::LogicalOp {
+                    op: LogicalOp::And,
+                    left: Box::new(result),
+                    right: Box::new(cmp),
+                },
+                ty: ValueType::Bool,
+            };
+        }
+        result
+    }
+
+    /// Recursive dispatch for generating equality checks based on type.
+    fn generate_equality_check(
+        &mut self,
+        left: TirExpr,
+        right: TirExpr,
+        ty: &ValueType,
+    ) -> TirExpr {
+        match ty {
+            ValueType::Int | ValueType::Float | ValueType::Bool => TirExpr {
+                kind: TirExprKind::Compare {
+                    op: CmpOp::Eq,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                ty: ValueType::Bool,
+            },
+            ValueType::Tuple(_) => self.generate_tuple_eq(left, right),
+            ValueType::List(_) => self.generate_list_eq(left, right),
+            ValueType::Str => TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::StrEq,
+                    args: vec![left, right],
+                },
+                ty: ValueType::Bool,
+            },
+            _ => {
+                // Fallback: bitwise compare (works for primitives stored as i64)
+                TirExpr {
+                    kind: TirExprKind::Compare {
+                        op: CmpOp::Eq,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    ty: ValueType::Bool,
+                }
+            }
+        }
     }
 
     fn seq_compare_builtins(ty: &ValueType) -> Option<(builtin::BuiltinFn, builtin::BuiltinFn)> {
@@ -707,4 +1150,487 @@ impl Lowering {
             _ => unreachable!("identity cast should have been eliminated"),
         }
     }
+
+    // ── list comprehension ───────────────────────────────────────────
+
+    fn lower_list_comprehension(&mut self, node: &Bound<PyAny>, line: usize) -> Result<TirExpr> {
+        let elt_node = ast_getattr!(node, "elt");
+        let generators = ast_get_list!(node, "generators");
+        self.lower_comp_impl(&elt_node, &generators, line)
+    }
+
+    /// Shared implementation for ListComp and GeneratorExp lowering.
+    /// Returns a Var expression pointing to the result list.
+    /// Emits setup+loop stmts into self.pre_stmts.
+    pub(super) fn lower_comp_impl(
+        &mut self,
+        elt_node: &Bound<PyAny>,
+        generators: &Bound<pyo3::types::PyList>,
+        line: usize,
+    ) -> Result<TirExpr> {
+        self.push_scope();
+
+        // Phase 1: Parse generators — lower iter exprs, declare loop vars, lower ifs
+        let mut gen_infos = Vec::new();
+        for gen in generators.iter() {
+            let target = ast_getattr!(gen, "target");
+            if ast_type_name!(target) != "Name" {
+                return Err(
+                    self.syntax_error(line, "comprehension target must be a simple variable")
+                );
+            }
+            let var_name = ast_get_string!(target, "id");
+            let iter_node = ast_getattr!(gen, "iter");
+
+            let gen_kind = if ast_type_name!(iter_node) == "Call" {
+                let func_node = ast_getattr!(iter_node, "func");
+                if ast_type_name!(func_node) == "Name"
+                    && ast_get_string!(func_node, "id") == "range"
+                {
+                    let args_list = ast_get_list!(iter_node, "args");
+                    let (start, stop, step) = self.parse_range_args(&args_list, line)?;
+                    self.declare(var_name.clone(), Type::Int);
+                    GenKind::Range { start, stop, step }
+                } else {
+                    let iter_expr = self.lower_expr(&iter_node)?;
+                    self.gen_kind_from_expr(line, &var_name, iter_expr)?
+                }
+            } else {
+                let iter_expr = self.lower_expr(&iter_node)?;
+                self.gen_kind_from_expr(line, &var_name, iter_expr)?
+            };
+
+            // Lower if conditions
+            let ifs_list = ast_get_list!(gen, "ifs");
+            let mut if_conds = Vec::new();
+            for if_node in ifs_list.iter() {
+                if_conds.push(self.lower_expr(&if_node)?);
+            }
+
+            gen_infos.push(GenInfo {
+                var_name,
+                kind: gen_kind,
+                if_conds,
+            });
+        }
+
+        // Phase 2: Lower the elt expression
+        let elt_expr = self.lower_expr(elt_node)?;
+        let elt_pre = std::mem::take(&mut self.pre_stmts);
+        let elem_ty = elt_expr.ty.clone();
+
+        self.pop_scope();
+
+        // Phase 3: Build the imperative structure
+        let list_var = self.fresh_internal("listcomp");
+        let list_ty = ValueType::List(Box::new(elem_ty.clone()));
+        self.declare(list_var.clone(), list_ty.to_type());
+
+        // Innermost body: pre_stmts from elt + append
+        let append_stmt = TirStmt::VoidCall {
+            target: CallTarget::Builtin(builtin::BuiltinFn::ListAppend),
+            args: vec![
+                TirExpr {
+                    kind: TirExprKind::Var(list_var.clone()),
+                    ty: list_ty.clone(),
+                },
+                elt_expr,
+            ],
+        };
+        let mut body: Vec<TirStmt> = elt_pre;
+        body.push(append_stmt);
+
+        // Build from inside out
+        for gen_info in gen_infos.iter().rev() {
+            // Apply if conditions for this generator
+            if !gen_info.if_conds.is_empty() {
+                let combined = gen_info
+                    .if_conds
+                    .iter()
+                    .cloned()
+                    .reduce(|a, b| TirExpr {
+                        kind: TirExprKind::LogicalOp {
+                            op: LogicalOp::And,
+                            left: Box::new(a),
+                            right: Box::new(b),
+                        },
+                        ty: ValueType::Bool,
+                    })
+                    .unwrap();
+                body = vec![TirStmt::If {
+                    condition: combined,
+                    then_body: body,
+                    else_body: vec![],
+                }];
+            }
+
+            // Wrap in for-loop
+            body = self.build_comp_for_loop(&gen_info.var_name, &gen_info.kind, body);
+        }
+
+        // Emit: create empty list + loop stmts
+        let mut stmts = vec![TirStmt::Let {
+            name: list_var.clone(),
+            ty: list_ty.clone(),
+            value: TirExpr {
+                kind: TirExprKind::ListLiteral {
+                    element_type: elem_ty,
+                    elements: vec![],
+                },
+                ty: list_ty.clone(),
+            },
+        }];
+        stmts.extend(body);
+
+        self.pre_stmts.extend(stmts);
+
+        Ok(TirExpr {
+            kind: TirExprKind::Var(list_var),
+            ty: list_ty,
+        })
+    }
+
+    fn parse_range_args(
+        &mut self,
+        args_list: &Bound<pyo3::types::PyList>,
+        line: usize,
+    ) -> Result<(TirExpr, TirExpr, TirExpr)> {
+        if args_list.is_empty() || args_list.len() > 3 {
+            return Err(self.type_error(
+                line,
+                format!("range() expects 1 to 3 arguments, got {}", args_list.len()),
+            ));
+        }
+        let mut args = Vec::new();
+        for arg in args_list.iter() {
+            let expr = self.lower_expr(&arg)?;
+            if expr.ty != ValueType::Int {
+                return Err(self.type_error(
+                    line,
+                    format!("range() arguments must be `int`, got `{}`", expr.ty),
+                ));
+            }
+            args.push(expr);
+        }
+        Ok(match args.len() {
+            1 => (
+                TirExpr {
+                    kind: TirExprKind::IntLiteral(0),
+                    ty: ValueType::Int,
+                },
+                args.remove(0),
+                TirExpr {
+                    kind: TirExprKind::IntLiteral(1),
+                    ty: ValueType::Int,
+                },
+            ),
+            2 => {
+                let stop = args.remove(1);
+                let start = args.remove(0);
+                (
+                    start,
+                    stop,
+                    TirExpr {
+                        kind: TirExprKind::IntLiteral(1),
+                        ty: ValueType::Int,
+                    },
+                )
+            }
+            3 => {
+                let step = args.remove(2);
+                let stop = args.remove(1);
+                let start = args.remove(0);
+                (start, stop, step)
+            }
+            _ => unreachable!(),
+        })
+    }
+
+    fn gen_kind_from_expr(
+        &mut self,
+        line: usize,
+        var_name: &str,
+        iter_expr: TirExpr,
+    ) -> Result<GenKind> {
+        match &iter_expr.ty.clone() {
+            ValueType::List(inner) => {
+                let elem_ty = (**inner).clone();
+                self.declare(var_name.to_string(), elem_ty.to_type());
+                Ok(GenKind::List {
+                    list_expr: iter_expr,
+                    elem_ty,
+                })
+            }
+            ValueType::Class(class_name) => {
+                let class_info = self.lookup_class(line, class_name)?;
+                let iter_method = class_info.methods.get("__iter__").ok_or_else(|| {
+                    self.type_error(
+                        line,
+                        format!("class `{}` does not implement `__iter__`", class_name),
+                    )
+                })?;
+                let iter_class_name = match &iter_method.return_type {
+                    Type::Class(name) => name.clone(),
+                    _ => {
+                        return Err(self.type_error(
+                            line,
+                            format!("`{}`.__iter__() must return a class instance", class_name),
+                        ))
+                    }
+                };
+                let iter_mangled = iter_method.mangled_name.clone();
+                let iter_class_info = self.lookup_class(line, &iter_class_name)?;
+                let next_method = iter_class_info.methods.get("__next__").ok_or_else(|| {
+                    self.type_error(
+                        line,
+                        format!(
+                            "iterator class `{}` does not implement `__next__`",
+                            iter_class_name
+                        ),
+                    )
+                })?;
+                let elem_ty = Self::to_value_type(&next_method.return_type);
+                let next_mangled = next_method.mangled_name.clone();
+                self.declare(var_name.to_string(), next_method.return_type.clone());
+                Ok(GenKind::ClassIter {
+                    obj_expr: iter_expr,
+                    iter_mangled,
+                    iter_class: iter_class_name,
+                    next_mangled,
+                    elem_ty,
+                })
+            }
+            ValueType::Tuple(elements) => {
+                let first = elements
+                    .first()
+                    .ok_or_else(|| self.type_error(line, "cannot iterate over empty tuple"))?;
+                if elements.iter().any(|ty| ty != first) {
+                    return Err(self.type_error(
+                        line,
+                        "for-in over tuple requires all elements to have the same type",
+                    ));
+                }
+                let elem_ty = first.clone();
+                let len = elements.len();
+                self.declare(var_name.to_string(), elem_ty.to_type());
+                Ok(GenKind::Tuple {
+                    tuple_expr: iter_expr,
+                    elem_ty,
+                    len,
+                })
+            }
+            other => Err(self.type_error(
+                line,
+                format!("cannot iterate over `{}` in comprehension", other),
+            )),
+        }
+    }
+
+    fn build_comp_for_loop(
+        &mut self,
+        var_name: &str,
+        kind: &GenKind,
+        body: Vec<TirStmt>,
+    ) -> Vec<TirStmt> {
+        match kind {
+            GenKind::Range { start, stop, step } => {
+                let start_name = self.fresh_internal("comp_start");
+                let stop_name = self.fresh_internal("comp_stop");
+                let step_name = self.fresh_internal("comp_step");
+
+                vec![
+                    TirStmt::Let {
+                        name: start_name.clone(),
+                        ty: ValueType::Int,
+                        value: start.clone(),
+                    },
+                    TirStmt::Let {
+                        name: stop_name.clone(),
+                        ty: ValueType::Int,
+                        value: stop.clone(),
+                    },
+                    TirStmt::Let {
+                        name: step_name.clone(),
+                        ty: ValueType::Int,
+                        value: step.clone(),
+                    },
+                    TirStmt::ForRange {
+                        loop_var: var_name.to_string(),
+                        start_var: start_name,
+                        stop_var: stop_name,
+                        step_var: step_name,
+                        body,
+                        else_body: vec![],
+                    },
+                ]
+            }
+            GenKind::List { list_expr, elem_ty } => {
+                let list_var = self.fresh_internal("comp_list");
+                let idx_var = self.fresh_internal("comp_idx");
+                let len_var = self.fresh_internal("comp_len");
+
+                vec![
+                    TirStmt::Let {
+                        name: list_var.clone(),
+                        ty: list_expr.ty.clone(),
+                        value: list_expr.clone(),
+                    },
+                    TirStmt::ForList {
+                        loop_var: var_name.to_string(),
+                        loop_var_ty: elem_ty.clone(),
+                        list_var,
+                        index_var: idx_var,
+                        len_var,
+                        body,
+                        else_body: vec![],
+                    },
+                ]
+            }
+            GenKind::ClassIter {
+                obj_expr,
+                iter_mangled,
+                iter_class,
+                next_mangled,
+                elem_ty,
+                ..
+            } => {
+                let obj_var = self.fresh_internal("comp_obj");
+                let iter_var = self.fresh_internal("comp_iter");
+
+                vec![
+                    TirStmt::Let {
+                        name: obj_var.clone(),
+                        ty: obj_expr.ty.clone(),
+                        value: obj_expr.clone(),
+                    },
+                    TirStmt::Let {
+                        name: iter_var.clone(),
+                        ty: ValueType::Class(iter_class.clone()),
+                        value: TirExpr {
+                            kind: TirExprKind::MethodCall {
+                                object: Box::new(TirExpr {
+                                    kind: TirExprKind::Var(obj_var),
+                                    ty: obj_expr.ty.clone(),
+                                }),
+                                method_mangled_name: iter_mangled.clone(),
+                                args: vec![],
+                            },
+                            ty: ValueType::Class(iter_class.clone()),
+                        },
+                    },
+                    TirStmt::ForIter {
+                        loop_var: var_name.to_string(),
+                        loop_var_ty: elem_ty.clone(),
+                        iterator_var: iter_var,
+                        iterator_class: iter_class.clone(),
+                        next_mangled: next_mangled.clone(),
+                        body,
+                        else_body: vec![],
+                    },
+                ]
+            }
+            GenKind::Tuple {
+                tuple_expr,
+                elem_ty,
+                len,
+            } => {
+                let tuple_var = self.fresh_internal("comp_tuple");
+                let idx_var = self.fresh_internal("comp_tuple_idx");
+                let start_name = self.fresh_internal("comp_start");
+                let stop_name = self.fresh_internal("comp_stop");
+                let step_name = self.fresh_internal("comp_step");
+
+                // Prepend: var_name = tuple[idx_var]
+                let mut full_body = vec![TirStmt::Let {
+                    name: var_name.to_string(),
+                    ty: elem_ty.clone(),
+                    value: TirExpr {
+                        kind: TirExprKind::TupleGetDynamic {
+                            tuple: Box::new(TirExpr {
+                                kind: TirExprKind::Var(tuple_var.clone()),
+                                ty: tuple_expr.ty.clone(),
+                            }),
+                            index: Box::new(TirExpr {
+                                kind: TirExprKind::Var(idx_var.clone()),
+                                ty: ValueType::Int,
+                            }),
+                            len: *len,
+                        },
+                        ty: elem_ty.clone(),
+                    },
+                }];
+                full_body.extend(body);
+
+                vec![
+                    TirStmt::Let {
+                        name: tuple_var,
+                        ty: tuple_expr.ty.clone(),
+                        value: tuple_expr.clone(),
+                    },
+                    TirStmt::Let {
+                        name: start_name.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(0),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: stop_name.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(*len as i64),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: step_name.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(1),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::ForRange {
+                        loop_var: idx_var,
+                        start_var: start_name,
+                        stop_var: stop_name,
+                        step_var: step_name,
+                        body: full_body,
+                        else_body: vec![],
+                    },
+                ]
+            }
+        }
+    }
+}
+
+struct GenInfo {
+    var_name: String,
+    kind: GenKind,
+    if_conds: Vec<TirExpr>,
+}
+
+enum GenKind {
+    Range {
+        start: TirExpr,
+        stop: TirExpr,
+        step: TirExpr,
+    },
+    List {
+        list_expr: TirExpr,
+        elem_ty: ValueType,
+    },
+    ClassIter {
+        obj_expr: TirExpr,
+        iter_mangled: String,
+        iter_class: String,
+        next_mangled: String,
+        elem_ty: ValueType,
+    },
+    Tuple {
+        tuple_expr: TirExpr,
+        elem_ty: ValueType,
+        len: usize,
+    },
 }
