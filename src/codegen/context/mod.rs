@@ -105,9 +105,11 @@ impl<'ctx> Codegen<'ctx> {
         match ty {
             ValueType::Int | ValueType::Bool => self.context.i64_type().into(),
             ValueType::Float => self.context.f64_type().into(),
-            ValueType::Str | ValueType::Bytes | ValueType::ByteArray | ValueType::Class(_) => {
-                self.context.ptr_type(AddressSpace::default()).into()
-            }
+            ValueType::Str
+            | ValueType::Bytes
+            | ValueType::ByteArray
+            | ValueType::List(_)
+            | ValueType::Class(_) => self.context.ptr_type(AddressSpace::default()).into(),
         }
     }
 
@@ -176,6 +178,21 @@ impl<'ctx> Codegen<'ctx> {
                             self.build_int_truthiness_check(len_val, label)
                         }
                     )+
+                    ValueType::List(_) => {
+                        use crate::tir::builtin::BuiltinFn;
+                        let len_fn = BuiltinFn::ListLen;
+                        let func = self.get_or_declare_function(
+                            len_fn.symbol(),
+                            &len_fn.param_types(),
+                            len_fn.return_type(),
+                        );
+                        let call = self
+                            .builder
+                            .build_call(func, &[value.into()], "len_truth")
+                            .unwrap();
+                        let len_val = self.extract_call_value(call).into_int_value();
+                        self.build_int_truthiness_check(len_val, label)
+                    }
                     ValueType::Class(_) => self.i64_type().const_int(1, false),
                     _ => self.build_int_truthiness_check(value.into_int_value(), label),
                 }
@@ -263,6 +280,80 @@ impl<'ctx> Codegen<'ctx> {
                 self.module
                     .add_function("__tython_bytes_new", fn_type, None)
             })
+    }
+
+    fn get_or_declare_list_new(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_list_new")
+            .unwrap_or_else(|| {
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let i64_type = self.context.i64_type();
+                let fn_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                self.module.add_function("__tython_list_new", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_list_get(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_list_get")
+            .unwrap_or_else(|| {
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let i64_type = self.context.i64_type();
+                let fn_type = i64_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+                self.module.add_function("__tython_list_get", fn_type, None)
+            })
+    }
+
+    fn get_or_declare_list_set(&self) -> FunctionValue<'ctx> {
+        self.module
+            .get_function("__tython_list_set")
+            .unwrap_or_else(|| {
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let i64_type = self.context.i64_type();
+                let fn_type = self
+                    .context
+                    .void_type()
+                    .fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into()], false);
+                self.module.add_function("__tython_list_set", fn_type, None)
+            })
+    }
+
+    fn bitcast_to_i64(
+        &self,
+        val: BasicValueEnum<'ctx>,
+        elem_ty: &ValueType,
+    ) -> inkwell::values::IntValue<'ctx> {
+        match elem_ty {
+            ValueType::Int | ValueType::Bool => val.into_int_value(),
+            ValueType::Float => self
+                .builder
+                .build_bit_cast(val, self.i64_type(), "f2i")
+                .unwrap()
+                .into_int_value(),
+            _ => self
+                .builder
+                .build_ptr_to_int(val.into_pointer_value(), self.i64_type(), "p2i")
+                .unwrap(),
+        }
+    }
+
+    fn bitcast_from_i64(
+        &self,
+        val: inkwell::values::IntValue<'ctx>,
+        elem_ty: &ValueType,
+    ) -> BasicValueEnum<'ctx> {
+        match elem_ty {
+            ValueType::Int | ValueType::Bool => val.into(),
+            ValueType::Float => self
+                .builder
+                .build_bit_cast(val, self.f64_type(), "i2f")
+                .unwrap(),
+            _ => self
+                .builder
+                .build_int_to_ptr(val, self.context.ptr_type(AddressSpace::default()), "i2p")
+                .unwrap()
+                .into(),
+        }
     }
 
     /// Codegen a list of TIR args and return both value and metadata forms.

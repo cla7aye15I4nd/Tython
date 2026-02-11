@@ -484,6 +484,75 @@ impl<'ctx> Codegen<'ctx> {
 
                 self.extract_call_value(call_site)
             }
+
+            TirExprKind::ListLiteral {
+                element_type,
+                elements,
+            } => {
+                if elements.is_empty() {
+                    let empty_fn = self.get_or_declare_function(
+                        "__tython_list_empty",
+                        &[],
+                        Some(ValueType::List(Box::new(element_type.clone()))),
+                    );
+                    let call = self
+                        .builder
+                        .build_call(empty_fn, &[], "list_empty")
+                        .unwrap();
+                    self.extract_call_value(call)
+                } else {
+                    let len = elements.len();
+                    let i64_ty = self.i64_type();
+                    let array_ty = i64_ty.array_type(len as u32);
+                    let array_alloca = self.builder.build_alloca(array_ty, "list_data").unwrap();
+
+                    for (i, elem) in elements.iter().enumerate() {
+                        let val = self.codegen_expr(elem);
+                        let i64_val = self.bitcast_to_i64(val, element_type);
+                        let zero = self.context.i32_type().const_int(0, false);
+                        let idx = self.context.i32_type().const_int(i as u64, false);
+                        let elem_ptr = unsafe {
+                            self.builder
+                                .build_in_bounds_gep(
+                                    array_ty,
+                                    array_alloca,
+                                    &[zero, idx],
+                                    "elem_ptr",
+                                )
+                                .unwrap()
+                        };
+                        self.builder.build_store(elem_ptr, i64_val).unwrap();
+                    }
+
+                    let len_val = i64_ty.const_int(len as u64, false);
+                    let list_new_fn = self.get_or_declare_list_new();
+                    let call = self
+                        .builder
+                        .build_call(
+                            list_new_fn,
+                            &[array_alloca.into(), len_val.into()],
+                            "list_new",
+                        )
+                        .unwrap();
+                    self.extract_call_value(call)
+                }
+            }
+
+            TirExprKind::ListGet { list, index } => {
+                let list_val = self.codegen_expr(list);
+                let index_val = self.codegen_expr(index);
+                let list_get_fn = self.get_or_declare_list_get();
+                let call = self
+                    .builder
+                    .build_call(
+                        list_get_fn,
+                        &[list_val.into(), index_val.into()],
+                        "list_get",
+                    )
+                    .unwrap();
+                let i64_val = self.extract_call_value(call).into_int_value();
+                self.bitcast_from_i64(i64_val, &expr.ty)
+            }
         }
     }
 }

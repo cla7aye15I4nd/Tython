@@ -88,4 +88,27 @@ void             __tython_bytearray_append(TythonByteArray* ba, int64_t byte_val
 void             __tython_bytearray_extend(TythonByteArray* ba, TythonBytes* other);
 void             __tython_bytearray_clear(TythonByteArray* ba);
 
+/* ── list ──────────────────────────────────────────────────────────── */
+
+typedef struct {
+    int64_t len;
+    int64_t capacity;
+    int64_t* data;    /* 8-byte slots: int64_t, double (bitcast), or ptr */
+} TythonList;
+
+TythonList* __tython_list_new(const int64_t* data, int64_t len);
+TythonList* __tython_list_empty(void);
+int64_t     __tython_list_len(TythonList* lst);
+int64_t     __tython_list_get(TythonList* lst, int64_t index);
+void        __tython_list_set(TythonList* lst, int64_t index, int64_t value);
+void        __tython_list_append(TythonList* lst, int64_t value);
+void        __tython_list_clear(TythonList* lst);
+
+void        __tython_print_list_int(TythonList* lst);
+void        __tython_print_list_float(TythonList* lst);
+void        __tython_print_list_bool(TythonList* lst);
+void        __tython_print_list_str(TythonList* lst);
+void        __tython_print_list_bytes(TythonList* lst);
+void        __tython_print_list_bytearray(TythonList* lst);
+
 #endif /* TYTHON_H */

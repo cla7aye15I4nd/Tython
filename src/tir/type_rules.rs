@@ -250,6 +250,10 @@ pub fn lookup_builtin_fn(name: &str, arg_types: &[&ValueType]) -> Option<Builtin
                 func: BuiltinFn::ByteArrayLen,
                 return_type: ValueType::Int,
             }),
+            [ValueType::List(_)] => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::ListLen,
+                return_type: ValueType::Int,
+            }),
             _ => None,
         },
         "abs" => numeric_unary_builtin(arg_types, BuiltinFn::AbsInt, BuiltinFn::AbsFloat),
@@ -279,7 +283,7 @@ pub fn lookup_builtin_fn(name: &str, arg_types: &[&ValueType]) -> Option<Builtin
 pub fn builtin_fn_type_error_message(name: &str, arg_types: &[&ValueType]) -> String {
     match name {
         "len" => format!(
-            "len() requires a `str`, `bytes`, or `bytearray` argument, got `{}`",
+            "len() requires a `str`, `bytes`, `bytearray`, or `list` argument, got `{}`",
             arg_types[0]
         ),
         "abs" => format!("abs() requires a numeric argument, got `{}`", arg_types[0]),

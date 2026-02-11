@@ -33,47 +33,55 @@ impl<'ctx> Codegen<'ctx> {
                 self.codegen_expr(expr);
             }
 
-            TirStmt::VoidCall { target, args } => {
-                let arg_metadata = self.codegen_call_args(args);
-
-                match target {
-                    CallTarget::Named(func_name) => {
-                        let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty.clone()).collect();
-                        let function = self.get_or_declare_function(func_name, &arg_types, None);
+            TirStmt::VoidCall { target, args } => match target {
+                CallTarget::Named(func_name) => {
+                    let arg_metadata = self.codegen_call_args(args);
+                    let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty.clone()).collect();
+                    let function = self.get_or_declare_function(func_name, &arg_types, None);
+                    self.builder
+                        .build_call(function, &arg_metadata, "void_call")
+                        .unwrap();
+                }
+                CallTarget::Builtin(builtin_fn) => {
+                    use crate::tir::builtin::BuiltinFn;
+                    let function = self.get_or_declare_function(
+                        builtin_fn.symbol(),
+                        &builtin_fn.param_types(),
+                        builtin_fn.return_type(),
+                    );
+                    if matches!(builtin_fn, BuiltinFn::ListAppend) {
+                        let list_val = self.codegen_expr(&args[0]);
+                        let elem_val = self.codegen_expr(&args[1]);
+                        let i64_val = self.bitcast_to_i64(elem_val, &args[1].ty);
                         self.builder
-                            .build_call(function, &arg_metadata, "void_call")
+                            .build_call(function, &[list_val.into(), i64_val.into()], "list_append")
                             .unwrap();
-                    }
-                    CallTarget::Builtin(builtin_fn) => {
-                        let function = self.get_or_declare_function(
-                            builtin_fn.symbol(),
-                            &builtin_fn.param_types(),
-                            builtin_fn.return_type(),
-                        );
+                    } else {
+                        let arg_metadata = self.codegen_call_args(args);
                         self.builder
                             .build_call(function, &arg_metadata, "void_ext_call")
                             .unwrap();
                     }
-                    CallTarget::MethodCall {
-                        mangled_name,
-                        object,
-                    } => {
-                        let self_val = self.codegen_expr(object);
-                        let mut all_meta: Vec<inkwell::values::BasicMetadataValueEnum> =
-                            vec![self_val.into()];
-                        all_meta.extend(arg_metadata);
-
-                        let mut param_types = vec![object.ty.clone()];
-                        param_types.extend(args.iter().map(|a| a.ty.clone()));
-
-                        let function =
-                            self.get_or_declare_function(mangled_name, &param_types, None);
-                        self.builder
-                            .build_call(function, &all_meta, "void_method_call")
-                            .unwrap();
-                    }
                 }
-            }
+                CallTarget::MethodCall {
+                    mangled_name,
+                    object,
+                } => {
+                    let arg_metadata = self.codegen_call_args(args);
+                    let self_val = self.codegen_expr(object);
+                    let mut all_meta: Vec<inkwell::values::BasicMetadataValueEnum> =
+                        vec![self_val.into()];
+                    all_meta.extend(arg_metadata);
+
+                    let mut param_types = vec![object.ty.clone()];
+                    param_types.extend(args.iter().map(|a| a.ty.clone()));
+
+                    let function = self.get_or_declare_function(mangled_name, &param_types, None);
+                    self.builder
+                        .build_call(function, &all_meta, "void_method_call")
+                        .unwrap();
+                }
+            },
 
             TirStmt::SetField {
                 object,
@@ -91,6 +99,21 @@ impl<'ctx> Codegen<'ctx> {
 
                 let val = self.codegen_expr(value);
                 self.builder.build_store(field_ptr, val).unwrap();
+            }
+
+            TirStmt::ListSet { list, index, value } => {
+                let list_val = self.codegen_expr(list);
+                let index_val = self.codegen_expr(index);
+                let elem_val = self.codegen_expr(value);
+                let i64_val = self.bitcast_to_i64(elem_val, &value.ty);
+                let list_set_fn = self.get_or_declare_list_set();
+                self.builder
+                    .build_call(
+                        list_set_fn,
+                        &[list_val.into(), index_val.into(), i64_val.into()],
+                        "list_set",
+                    )
+                    .unwrap();
             }
 
             TirStmt::If {

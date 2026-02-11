@@ -79,6 +79,18 @@ define_builtins! {
     ByteArrayFromInt   => "__tython_bytearray_from_int",   params: [ValueType::Int],                             ret: Some(ValueType::ByteArray);
     ByteArrayFromBytes => "__tython_bytearray_from_bytes", params: [ValueType::Bytes],                           ret: Some(ValueType::ByteArray);
     ByteArrayEmpty     => "__tython_bytearray_empty",      params: [],                                           ret: Some(ValueType::ByteArray);
+
+    // list builtins (all List(...) map to ptr in LLVM; inner type is a sentinel)
+    ListEmpty          => "__tython_list_empty",          params: [],                                                                                ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    ListLen            => "__tython_list_len",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
+    ListAppend         => "__tython_list_append",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: None;
+    ListClear          => "__tython_list_clear",          params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: None;
+    PrintListInt       => "__tython_print_list_int",      params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: None;
+    PrintListFloat     => "__tython_print_list_float",    params: [ValueType::List(Box::new(ValueType::Float))],                                     ret: None;
+    PrintListBool      => "__tython_print_list_bool",     params: [ValueType::List(Box::new(ValueType::Bool))],                                      ret: None;
+    PrintListStr       => "__tython_print_list_str",      params: [ValueType::List(Box::new(ValueType::Str))],                                       ret: None;
+    PrintListBytes     => "__tython_print_list_bytes",    params: [ValueType::List(Box::new(ValueType::Bytes))],                                     ret: None;
+    PrintListByteArray => "__tython_print_list_bytearray", params: [ValueType::List(Box::new(ValueType::ByteArray))],                                ret: None;
 }
 
 pub fn resolve_print(arg_ty: &ValueType) -> Option<BuiltinFn> {
@@ -89,6 +101,15 @@ pub fn resolve_print(arg_ty: &ValueType) -> Option<BuiltinFn> {
         ValueType::Str => Some(BuiltinFn::PrintStr),
         ValueType::Bytes => Some(BuiltinFn::PrintBytes),
         ValueType::ByteArray => Some(BuiltinFn::PrintByteArray),
+        ValueType::List(inner) => match inner.as_ref() {
+            ValueType::Int => Some(BuiltinFn::PrintListInt),
+            ValueType::Float => Some(BuiltinFn::PrintListFloat),
+            ValueType::Bool => Some(BuiltinFn::PrintListBool),
+            ValueType::Str => Some(BuiltinFn::PrintListStr),
+            ValueType::Bytes => Some(BuiltinFn::PrintListBytes),
+            ValueType::ByteArray => Some(BuiltinFn::PrintListByteArray),
+            _ => None,
+        },
         ValueType::Class(_) => None,
     }
 }

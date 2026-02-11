@@ -232,6 +232,66 @@ impl Lowering {
                 })
             }
 
+            "List" => {
+                let elts_list = ast_get_list!(node, "elts");
+                if elts_list.is_empty() {
+                    return Err(self
+                        .syntax_error(line, "empty list literal `[]` requires a type annotation"));
+                }
+                let mut elements = Vec::new();
+                for elt in elts_list.iter() {
+                    elements.push(self.lower_expr(&elt)?);
+                }
+                let elem_ty = elements[0].ty.clone();
+                for (i, elt) in elements.iter().enumerate().skip(1) {
+                    if elt.ty != elem_ty {
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "list literal element {} has type `{}`, expected `{}`",
+                                i, elt.ty, elem_ty
+                            ),
+                        ));
+                    }
+                }
+                Ok(TirExpr {
+                    kind: TirExprKind::ListLiteral {
+                        element_type: elem_ty.clone(),
+                        elements,
+                    },
+                    ty: ValueType::List(Box::new(elem_ty)),
+                })
+            }
+
+            "Subscript" => {
+                let value_node = ast_getattr!(node, "value");
+                let slice_node = ast_getattr!(node, "slice");
+                let obj_expr = self.lower_expr(&value_node)?;
+
+                match &obj_expr.ty {
+                    ValueType::List(inner) => {
+                        let index_expr = self.lower_expr(&slice_node)?;
+                        if index_expr.ty != ValueType::Int {
+                            return Err(self.type_error(
+                                line,
+                                format!("list index must be `int`, got `{}`", index_expr.ty),
+                            ));
+                        }
+                        let elem_ty = inner.as_ref().clone();
+                        Ok(TirExpr {
+                            kind: TirExprKind::ListGet {
+                                list: Box::new(obj_expr),
+                                index: Box::new(index_expr),
+                            },
+                            ty: elem_ty,
+                        })
+                    }
+                    other => {
+                        Err(self.type_error(line, format!("type `{}` is not subscriptable", other)))
+                    }
+                }
+            }
+
             _ => Err(self.syntax_error(
                 line,
                 format!("unsupported expression type: `{}`", node_type),

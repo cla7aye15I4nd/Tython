@@ -26,6 +26,7 @@ import basic.test_nested_class as test_nested_class
 import basic.test_str as test_str
 import basic.test_bytes as test_bytes
 import basic.test_bytearray as test_bytearray
+import basic.test_list as test_list
 
 
 def run_all_tests() -> None:
@@ -57,3 +58,4 @@ def run_all_tests() -> None:
     test_str.run_tests()
     test_bytes.run_tests()
     test_bytearray.run_tests()
+    test_list.run_tests()

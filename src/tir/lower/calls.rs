@@ -514,6 +514,57 @@ impl Lowering {
                         _ => Err(self
                             .attribute_error(line, format!("bytearray has no method `{}`", attr))),
                     },
+                    ValueType::List(inner) => {
+                        match attr.as_str() {
+                            "append" => {
+                                if !inner.is_primitive() {
+                                    return Err(self.type_error(
+                                    line,
+                                    format!(
+                                        "list[{}].append() is not supported; only list[int], list[float], list[bool] support append",
+                                        inner
+                                    ),
+                                ));
+                                }
+                                if tir_args.len() != 1 {
+                                    return Err(self.type_error(
+                                        line,
+                                        format!(
+                                            "list.append() expects 1 argument, got {}",
+                                            tir_args.len()
+                                        ),
+                                    ));
+                                }
+                                if tir_args[0].ty != *inner.as_ref() {
+                                    return Err(self.type_error(
+                                        line,
+                                        format!(
+                                            "list[{}].append() expects `{}`, got `{}`",
+                                            inner, inner, tir_args[0].ty
+                                        ),
+                                    ));
+                                }
+                                Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                                    target: CallTarget::Builtin(builtin::BuiltinFn::ListAppend),
+                                    args: vec![obj_expr, tir_args.remove(0)],
+                                }))
+                            }
+                            "clear" => {
+                                if !tir_args.is_empty() {
+                                    return Err(self.type_error(
+                                        line,
+                                        "list.clear() takes no arguments".to_string(),
+                                    ));
+                                }
+                                Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                                    target: CallTarget::Builtin(builtin::BuiltinFn::ListClear),
+                                    args: vec![obj_expr],
+                                }))
+                            }
+                            _ => Err(self
+                                .attribute_error(line, format!("list has no method `{}`", attr))),
+                        }
+                    }
                     _ => {
                         Err(self
                             .type_error(line, format!("`{}` is not a class instance", obj_expr.ty)))

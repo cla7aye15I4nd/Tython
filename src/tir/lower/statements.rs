@@ -91,6 +91,39 @@ impl Lowering {
             .transpose()?;
 
         let value_node = ast_getattr!(node, "value");
+
+        // Handle empty list literal `[]` with type annotation
+        if ast_type_name!(value_node) == "List" {
+            let elts = ast_get_list!(value_node, "elts");
+            if elts.is_empty() {
+                let list_ty = annotated_ty.ok_or_else(|| {
+                    self.syntax_error(line, "empty list literal `[]` requires a type annotation")
+                })?;
+                let inner_ty = match &list_ty {
+                    Type::List(inner) => Self::to_value_type(inner),
+                    _ => {
+                        return Err(self.type_error(
+                            line,
+                            format!("type mismatch: expected `list[...]`, got `{}`", list_ty),
+                        ))
+                    }
+                };
+                let vty = ValueType::List(Box::new(inner_ty.clone()));
+                self.declare(target.clone(), list_ty);
+                return Ok(vec![TirStmt::Let {
+                    name: target,
+                    ty: vty.clone(),
+                    value: TirExpr {
+                        kind: TirExprKind::ListLiteral {
+                            element_type: inner_ty,
+                            elements: vec![],
+                        },
+                        ty: vty,
+                    },
+                }]);
+            }
+        }
+
         let tir_value = self.lower_expr(&value_node)?;
 
         let tir_value_ast_ty = tir_value.ty.to_type();
@@ -138,9 +171,11 @@ impl Lowering {
                 }])
             }
             "Attribute" => self.lower_attribute_assign(&target_node, node, line),
-            _ => {
-                Err(self.syntax_error(line, "only variable or attribute assignments are supported"))
-            }
+            "Subscript" => self.lower_subscript_assign(&target_node, node, line),
+            _ => Err(self.syntax_error(
+                line,
+                "only variable, attribute, or subscript assignments are supported",
+            )),
         }
     }
 
@@ -179,9 +214,10 @@ impl Lowering {
                 }])
             }
             "Attribute" => self.lower_attribute_aug_assign(&target_node, node, line),
+            "Subscript" => self.lower_subscript_aug_assign(&target_node, node, line),
             _ => Err(self.syntax_error(
                 line,
-                "only variable or attribute augmented assignments are supported",
+                "only variable, attribute, or subscript augmented assignments are supported",
             )),
         }
     }
@@ -256,11 +292,12 @@ impl Lowering {
                     },
                     ty: ValueType::Bool,
                 },
-                ValueType::Str | ValueType::Bytes | ValueType::ByteArray => {
+                ValueType::Str | ValueType::Bytes | ValueType::ByteArray | ValueType::List(_) => {
                     let len_fn = match &condition.ty {
                         ValueType::Str => builtin::BuiltinFn::StrLen,
                         ValueType::Bytes => builtin::BuiltinFn::BytesLen,
                         ValueType::ByteArray => builtin::BuiltinFn::ByteArrayLen,
+                        ValueType::List(_) => builtin::BuiltinFn::ListLen,
                         _ => unreachable!(),
                     };
                     let len_expr = TirExpr {
@@ -358,6 +395,108 @@ impl Lowering {
             field_index,
             value: tir_value,
         }])
+    }
+
+    // ── subscript assignment ──────────────────────────────────────────
+
+    fn lower_subscript_assign(
+        &mut self,
+        target_node: &Bound<PyAny>,
+        assign_node: &Bound<PyAny>,
+        line: usize,
+    ) -> Result<Vec<TirStmt>> {
+        let value_node_target = ast_getattr!(target_node, "value");
+        let slice_node = ast_getattr!(target_node, "slice");
+        let value_node = ast_getattr!(assign_node, "value");
+
+        let list_expr = self.lower_expr(&value_node_target)?;
+        match &list_expr.ty {
+            ValueType::List(inner) => {
+                let index_expr = self.lower_expr(&slice_node)?;
+                if index_expr.ty != ValueType::Int {
+                    return Err(self.type_error(
+                        line,
+                        format!("list index must be `int`, got `{}`", index_expr.ty),
+                    ));
+                }
+                let tir_value = self.lower_expr(&value_node)?;
+                let expected_elem_ty = inner.as_ref();
+                if &tir_value.ty != expected_elem_ty {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "cannot assign `{}` to element of `list[{}]`",
+                            tir_value.ty, expected_elem_ty
+                        ),
+                    ));
+                }
+                Ok(vec![TirStmt::ListSet {
+                    list: list_expr,
+                    index: index_expr,
+                    value: tir_value,
+                }])
+            }
+            other => Err(self.type_error(
+                line,
+                format!("type `{}` does not support index assignment", other),
+            )),
+        }
+    }
+
+    fn lower_subscript_aug_assign(
+        &mut self,
+        target_node: &Bound<PyAny>,
+        aug_node: &Bound<PyAny>,
+        line: usize,
+    ) -> Result<Vec<TirStmt>> {
+        let value_node = ast_getattr!(target_node, "value");
+        let slice_node = ast_getattr!(target_node, "slice");
+
+        let list_expr = self.lower_expr(&value_node)?;
+        match &list_expr.ty {
+            ValueType::List(inner) => {
+                let index_expr = self.lower_expr(&slice_node)?;
+                if index_expr.ty != ValueType::Int {
+                    return Err(self.type_error(
+                        line,
+                        format!("list index must be `int`, got `{}`", index_expr.ty),
+                    ));
+                }
+                let elem_ty = inner.as_ref().clone();
+
+                let current_val = TirExpr {
+                    kind: TirExprKind::ListGet {
+                        list: Box::new(list_expr.clone()),
+                        index: Box::new(index_expr.clone()),
+                    },
+                    ty: elem_ty,
+                };
+
+                let op = Self::convert_binop(&ast_getattr!(aug_node, "op"))?;
+                let rhs = self.lower_expr(&ast_getattr!(aug_node, "value"))?;
+                let binop_expr = self.resolve_binop(line, op, current_val, rhs)?;
+
+                if &binop_expr.ty != inner.as_ref() {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "augmented assignment would change list element type from `{}` to `{}`",
+                            inner, binop_expr.ty
+                        ),
+                    ));
+                }
+
+                Ok(vec![TirStmt::ListSet {
+                    list: list_expr,
+                    index: index_expr,
+                    value: binop_expr,
+                }])
+            }
+            other => Err(self.type_error(
+                line,
+                format!("type `{}` does not support index assignment", other),
+            )),
+        }
     }
 
     fn lower_attribute_aug_assign(
