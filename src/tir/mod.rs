@@ -322,6 +322,13 @@ pub enum TirStmt {
         condition: TirExpr,
         body: Vec<TirStmt>,
     },
+    ForRange {
+        loop_var: String,
+        start_var: String,
+        stop_var: String,
+        step_var: String,
+        body: Vec<TirStmt>,
+    },
     Break,
     Continue,
     SetField {

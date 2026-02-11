@@ -41,6 +41,7 @@ impl Lowering {
                 let body = self.lower_block(&ast_get_list!(node, "body"))?;
                 Ok(vec![TirStmt::While { condition, body }])
             }
+            "For" => self.handle_for(node, line),
             "Break" => Ok(vec![TirStmt::Break]),
             "Continue" => Ok(vec![TirStmt::Continue]),
             "Assert" => self.handle_assert(node, line),
@@ -347,6 +348,108 @@ impl Lowering {
             target: CallTarget::Builtin(builtin::BuiltinFn::Assert),
             args: vec![bool_condition],
         }])
+    }
+
+    fn handle_for(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
+        let target_node = ast_getattr!(node, "target");
+        if ast_type_name!(target_node) != "Name" {
+            return Err(self.syntax_error(line, "for-loop target must be a simple variable name"));
+        }
+        let loop_var = ast_get_string!(target_node, "id");
+
+        let iter_node = ast_getattr!(node, "iter");
+        if ast_type_name!(iter_node) != "Call" {
+            return Err(self.syntax_error(line, "only `for ... in range(...)` is supported"));
+        }
+
+        let func_node = ast_getattr!(iter_node, "func");
+        if ast_type_name!(func_node) != "Name" || ast_get_string!(func_node, "id") != "range" {
+            return Err(self.syntax_error(line, "only `for ... in range(...)` is supported"));
+        }
+
+        let args_list = ast_get_list!(iter_node, "args");
+        if args_list.is_empty() || args_list.len() > 3 {
+            return Err(self.type_error(
+                line,
+                format!("range() expects 1 to 3 arguments, got {}", args_list.len()),
+            ));
+        }
+
+        let mut args = Vec::new();
+        for arg in args_list.iter() {
+            let expr = self.lower_expr(&arg)?;
+            if expr.ty != ValueType::Int {
+                return Err(self.type_error(
+                    line,
+                    format!("range() arguments must be `int`, got `{}`", expr.ty),
+                ));
+            }
+            args.push(expr);
+        }
+
+        let (start_expr, stop_expr, step_expr) = match args.len() {
+            1 => (
+                TirExpr {
+                    kind: TirExprKind::IntLiteral(0),
+                    ty: ValueType::Int,
+                },
+                args[0].clone(),
+                TirExpr {
+                    kind: TirExprKind::IntLiteral(1),
+                    ty: ValueType::Int,
+                },
+            ),
+            2 => (
+                args[0].clone(),
+                args[1].clone(),
+                TirExpr {
+                    kind: TirExprKind::IntLiteral(1),
+                    ty: ValueType::Int,
+                },
+            ),
+            3 => (args[0].clone(), args[1].clone(), args[2].clone()),
+            _ => unreachable!(),
+        };
+
+        let start_name = self.fresh_internal("range_start");
+        let stop_name = self.fresh_internal("range_stop");
+        let step_name = self.fresh_internal("range_step");
+
+        self.declare(start_name.clone(), Type::Int);
+        self.declare(stop_name.clone(), Type::Int);
+        self.declare(step_name.clone(), Type::Int);
+        self.declare(loop_var.clone(), Type::Int);
+
+        let body = self.lower_block(&ast_get_list!(node, "body"))?;
+        let orelse = ast_get_list!(node, "orelse");
+        if !orelse.is_empty() {
+            return Err(self.syntax_error(line, "for-else is not supported"));
+        }
+
+        Ok(vec![
+            TirStmt::Let {
+                name: start_name.clone(),
+                ty: ValueType::Int,
+                value: start_expr,
+            },
+            TirStmt::Let {
+                name: stop_name.clone(),
+                ty: ValueType::Int,
+                value: stop_expr,
+            },
+            TirStmt::Let {
+                name: step_name.clone(),
+                ty: ValueType::Int,
+                value: step_expr,
+            },
+            TirStmt::ForRange {
+                loop_var,
+                start_var: start_name,
+                stop_var: stop_name,
+                step_var: step_name,
+                body,
+            },
+        ])
     }
 
     // ── attribute assignment ───────────────────────────────────────────

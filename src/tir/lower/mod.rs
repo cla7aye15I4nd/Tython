@@ -44,6 +44,7 @@ pub struct Lowering {
     // Accumulated from classes defined inside function/method bodies
     deferred_functions: Vec<TirFunction>,
     deferred_classes: Vec<ClassInfo>,
+    internal_tmp_counter: usize,
 }
 
 impl Default for Lowering {
@@ -66,6 +67,7 @@ impl Lowering {
             current_class: None,
             deferred_functions: Vec::new(),
             deferred_classes: Vec::new(),
+            internal_tmp_counter: 0,
         }
     }
 
@@ -103,6 +105,12 @@ impl Lowering {
 
     fn declare(&mut self, name: String, ty: Type) {
         self.scopes.last_mut().unwrap().insert(name, ty);
+    }
+
+    fn fresh_internal(&mut self, prefix: &str) -> String {
+        let name = format!("__tython${}${}", prefix, self.internal_tmp_counter);
+        self.internal_tmp_counter += 1;
+        name
     }
 
     fn lookup(&self, name: &str) -> Option<&Type> {
@@ -178,6 +186,7 @@ impl Lowering {
         self.current_module_name = module_name.to_string();
         self.current_file = canonical_path.display().to_string();
         self.current_function_name = None;
+        self.internal_tmp_counter = 0;
 
         self.push_scope();
 

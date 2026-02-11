@@ -30,6 +30,7 @@ import basic.test_bytes as test_bytes
 import basic.test_bytearray as test_bytearray
 import basic.test_list as test_list
 import basic.test_tuple as test_tuple
+import basic.test_for as test_for
 
 
 def run_all_tests() -> None:
@@ -65,3 +66,4 @@ def run_all_tests() -> None:
     test_bytearray.run_tests()
     test_list.run_tests()
     test_tuple.run_tests()
+    test_for.run_tests()

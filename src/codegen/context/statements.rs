@@ -1,3 +1,5 @@
+use inkwell::IntPredicate;
+
 use crate::tir::{CallTarget, TirStmt, ValueType};
 
 use super::Codegen;
@@ -187,6 +189,113 @@ impl<'ctx> Codegen<'ctx> {
                 }
                 self.loop_stack.pop();
                 self.branch_if_unterminated(header_bb);
+
+                self.builder.position_at_end(after_bb);
+            }
+
+            TirStmt::ForRange {
+                loop_var,
+                start_var,
+                stop_var,
+                step_var,
+                body,
+            } => {
+                let function = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+
+                let header_bb = self.context.append_basic_block(function, "for.header");
+                let body_bb = self.context.append_basic_block(function, "for.body");
+                let incr_bb = self.context.append_basic_block(function, "for.incr");
+                let after_bb = self.context.append_basic_block(function, "for.after");
+
+                let loop_ptr = if let Some(&existing_ptr) = self.variables.get(loop_var.as_str()) {
+                    existing_ptr
+                } else {
+                    let alloca = self
+                        .builder
+                        .build_alloca(self.get_llvm_type(&ValueType::Int), loop_var)
+                        .unwrap();
+                    self.variables.insert(loop_var.clone(), alloca);
+                    alloca
+                };
+                let start_ptr = self.variables[start_var.as_str()];
+                let stop_ptr = self.variables[stop_var.as_str()];
+                let step_ptr = self.variables[step_var.as_str()];
+                let start_val = self
+                    .builder
+                    .build_load(self.get_llvm_type(&ValueType::Int), start_ptr, "for.start")
+                    .unwrap()
+                    .into_int_value();
+                self.builder.build_store(loop_ptr, start_val).unwrap();
+                self.builder.build_unconditional_branch(header_bb).unwrap();
+
+                self.builder.position_at_end(header_bb);
+                let i_val = self
+                    .builder
+                    .build_load(self.get_llvm_type(&ValueType::Int), loop_ptr, "for.i")
+                    .unwrap()
+                    .into_int_value();
+                let stop_loaded = self
+                    .builder
+                    .build_load(self.get_llvm_type(&ValueType::Int), stop_ptr, "for.stop")
+                    .unwrap()
+                    .into_int_value();
+                let step_loaded = self
+                    .builder
+                    .build_load(self.get_llvm_type(&ValueType::Int), step_ptr, "for.step")
+                    .unwrap()
+                    .into_int_value();
+                let zero = self.i64_type().const_int(0, false);
+                let step_pos = self
+                    .builder
+                    .build_int_compare(IntPredicate::SGT, step_loaded, zero, "for.step_pos")
+                    .unwrap();
+                let cond_pos = self
+                    .builder
+                    .build_int_compare(IntPredicate::SLT, i_val, stop_loaded, "for.cond_pos")
+                    .unwrap();
+                let cond_neg = self
+                    .builder
+                    .build_int_compare(IntPredicate::SGT, i_val, stop_loaded, "for.cond_neg")
+                    .unwrap();
+                let cond = self
+                    .builder
+                    .build_select(step_pos, cond_pos, cond_neg, "for.cond")
+                    .unwrap()
+                    .into_int_value();
+                self.builder
+                    .build_conditional_branch(cond, body_bb, after_bb)
+                    .unwrap();
+
+                self.builder.position_at_end(body_bb);
+                self.loop_stack.push((incr_bb, after_bb));
+                for s in body {
+                    self.codegen_stmt(s);
+                }
+                self.loop_stack.pop();
+                self.branch_if_unterminated(incr_bb);
+
+                self.builder.position_at_end(incr_bb);
+                let i_curr = self
+                    .builder
+                    .build_load(self.get_llvm_type(&ValueType::Int), loop_ptr, "for.i")
+                    .unwrap()
+                    .into_int_value();
+                let step_curr = self
+                    .builder
+                    .build_load(self.get_llvm_type(&ValueType::Int), step_ptr, "for.step")
+                    .unwrap()
+                    .into_int_value();
+                let i_next = self
+                    .builder
+                    .build_int_add(i_curr, step_curr, "for.next")
+                    .unwrap();
+                self.builder.build_store(loop_ptr, i_next).unwrap();
+                self.builder.build_unconditional_branch(header_bb).unwrap();
 
                 self.builder.position_at_end(after_bb);
             }
