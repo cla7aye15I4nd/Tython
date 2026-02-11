@@ -95,6 +95,16 @@ impl ValueType {
         matches!(self, ValueType::Int | ValueType::Float | ValueType::Bool)
     }
 
+    pub fn unwrap_function(&self) -> (&Vec<ValueType>, &Option<Box<ValueType>>) {
+        match self {
+            ValueType::Function {
+                params,
+                return_type,
+            } => (params, return_type),
+            _ => panic!("ICE: expected Function type, got {self}"),
+        }
+    }
+
     pub fn is_ref_type(&self) -> bool {
         matches!(
             self,
@@ -563,10 +573,6 @@ pub enum TirExprKind {
     ListLiteral {
         element_type: ValueType,
         elements: Vec<TirExpr>,
-    },
-    ListToTuple {
-        list: Box<TirExpr>,
-        element_types: Vec<ValueType>,
     },
     FuncRef {
         mangled_name: String,

@@ -119,6 +119,49 @@ def test_dead_bare_raise_is_valid() -> None:
     assert marker == 9
 
 
+def test_trycatch_personality_in_while_else() -> None:
+    x: int = 0
+    while x < 0:
+        x = x + 1
+    else:
+        try:
+            raise Exception("catch me")
+        except Exception:
+            x = 99
+    assert x == 99
+
+
+def add_floats(a: float, b: float) -> float:
+    return a + b
+
+
+def test_float_args_in_try_invoke() -> None:
+    result: float = 0.0
+    try:
+        result = add_floats(1.5, 2.5)
+    except Exception:
+        result = -1.0
+    assert result == 4.0
+
+
+def test_try_inside_if_personality() -> None:
+    x: int = 0
+    if True:
+        try:
+            x = 42
+        except Exception:
+            x = -1
+    assert x == 42
+
+
+def test_for_iter_inside_if_personality() -> None:
+    total: int = 0
+    if True:
+        for n in TinyIter(3):
+            total = total + n
+    assert total == 6
+
+
 def run_tests() -> None:
     test_indirect_void_call()
     test_for_range_else()
@@ -128,3 +171,7 @@ def run_tests() -> None:
     test_for_iter_break_continue_else()
     test_personality_paths_in_while_else()
     test_dead_bare_raise_is_valid()
+    test_trycatch_personality_in_while_else()
+    test_float_args_in_try_invoke()
+    test_try_inside_if_personality()
+    test_for_iter_inside_if_personality()

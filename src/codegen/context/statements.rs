@@ -11,10 +11,10 @@ impl<'ctx> Codegen<'ctx> {
                 let value_llvm = self.codegen_expr(value);
 
                 if let Some(&existing_ptr) = self.variables.get(name.as_str()) {
-                    self.builder.build_store(existing_ptr, value_llvm).unwrap();
+                    emit!(self.build_store(existing_ptr, value_llvm));
                 } else {
                     let alloca = self.build_entry_block_alloca(self.get_llvm_type(ty), name);
-                    self.builder.build_store(alloca, value_llvm).unwrap();
+                    emit!(self.build_store(alloca, value_llvm));
                     self.variables.insert(name.clone(), alloca);
                 }
             }
@@ -22,9 +22,9 @@ impl<'ctx> Codegen<'ctx> {
             TirStmt::Return(expr_opt) => {
                 if let Some(expr) = expr_opt {
                     let value = self.codegen_expr(expr);
-                    self.builder.build_return(Some(&value)).unwrap();
+                    emit!(self.build_return(Some(&value)));
                 } else {
-                    self.builder.build_return(None).unwrap();
+                    emit!(self.build_return(None));
                 }
             }
 
@@ -51,27 +51,29 @@ impl<'ctx> Codegen<'ctx> {
                         let list_val = self.codegen_expr(&args[0]);
                         let elem_val = self.codegen_expr(&args[1]);
                         let i64_val = self.bitcast_to_i64(elem_val, &args[1].ty);
-                        self.builder
-                            .build_call(function, &[list_val.into(), i64_val.into()], "list_method")
-                            .unwrap();
+                        emit!(self.build_call(
+                            function,
+                            &[list_val.into(), i64_val.into()],
+                            "list_method"
+                        ));
                     } else if matches!(builtin_fn, BuiltinFn::ListInsert) {
                         // list, index, value — value needs bitcast to i64
                         let list_val = self.codegen_expr(&args[0]);
                         let idx_val = self.codegen_expr(&args[1]);
                         let elem_val = self.codegen_expr(&args[2]);
                         let i64_val = self.bitcast_to_i64(elem_val, &args[2].ty);
-                        self.builder
-                            .build_call(
-                                function,
-                                &[list_val.into(), idx_val.into(), i64_val.into()],
-                                "list_insert",
-                            )
-                            .unwrap();
+                        emit!(self.build_call(
+                            function,
+                            &[list_val.into(), idx_val.into(), i64_val.into()],
+                            "list_insert",
+                        ));
                     } else {
                         let arg_metadata = self.codegen_call_args(args);
-                        self.builder
-                            .build_call(function, &arg_metadata, "void_ext_call")
-                            .unwrap();
+                        emit!(self.build_call(
+                            function,
+                            &Self::to_meta_args(&arg_metadata),
+                            "void_ext_call"
+                        ));
                     }
                 }
                 CallTarget::MethodCall {
@@ -80,24 +82,20 @@ impl<'ctx> Codegen<'ctx> {
                 } => {
                     let arg_metadata = self.codegen_call_args(args);
                     let self_val = self.codegen_expr(object);
-                    let mut all_meta: Vec<inkwell::values::BasicMetadataValueEnum> =
-                        vec![self_val.into()];
-                    all_meta.extend(arg_metadata);
+                    let mut all_vals: Vec<inkwell::values::BasicValueEnum> = vec![self_val];
+                    all_vals.extend(arg_metadata);
 
                     let mut param_types = vec![object.ty.clone()];
                     param_types.extend(args.iter().map(|a| a.ty.clone()));
 
                     let function = self.get_or_declare_function(mangled_name, &param_types, None);
-                    self.build_call_maybe_invoke(function, &all_meta, "void_method_call", true);
+                    self.build_call_maybe_invoke(function, &all_vals, "void_method_call", true);
                 }
                 CallTarget::Indirect(callee_expr) => {
                     let callee_ptr = self.codegen_expr(callee_expr).into_pointer_value();
                     let arg_metadata = self.codegen_call_args(args);
 
-                    let param_types_vt = match &callee_expr.ty {
-                        ValueType::Function { params, .. } => params.clone(),
-                        _ => panic!("ICE: Indirect CallTarget with non-function type"),
-                    };
+                    let (param_types_vt, _) = callee_expr.ty.unwrap_function();
 
                     let llvm_params: Vec<inkwell::types::BasicMetadataTypeEnum> = param_types_vt
                         .iter()
@@ -106,14 +104,12 @@ impl<'ctx> Codegen<'ctx> {
 
                     let fn_type = self.context.void_type().fn_type(&llvm_params, false);
 
-                    self.builder
-                        .build_indirect_call(
-                            fn_type,
-                            callee_ptr,
-                            &arg_metadata,
-                            "void_indirect_call",
-                        )
-                        .unwrap();
+                    emit!(self.build_indirect_call(
+                        fn_type,
+                        callee_ptr,
+                        &Self::to_meta_args(&arg_metadata),
+                        "void_indirect_call",
+                    ));
                 }
             },
 
@@ -126,13 +122,15 @@ impl<'ctx> Codegen<'ctx> {
                 let obj_ptr = self.codegen_expr(object).into_pointer_value();
                 let struct_type = self.class_types[class_name.as_str()];
 
-                let field_ptr = self
-                    .builder
-                    .build_struct_gep(struct_type, obj_ptr, *field_index as u32, "field_ptr")
-                    .unwrap();
+                let field_ptr = emit!(self.build_struct_gep(
+                    struct_type,
+                    obj_ptr,
+                    *field_index as u32,
+                    "field_ptr"
+                ));
 
                 let val = self.codegen_expr(value);
-                self.builder.build_store(field_ptr, val).unwrap();
+                emit!(self.build_store(field_ptr, val));
             }
 
             TirStmt::ListSet { list, index, value } => {
@@ -141,13 +139,11 @@ impl<'ctx> Codegen<'ctx> {
                 let elem_val = self.codegen_expr(value);
                 let i64_val = self.bitcast_to_i64(elem_val, &value.ty);
                 let list_set_fn = self.get_or_declare_list_set();
-                self.builder
-                    .build_call(
-                        list_set_fn,
-                        &[list_val.into(), index_val.into(), i64_val.into()],
-                        "list_set",
-                    )
-                    .unwrap();
+                emit!(self.build_call(
+                    list_set_fn,
+                    &[list_val.into(), index_val.into(), i64_val.into()],
+                    "list_set",
+                ));
             }
 
             TirStmt::If {
@@ -159,20 +155,13 @@ impl<'ctx> Codegen<'ctx> {
                 let cond_bool =
                     self.build_truthiness_check_for_value(cond_val, &condition.ty, "ifcond");
 
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
                 let then_bb = self.context.append_basic_block(function, "then");
                 let else_bb = self.context.append_basic_block(function, "else");
                 let merge_bb = self.context.append_basic_block(function, "ifcont");
 
-                self.builder
-                    .build_conditional_branch(cond_bool, then_bb, else_bb)
-                    .unwrap();
+                emit!(self.build_conditional_branch(cond_bool, then_bb, else_bb));
 
                 self.builder.position_at_end(then_bb);
                 for s in then_body {
@@ -188,7 +177,7 @@ impl<'ctx> Codegen<'ctx> {
 
                 self.builder.position_at_end(merge_bb);
                 if then_terminated && else_terminated {
-                    self.builder.build_unreachable().unwrap();
+                    emit!(self.build_unreachable());
                 }
             }
 
@@ -197,12 +186,7 @@ impl<'ctx> Codegen<'ctx> {
                 body,
                 else_body,
             } => {
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
                 let header_bb = self.context.append_basic_block(function, "while.header");
                 let body_bb = self.context.append_basic_block(function, "while.body");
@@ -213,16 +197,14 @@ impl<'ctx> Codegen<'ctx> {
                 };
                 let after_bb = self.context.append_basic_block(function, "while.after");
 
-                self.builder.build_unconditional_branch(header_bb).unwrap();
+                emit!(self.build_unconditional_branch(header_bb));
 
                 self.builder.position_at_end(header_bb);
                 let cond_val = self.codegen_expr(condition);
                 let cond_bool =
                     self.build_truthiness_check_for_value(cond_val, &condition.ty, "whilecond");
                 let false_dest = else_bb.unwrap_or(after_bb);
-                self.builder
-                    .build_conditional_branch(cond_bool, body_bb, false_dest)
-                    .unwrap();
+                emit!(self.build_conditional_branch(cond_bool, body_bb, false_dest));
 
                 self.builder.position_at_end(body_bb);
                 self.loop_stack.push((header_bb, after_bb)); // break → after (skips else)
@@ -251,12 +233,7 @@ impl<'ctx> Codegen<'ctx> {
                 body,
                 else_body,
             } => {
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
                 let header_bb = self.context.append_basic_block(function, "for.header");
                 let body_bb = self.context.append_basic_block(function, "for.body");
@@ -279,52 +256,54 @@ impl<'ctx> Codegen<'ctx> {
                 let start_ptr = self.variables[start_var.as_str()];
                 let stop_ptr = self.variables[stop_var.as_str()];
                 let step_ptr = self.variables[step_var.as_str()];
-                let start_val = self
-                    .builder
-                    .build_load(self.get_llvm_type(&ValueType::Int), start_ptr, "for.start")
-                    .unwrap()
-                    .into_int_value();
-                self.builder.build_store(loop_ptr, start_val).unwrap();
-                self.builder.build_unconditional_branch(header_bb).unwrap();
+                let start_val = emit!(self.build_load(
+                    self.get_llvm_type(&ValueType::Int),
+                    start_ptr,
+                    "for.start"
+                ))
+                .into_int_value();
+                emit!(self.build_store(loop_ptr, start_val));
+                emit!(self.build_unconditional_branch(header_bb));
 
                 self.builder.position_at_end(header_bb);
-                let i_val = self
-                    .builder
-                    .build_load(self.get_llvm_type(&ValueType::Int), loop_ptr, "for.i")
-                    .unwrap()
-                    .into_int_value();
-                let stop_loaded = self
-                    .builder
-                    .build_load(self.get_llvm_type(&ValueType::Int), stop_ptr, "for.stop")
-                    .unwrap()
-                    .into_int_value();
-                let step_loaded = self
-                    .builder
-                    .build_load(self.get_llvm_type(&ValueType::Int), step_ptr, "for.step")
-                    .unwrap()
-                    .into_int_value();
+                let i_val =
+                    emit!(self.build_load(self.get_llvm_type(&ValueType::Int), loop_ptr, "for.i"))
+                        .into_int_value();
+                let stop_loaded = emit!(self.build_load(
+                    self.get_llvm_type(&ValueType::Int),
+                    stop_ptr,
+                    "for.stop"
+                ))
+                .into_int_value();
+                let step_loaded = emit!(self.build_load(
+                    self.get_llvm_type(&ValueType::Int),
+                    step_ptr,
+                    "for.step"
+                ))
+                .into_int_value();
                 let zero = self.i64_type().const_int(0, false);
-                let step_pos = self
-                    .builder
-                    .build_int_compare(IntPredicate::SGT, step_loaded, zero, "for.step_pos")
-                    .unwrap();
-                let cond_pos = self
-                    .builder
-                    .build_int_compare(IntPredicate::SLT, i_val, stop_loaded, "for.cond_pos")
-                    .unwrap();
-                let cond_neg = self
-                    .builder
-                    .build_int_compare(IntPredicate::SGT, i_val, stop_loaded, "for.cond_neg")
-                    .unwrap();
-                let cond = self
-                    .builder
-                    .build_select(step_pos, cond_pos, cond_neg, "for.cond")
-                    .unwrap()
+                let step_pos = emit!(self.build_int_compare(
+                    IntPredicate::SGT,
+                    step_loaded,
+                    zero,
+                    "for.step_pos"
+                ));
+                let cond_pos = emit!(self.build_int_compare(
+                    IntPredicate::SLT,
+                    i_val,
+                    stop_loaded,
+                    "for.cond_pos"
+                ));
+                let cond_neg = emit!(self.build_int_compare(
+                    IntPredicate::SGT,
+                    i_val,
+                    stop_loaded,
+                    "for.cond_neg"
+                ));
+                let cond = emit!(self.build_select(step_pos, cond_pos, cond_neg, "for.cond"))
                     .into_int_value();
                 let false_dest = else_bb.unwrap_or(after_bb);
-                self.builder
-                    .build_conditional_branch(cond, body_bb, false_dest)
-                    .unwrap();
+                emit!(self.build_conditional_branch(cond, body_bb, false_dest));
 
                 self.builder.position_at_end(body_bb);
                 self.loop_stack.push((incr_bb, after_bb)); // break → after (skips else)
@@ -335,22 +314,18 @@ impl<'ctx> Codegen<'ctx> {
                 self.branch_if_unterminated(incr_bb);
 
                 self.builder.position_at_end(incr_bb);
-                let i_curr = self
-                    .builder
-                    .build_load(self.get_llvm_type(&ValueType::Int), loop_ptr, "for.i")
-                    .unwrap()
-                    .into_int_value();
-                let step_curr = self
-                    .builder
-                    .build_load(self.get_llvm_type(&ValueType::Int), step_ptr, "for.step")
-                    .unwrap()
-                    .into_int_value();
-                let i_next = self
-                    .builder
-                    .build_int_add(i_curr, step_curr, "for.next")
-                    .unwrap();
-                self.builder.build_store(loop_ptr, i_next).unwrap();
-                self.builder.build_unconditional_branch(header_bb).unwrap();
+                let i_curr =
+                    emit!(self.build_load(self.get_llvm_type(&ValueType::Int), loop_ptr, "for.i"))
+                        .into_int_value();
+                let step_curr = emit!(self.build_load(
+                    self.get_llvm_type(&ValueType::Int),
+                    step_ptr,
+                    "for.step"
+                ))
+                .into_int_value();
+                let i_next = emit!(self.build_int_add(i_curr, step_curr, "for.next"));
+                emit!(self.build_store(loop_ptr, i_next));
+                emit!(self.build_unconditional_branch(header_bb));
 
                 if let Some(else_bb) = else_bb {
                     self.builder.position_at_end(else_bb);
@@ -382,73 +357,64 @@ impl<'ctx> Codegen<'ctx> {
                     // __tython_raise calls __cxa_throw (noreturn). When inside
                     // a try block we must use invoke so the landing pad catches it.
                     if self.try_depth > 0 {
-                        let function = self
-                            .builder
-                            .get_insert_block()
-                            .unwrap()
-                            .get_parent()
-                            .unwrap();
+                        let function = emit!(self.get_insert_block()).get_parent().unwrap();
                         let dead_bb = self.context.append_basic_block(function, "raise.dead");
                         let unwind_bb = *self.unwind_dest_stack.last().unwrap();
                         let basic_args: [inkwell::values::BasicValueEnum; 2] =
                             [tag_val.into(), msg_val];
-                        self.builder
-                            .build_invoke(raise_fn, &basic_args, dead_bb, unwind_bb, "raise")
-                            .unwrap();
+                        emit!(self.build_invoke(
+                            raise_fn,
+                            &basic_args,
+                            dead_bb,
+                            unwind_bb,
+                            "raise"
+                        ));
                         self.builder.position_at_end(dead_bb);
-                        self.builder.build_unreachable().unwrap();
+                        emit!(self.build_unreachable());
                     } else {
-                        self.builder
-                            .build_call(raise_fn, &[tag_val.into(), msg_val.into()], "raise")
-                            .unwrap();
-                        self.builder.build_unreachable().unwrap();
+                        emit!(self.build_call(
+                            raise_fn,
+                            &[tag_val.into(), msg_val.into()],
+                            "raise"
+                        ));
+                        emit!(self.build_unreachable());
                     }
                 } else if let Some((tag_alloca, msg_alloca)) = self.reraise_state {
                     // Bare raise inside except handler: re-raise saved exception
-                    let tag_val = self
-                        .builder
-                        .build_load(self.i64_type(), tag_alloca, "reraise_tag")
-                        .unwrap();
-                    let msg_val = self
-                        .builder
-                        .build_load(
-                            self.context.ptr_type(AddressSpace::default()),
-                            msg_alloca,
-                            "reraise_msg",
-                        )
-                        .unwrap();
+                    let tag_val =
+                        emit!(self.build_load(self.i64_type(), tag_alloca, "reraise_tag"));
+                    let msg_val = emit!(self.build_load(
+                        self.context.ptr_type(AddressSpace::default()),
+                        msg_alloca,
+                        "reraise_msg",
+                    ));
                     let raise_fn = self.get_or_declare_exc_raise();
                     if self.try_depth > 0 {
-                        let function = self
-                            .builder
-                            .get_insert_block()
-                            .unwrap()
-                            .get_parent()
-                            .unwrap();
+                        let function = emit!(self.get_insert_block()).get_parent().unwrap();
                         let dead_bb = self.context.append_basic_block(function, "reraise.dead");
                         let unwind_bb = *self.unwind_dest_stack.last().unwrap();
-                        self.builder
-                            .build_invoke(
-                                raise_fn,
-                                &[tag_val, msg_val],
-                                dead_bb,
-                                unwind_bb,
-                                "reraise",
-                            )
-                            .unwrap();
+                        emit!(self.build_invoke(
+                            raise_fn,
+                            &[tag_val, msg_val],
+                            dead_bb,
+                            unwind_bb,
+                            "reraise",
+                        ));
                         self.builder.position_at_end(dead_bb);
-                        self.builder.build_unreachable().unwrap();
+                        emit!(self.build_unreachable());
                     } else {
-                        self.builder
-                            .build_call(raise_fn, &[tag_val.into(), msg_val.into()], "reraise")
-                            .unwrap();
-                        self.builder.build_unreachable().unwrap();
+                        emit!(self.build_call(
+                            raise_fn,
+                            &[tag_val.into(), msg_val.into()],
+                            "reraise"
+                        ));
+                        emit!(self.build_unreachable());
                     }
                 } else {
                     // Bare raise outside except handler: use __cxa_rethrow as fallback
                     let rethrow_fn = self.get_or_declare_cxa_rethrow();
-                    self.builder.build_call(rethrow_fn, &[], "rethrow").unwrap();
-                    self.builder.build_unreachable().unwrap();
+                    emit!(self.build_call(rethrow_fn, &[], "rethrow"));
+                    emit!(self.build_unreachable());
                 }
                 self.append_dead_block("raise.after");
             }
@@ -460,12 +426,7 @@ impl<'ctx> Codegen<'ctx> {
                 finally_body,
                 has_finally,
             } => {
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
                 let personality = self.get_or_declare_personality_fn();
                 if !function.has_personality_function() {
@@ -504,17 +465,13 @@ impl<'ctx> Codegen<'ctx> {
                 // Allocate flag for finally re-raise
                 let exc_flag = if *has_finally {
                     let alloca = self.build_entry_block_alloca(self.i64_type().into(), "exc_flag");
-                    self.builder
-                        .build_store(alloca, self.i64_type().const_zero())
-                        .unwrap();
+                    emit!(self.build_store(alloca, self.i64_type().const_zero()));
                     Some(alloca)
                 } else {
                     None
                 };
 
-                self.builder
-                    .build_unconditional_branch(try_body_bb)
-                    .unwrap();
+                emit!(self.build_unconditional_branch(try_body_bb));
 
                 // ── Try body ──────────────────────────────────────────────
                 self.builder.position_at_end(try_body_bb);
@@ -541,36 +498,25 @@ impl<'ctx> Codegen<'ctx> {
                 // ── Landing pad ───────────────────────────────────────────
                 self.builder.position_at_end(landingpad_bb);
                 let null_ptr = ptr_type.const_null();
-                let lp = self
-                    .builder
-                    .build_landing_pad(
-                        landing_type,
-                        personality,
-                        &[null_ptr.into()], // catch i8* null = catch all
-                        false,
-                        "try.lp",
-                    )
-                    .unwrap();
+                let lp = emit!(self.build_landing_pad(
+                    landing_type,
+                    personality,
+                    &[null_ptr.into()], // catch i8* null = catch all
+                    false,
+                    "try.lp",
+                ));
 
                 // Save full LP value for potential resume
-                self.builder.build_store(lp_alloca, lp).unwrap();
+                emit!(self.build_store(lp_alloca, lp));
 
-                let exc_ptr = self
-                    .builder
-                    .build_extract_value(lp.into_struct_value(), 0, "exc_ptr")
-                    .unwrap();
+                let exc_ptr = emit!(self.build_extract_value(lp.into_struct_value(), 0, "exc_ptr"));
 
                 let begin_catch = self.get_or_declare_cxa_begin_catch();
-                let caught = self
-                    .builder
-                    .build_call(begin_catch, &[exc_ptr.into()], "caught")
-                    .unwrap();
+                let caught = emit!(self.build_call(begin_catch, &[exc_ptr.into()], "caught"));
                 let caught_ptr = self.extract_call_value(caught);
-                self.builder.build_store(caught_alloca, caught_ptr).unwrap();
+                emit!(self.build_store(caught_alloca, caught_ptr));
 
-                self.builder
-                    .build_unconditional_branch(except_dispatch_bb)
-                    .unwrap();
+                emit!(self.build_unconditional_branch(except_dispatch_bb));
 
                 // ── Except dispatch ───────────────────────────────────────
                 self.builder.position_at_end(except_dispatch_bb);
@@ -589,25 +535,18 @@ impl<'ctx> Codegen<'ctx> {
                     .collect();
 
                 if except_clauses.is_empty() {
-                    self.builder
-                        .build_unconditional_branch(unhandled_bb)
-                        .unwrap();
+                    emit!(self.build_unconditional_branch(unhandled_bb));
                 } else {
-                    let caught_reload = self
-                        .builder
-                        .build_load(ptr_type, caught_alloca, "caught_reload")
-                        .unwrap();
+                    let caught_reload =
+                        emit!(self.build_load(ptr_type, caught_alloca, "caught_reload"));
                     for (i, clause) in except_clauses.iter().enumerate() {
                         if let Some(tag) = clause.exc_type_tag {
                             let tag_val = self.i64_type().const_int(tag as u64, false);
-                            let matches = self
-                                .builder
-                                .build_call(
-                                    caught_matches_fn,
-                                    &[caught_reload.into(), tag_val.into()],
-                                    "exc_match",
-                                )
-                                .unwrap();
+                            let matches = emit!(self.build_call(
+                                caught_matches_fn,
+                                &[caught_reload.into(), tag_val.into()],
+                                "exc_match",
+                            ));
                             let matches_val = self.extract_call_value(matches).into_int_value();
                             let matches_bool =
                                 self.build_int_truthiness_check(matches_val, "exc_match_bool");
@@ -616,27 +555,25 @@ impl<'ctx> Codegen<'ctx> {
                                 let bb = self
                                     .context
                                     .append_basic_block(function, &format!("exc_check_{}", i + 1));
-                                self.builder
-                                    .build_conditional_branch(matches_bool, handler_bbs[i], bb)
-                                    .unwrap();
+                                emit!(self.build_conditional_branch(
+                                    matches_bool,
+                                    handler_bbs[i],
+                                    bb
+                                ));
                                 self.builder.position_at_end(bb);
                                 bb
                             } else {
-                                self.builder
-                                    .build_conditional_branch(
-                                        matches_bool,
-                                        handler_bbs[i],
-                                        unhandled_bb,
-                                    )
-                                    .unwrap();
+                                emit!(self.build_conditional_branch(
+                                    matches_bool,
+                                    handler_bbs[i],
+                                    unhandled_bb,
+                                ));
                                 unhandled_bb
                             };
                             let _ = next_bb;
                         } else {
                             // Bare except — catch all
-                            self.builder
-                                .build_unconditional_branch(handler_bbs[i])
-                                .unwrap();
+                            emit!(self.build_unconditional_branch(handler_bbs[i]));
                         }
                     }
                 }
@@ -656,48 +593,34 @@ impl<'ctx> Codegen<'ctx> {
 
                     // Save exception type_tag and message before end_catch
                     // so bare `raise` in handler body can re-raise
-                    let caught_reload = self
-                        .builder
-                        .build_load(ptr_type, caught_alloca, "caught_for_reraise")
-                        .unwrap();
-                    let tag = self
-                        .builder
-                        .build_call(
-                            caught_type_tag_fn,
-                            &[caught_reload.into()],
-                            "reraise_tag_val",
-                        )
-                        .unwrap();
+                    let caught_reload =
+                        emit!(self.build_load(ptr_type, caught_alloca, "caught_for_reraise"));
+                    let tag = emit!(self.build_call(
+                        caught_type_tag_fn,
+                        &[caught_reload.into()],
+                        "reraise_tag_val",
+                    ));
                     let tag_val = self.extract_call_value(tag);
-                    self.builder
-                        .build_store(reraise_tag_alloca, tag_val)
-                        .unwrap();
+                    emit!(self.build_store(reraise_tag_alloca, tag_val));
 
-                    let msg = self
-                        .builder
-                        .build_call(
-                            caught_message_fn,
-                            &[caught_reload.into()],
-                            "reraise_msg_val",
-                        )
-                        .unwrap();
+                    let msg = emit!(self.build_call(
+                        caught_message_fn,
+                        &[caught_reload.into()],
+                        "reraise_msg_val",
+                    ));
                     let msg_val = self.extract_call_value(msg);
-                    self.builder
-                        .build_store(reraise_msg_alloca, msg_val)
-                        .unwrap();
+                    emit!(self.build_store(reraise_msg_alloca, msg_val));
 
                     self.reraise_state = Some((reraise_tag_alloca, reraise_msg_alloca));
 
                     if let Some(var_name) = &clause.var_name {
                         let alloca = self.build_entry_block_alloca(ptr_type.into(), var_name);
-                        self.builder.build_store(alloca, msg_val).unwrap();
+                        emit!(self.build_store(alloca, msg_val));
                         self.variables.insert(var_name.clone(), alloca);
                     }
 
                     // End the catch before handler body so the handler can throw new exceptions
-                    self.builder
-                        .build_call(end_catch_fn, &[], "end_catch")
-                        .unwrap();
+                    emit!(self.build_call(end_catch_fn, &[], "end_catch"));
 
                     for s in &clause.body {
                         self.codegen_stmt(s);
@@ -710,24 +633,13 @@ impl<'ctx> Codegen<'ctx> {
                 // ── Unhandled block ───────────────────────────────────────
                 self.builder.position_at_end(unhandled_bb);
                 if *has_finally {
-                    self.builder
-                        .build_store(exc_flag.unwrap(), self.i64_type().const_int(1, false))
-                        .unwrap();
-                    self.builder
-                        .build_call(end_catch_fn, &[], "end_catch_unhandled")
-                        .unwrap();
-                    self.builder
-                        .build_unconditional_branch(finally_bb.unwrap())
-                        .unwrap();
+                    emit!(self.build_store(exc_flag.unwrap(), self.i64_type().const_int(1, false)));
+                    emit!(self.build_call(end_catch_fn, &[], "end_catch_unhandled"));
+                    emit!(self.build_unconditional_branch(finally_bb.unwrap()));
                 } else {
-                    self.builder
-                        .build_call(end_catch_fn, &[], "end_catch_unhandled")
-                        .unwrap();
-                    let lp_val = self
-                        .builder
-                        .build_load(landing_type, lp_alloca, "lp_for_resume")
-                        .unwrap();
-                    self.builder.build_resume(lp_val).unwrap();
+                    emit!(self.build_call(end_catch_fn, &[], "end_catch_unhandled"));
+                    let lp_val = emit!(self.build_load(landing_type, lp_alloca, "lp_for_resume"));
+                    emit!(self.build_resume(lp_val));
                 }
 
                 // ── Finally block ─────────────────────────────────────────
@@ -738,22 +650,15 @@ impl<'ctx> Codegen<'ctx> {
                     }
 
                     let reraise_bb = self.context.append_basic_block(function, "finally.reraise");
-                    let flag_val = self
-                        .builder
-                        .build_load(self.i64_type(), exc_flag.unwrap(), "exc_flag_val")
-                        .unwrap()
-                        .into_int_value();
+                    let flag_val =
+                        emit!(self.build_load(self.i64_type(), exc_flag.unwrap(), "exc_flag_val"))
+                            .into_int_value();
                     let need_reraise = self.build_int_truthiness_check(flag_val, "need_reraise");
-                    self.builder
-                        .build_conditional_branch(need_reraise, reraise_bb, after_bb)
-                        .unwrap();
+                    emit!(self.build_conditional_branch(need_reraise, reraise_bb, after_bb));
 
                     self.builder.position_at_end(reraise_bb);
-                    let lp_val = self
-                        .builder
-                        .build_load(landing_type, lp_alloca, "lp_resume")
-                        .unwrap();
-                    self.builder.build_resume(lp_val).unwrap();
+                    let lp_val = emit!(self.build_load(landing_type, lp_alloca, "lp_resume"));
+                    emit!(self.build_resume(lp_val));
                 }
 
                 self.builder.position_at_end(after_bb);
@@ -769,12 +674,7 @@ impl<'ctx> Codegen<'ctx> {
                 body,
                 else_body,
             } => {
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
                 let header_bb = self.context.append_basic_block(function, "forlist.header");
                 let body_bb = self.context.append_basic_block(function, "forlist.body");
@@ -792,35 +692,28 @@ impl<'ctx> Codegen<'ctx> {
                 // Create index variable (idx = 0)
                 let idx_alloca =
                     self.build_entry_block_alloca(self.get_llvm_type(&ValueType::Int), index_var);
-                self.builder
-                    .build_store(idx_alloca, self.i64_type().const_zero())
-                    .unwrap();
+                emit!(self.build_store(idx_alloca, self.i64_type().const_zero()));
                 self.variables.insert(index_var.clone(), idx_alloca);
 
                 // Compute list length
-                let list_val = self
-                    .builder
-                    .build_load(
-                        self.context.ptr_type(AddressSpace::default()),
-                        list_ptr,
-                        "forlist.list",
-                    )
-                    .unwrap();
+                let list_val = emit!(self.build_load(
+                    self.context.ptr_type(AddressSpace::default()),
+                    list_ptr,
+                    "forlist.list",
+                ));
                 let list_len_fn = self.get_or_declare_function(
                     "__tython_list_len",
                     &[ValueType::List(Box::new(ValueType::Int))],
                     Some(ValueType::Int),
                 );
-                let len_call = self
-                    .builder
-                    .build_call(list_len_fn, &[list_val.into()], "forlist.len_call")
-                    .unwrap();
+                let len_call =
+                    emit!(self.build_call(list_len_fn, &[list_val.into()], "forlist.len_call"));
                 let len_val = self.extract_call_value(len_call);
 
                 // Create len variable
                 let len_alloca =
                     self.build_entry_block_alloca(self.get_llvm_type(&ValueType::Int), len_var);
-                self.builder.build_store(len_alloca, len_val).unwrap();
+                emit!(self.build_store(len_alloca, len_val));
                 self.variables.insert(len_var.clone(), len_alloca);
 
                 // Ensure loop var has an alloca
@@ -830,72 +723,57 @@ impl<'ctx> Codegen<'ctx> {
                     self.variables.insert(loop_var.clone(), alloca);
                 }
 
-                self.builder.build_unconditional_branch(header_bb).unwrap();
+                emit!(self.build_unconditional_branch(header_bb));
 
                 // Header: idx < len
                 self.builder.position_at_end(header_bb);
-                let idx_val = self
-                    .builder
-                    .build_load(
-                        self.get_llvm_type(&ValueType::Int),
-                        idx_alloca,
-                        "forlist.idx",
-                    )
-                    .unwrap()
-                    .into_int_value();
-                let len_loaded = self
-                    .builder
-                    .build_load(
-                        self.get_llvm_type(&ValueType::Int),
-                        len_alloca,
-                        "forlist.len",
-                    )
-                    .unwrap()
-                    .into_int_value();
-                let cond = self
-                    .builder
-                    .build_int_compare(IntPredicate::SLT, idx_val, len_loaded, "forlist.cond")
-                    .unwrap();
+                let idx_val = emit!(self.build_load(
+                    self.get_llvm_type(&ValueType::Int),
+                    idx_alloca,
+                    "forlist.idx",
+                ))
+                .into_int_value();
+                let len_loaded = emit!(self.build_load(
+                    self.get_llvm_type(&ValueType::Int),
+                    len_alloca,
+                    "forlist.len",
+                ))
+                .into_int_value();
+                let cond = emit!(self.build_int_compare(
+                    IntPredicate::SLT,
+                    idx_val,
+                    len_loaded,
+                    "forlist.cond"
+                ));
                 let forlist_false_dest = else_bb.unwrap_or(after_bb);
-                self.builder
-                    .build_conditional_branch(cond, body_bb, forlist_false_dest)
-                    .unwrap();
+                emit!(self.build_conditional_branch(cond, body_bb, forlist_false_dest));
 
                 // Body: loop_var = list_get(list, idx)
                 self.builder.position_at_end(body_bb);
-                let list_reload = self
-                    .builder
-                    .build_load(
-                        self.context.ptr_type(AddressSpace::default()),
-                        list_ptr,
-                        "forlist.list2",
-                    )
-                    .unwrap();
-                let idx_reload = self
-                    .builder
-                    .build_load(
-                        self.get_llvm_type(&ValueType::Int),
-                        idx_alloca,
-                        "forlist.idx2",
-                    )
-                    .unwrap();
+                let list_reload = emit!(self.build_load(
+                    self.context.ptr_type(AddressSpace::default()),
+                    list_ptr,
+                    "forlist.list2",
+                ));
+                let idx_reload = emit!(self.build_load(
+                    self.get_llvm_type(&ValueType::Int),
+                    idx_alloca,
+                    "forlist.idx2",
+                ));
                 let list_get_fn = self.get_or_declare_function(
                     "__tython_list_get",
                     &[ValueType::List(Box::new(ValueType::Int)), ValueType::Int],
                     Some(ValueType::Int),
                 );
-                let call = self
-                    .builder
-                    .build_call(
-                        list_get_fn,
-                        &[list_reload.into(), idx_reload.into()],
-                        "forlist.elem_i64",
-                    )
-                    .unwrap();
+                let call = emit!(self.build_call(
+                    list_get_fn,
+                    &[list_reload.into(), idx_reload.into()],
+                    "forlist.elem_i64",
+                ));
                 let elem_i64 = self.extract_call_value(call).into_int_value();
                 let elem_val = self.bitcast_from_i64(elem_i64, loop_var_ty);
                 let loop_var_ptr = self.variables[loop_var.as_str()];
-                self.builder.build_store(loop_var_ptr, elem_val).unwrap();
+                emit!(self.build_store(loop_var_ptr, elem_val));
 
                 // Body statements
                 self.loop_stack.push((incr_bb, after_bb)); // break → after (skips else)
@@ -907,25 +785,19 @@ impl<'ctx> Codegen<'ctx> {
 
                 // Increment: idx++
                 self.builder.position_at_end(incr_bb);
-                let idx_curr = self
-                    .builder
-                    .build_load(
-                        self.get_llvm_type(&ValueType::Int),
-                        idx_alloca,
-                        "forlist.idx3",
-                    )
-                    .unwrap()
-                    .into_int_value();
-                let idx_next = self
-                    .builder
-                    .build_int_add(
-                        idx_curr,
-                        self.i64_type().const_int(1, false),
-                        "forlist.idx_next",
-                    )
-                    .unwrap();
-                self.builder.build_store(idx_alloca, idx_next).unwrap();
-                self.builder.build_unconditional_branch(header_bb).unwrap();
+                let idx_curr = emit!(self.build_load(
+                    self.get_llvm_type(&ValueType::Int),
+                    idx_alloca,
+                    "forlist.idx3",
+                ))
+                .into_int_value();
+                let idx_next = emit!(self.build_int_add(
+                    idx_curr,
+                    self.i64_type().const_int(1, false),
+                    "forlist.idx_next",
+                ));
+                emit!(self.build_store(idx_alloca, idx_next));
+                emit!(self.build_unconditional_branch(header_bb));
 
                 if let Some(else_bb) = else_bb {
                     self.builder.position_at_end(else_bb);
@@ -947,12 +819,7 @@ impl<'ctx> Codegen<'ctx> {
                 body,
                 else_body,
             } => {
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
                 let personality = self.get_or_declare_personality_fn();
                 if !function.has_personality_function() {
@@ -992,97 +859,78 @@ impl<'ctx> Codegen<'ctx> {
                 let lp_alloca =
                     self.build_entry_block_alloca(landing_type.into(), "foriter.lp_alloca");
 
-                self.builder
-                    .build_unconditional_branch(call_next_bb)
-                    .unwrap();
+                emit!(self.build_unconditional_branch(call_next_bb));
 
                 // ── Call __next__ via invoke ───────────────────────────────
                 self.builder.position_at_end(call_next_bb);
-                let iter_val = self
-                    .builder
-                    .build_load(ptr_type, iter_ptr, "foriter.iter")
-                    .unwrap();
+                let iter_val = emit!(self.build_load(ptr_type, iter_ptr, "foriter.iter"));
                 let next_fn = self.get_or_declare_function(
                     next_mangled,
                     &[ValueType::Class(iterator_class.clone())],
                     Some(loop_var_ty.clone()),
                 );
-                let call_site = self
-                    .builder
-                    .build_invoke(next_fn, &[iter_val], got_next_bb, lp_bb, "foriter.next")
-                    .unwrap();
+                let call_site = emit!(self.build_invoke(
+                    next_fn,
+                    &[iter_val],
+                    got_next_bb,
+                    lp_bb,
+                    "foriter.next"
+                ));
 
                 // ── Got next: store and enter body ────────────────────────
                 self.builder.position_at_end(got_next_bb);
                 let next_val = self.extract_call_value(call_site);
                 let loop_var_ptr = self.variables[loop_var.as_str()];
-                self.builder.build_store(loop_var_ptr, next_val).unwrap();
-                self.builder.build_unconditional_branch(body_bb).unwrap();
+                emit!(self.build_store(loop_var_ptr, next_val));
+                emit!(self.build_unconditional_branch(body_bb));
 
                 // ── Landing pad: check StopIteration ──────────────────────
                 self.builder.position_at_end(lp_bb);
                 let null_ptr = ptr_type.const_null();
-                let lp = self
-                    .builder
-                    .build_landing_pad(
-                        landing_type,
-                        personality,
-                        &[null_ptr.into()],
-                        false,
-                        "foriter.lp",
-                    )
-                    .unwrap();
+                let lp = emit!(self.build_landing_pad(
+                    landing_type,
+                    personality,
+                    &[null_ptr.into()],
+                    false,
+                    "foriter.lp",
+                ));
 
                 // Save LP for potential resume
-                self.builder.build_store(lp_alloca, lp).unwrap();
+                emit!(self.build_store(lp_alloca, lp));
 
-                let exc_ptr = self
-                    .builder
-                    .build_extract_value(lp.into_struct_value(), 0, "foriter.exc_ptr")
-                    .unwrap();
+                let exc_ptr =
+                    emit!(self.build_extract_value(lp.into_struct_value(), 0, "foriter.exc_ptr"));
 
                 let begin_catch = self.get_or_declare_cxa_begin_catch();
-                let caught = self
-                    .builder
-                    .build_call(begin_catch, &[exc_ptr.into()], "foriter.caught")
-                    .unwrap();
+                let caught =
+                    emit!(self.build_call(begin_catch, &[exc_ptr.into()], "foriter.caught"));
                 let caught_ptr = self.extract_call_value(caught);
 
                 let type_tag_fn = self.get_or_declare_caught_type_tag();
-                let tag = self
-                    .builder
-                    .build_call(type_tag_fn, &[caught_ptr.into()], "foriter.tag")
-                    .unwrap();
+                let tag = emit!(self.build_call(type_tag_fn, &[caught_ptr.into()], "foriter.tag"));
                 let tag_val = self.extract_call_value(tag).into_int_value();
 
                 let stop_tag = self.i64_type().const_int(2, false); // TYTHON_EXC_STOP_ITERATION
-                let is_stop = self
-                    .builder
-                    .build_int_compare(IntPredicate::EQ, tag_val, stop_tag, "foriter.is_stop")
-                    .unwrap();
-                self.builder
-                    .build_conditional_branch(is_stop, stop_bb, reraise_bb)
-                    .unwrap();
+                let is_stop = emit!(self.build_int_compare(
+                    IntPredicate::EQ,
+                    tag_val,
+                    stop_tag,
+                    "foriter.is_stop"
+                ));
+                emit!(self.build_conditional_branch(is_stop, stop_bb, reraise_bb));
 
                 // ── Stop: end catch and exit loop (→ else or after) ─────
                 self.builder.position_at_end(stop_bb);
                 let end_catch = self.get_or_declare_cxa_end_catch();
-                self.builder
-                    .build_call(end_catch, &[], "foriter.end_catch")
-                    .unwrap();
+                emit!(self.build_call(end_catch, &[], "foriter.end_catch"));
                 let stop_dest = else_bb.unwrap_or(after_bb);
-                self.builder.build_unconditional_branch(stop_dest).unwrap();
+                emit!(self.build_unconditional_branch(stop_dest));
 
                 // ── Re-raise: not StopIteration ───────────────────────────
                 self.builder.position_at_end(reraise_bb);
-                self.builder
-                    .build_call(end_catch, &[], "foriter.end_catch2")
-                    .unwrap();
-                let lp_val = self
-                    .builder
-                    .build_load(landing_type, lp_alloca, "foriter.lp_resume")
-                    .unwrap();
-                self.builder.build_resume(lp_val).unwrap();
+                emit!(self.build_call(end_catch, &[], "foriter.end_catch2"));
+                let lp_val = emit!(self.build_load(landing_type, lp_alloca, "foriter.lp_resume"));
+                emit!(self.build_resume(lp_val));
 
                 // ── Body ──────────────────────────────────────────────────
                 self.builder.position_at_end(body_bb);
@@ -1106,13 +954,13 @@ impl<'ctx> Codegen<'ctx> {
 
             TirStmt::Break => {
                 let (_, after_bb) = self.loop_stack.last().unwrap();
-                self.builder.build_unconditional_branch(*after_bb).unwrap();
+                emit!(self.build_unconditional_branch(*after_bb));
                 self.append_dead_block("break.dead");
             }
 
             TirStmt::Continue => {
                 let (header_bb, _) = self.loop_stack.last().unwrap();
-                self.builder.build_unconditional_branch(*header_bb).unwrap();
+                emit!(self.build_unconditional_branch(*header_bb));
                 self.append_dead_block("cont.dead");
             }
         }

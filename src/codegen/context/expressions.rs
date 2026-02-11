@@ -18,14 +18,12 @@ impl<'ctx> Codegen<'ctx> {
             TirExprKind::FloatLiteral(val) => self.f64_type().const_float(*val).into(),
 
             TirExprKind::StrLiteral(s) => {
-                let global = self.builder.build_global_string_ptr(s, "str_data").unwrap();
+                let global = emit!(self.build_global_string_ptr(s, "str_data"));
                 let data_ptr = global.as_pointer_value();
                 let len = self.i64_type().const_int(s.len() as u64, false);
                 let str_new_fn = self.get_or_declare_str_new();
-                let call = self
-                    .builder
-                    .build_call(str_new_fn, &[data_ptr.into(), len.into()], "str_new")
-                    .unwrap();
+                let call =
+                    emit!(self.build_call(str_new_fn, &[data_ptr.into(), len.into()], "str_new"));
                 self.extract_call_value(call)
             }
 
@@ -42,18 +40,17 @@ impl<'ctx> Codegen<'ctx> {
                 let data_ptr = global.as_pointer_value();
                 let len = self.i64_type().const_int(bytes.len() as u64, false);
                 let bytes_new_fn = self.get_or_declare_bytes_new();
-                let call = self
-                    .builder
-                    .build_call(bytes_new_fn, &[data_ptr.into(), len.into()], "bytes_new")
-                    .unwrap();
+                let call = emit!(self.build_call(
+                    bytes_new_fn,
+                    &[data_ptr.into(), len.into()],
+                    "bytes_new"
+                ));
                 self.extract_call_value(call)
             }
 
             TirExprKind::Var(name) => {
                 let ptr = self.variables[name.as_str()];
-                self.builder
-                    .build_load(self.get_llvm_type(&expr.ty), ptr, name)
-                    .unwrap()
+                emit!(self.build_load(self.get_llvm_type(&expr.ty), ptr, name))
             }
 
             TirExprKind::BinOp { op, left, right } => {
@@ -67,22 +64,22 @@ impl<'ctx> Codegen<'ctx> {
 
                         let result = match float_op {
                             FloatArithOp::Add => {
-                                self.builder.build_float_add(l, r, "fadd").unwrap()
+                                emit!(self.build_float_add(l, r, "fadd"))
                             }
                             FloatArithOp::Sub => {
-                                self.builder.build_float_sub(l, r, "fsub").unwrap()
+                                emit!(self.build_float_sub(l, r, "fsub"))
                             }
                             FloatArithOp::Mul => {
-                                self.builder.build_float_mul(l, r, "fmul").unwrap()
+                                emit!(self.build_float_mul(l, r, "fmul"))
                             }
                             FloatArithOp::Div => {
-                                self.builder.build_float_div(l, r, "fdiv").unwrap()
+                                emit!(self.build_float_div(l, r, "fdiv"))
                             }
                             FloatArithOp::Mod => {
-                                self.builder.build_float_rem(l, r, "fmod").unwrap()
+                                emit!(self.build_float_rem(l, r, "fmod"))
                             }
                             FloatArithOp::FloorDiv => {
-                                let div = self.builder.build_float_div(l, r, "fdiv").unwrap();
+                                let div = emit!(self.build_float_div(l, r, "fdiv"));
                                 let floor_fn = self
                                     .module
                                     .get_function("llvm.floor.f64")
@@ -91,10 +88,8 @@ impl<'ctx> Codegen<'ctx> {
                                         let fn_type = f64_type.fn_type(&[f64_type.into()], false);
                                         self.module.add_function("llvm.floor.f64", fn_type, None)
                                     });
-                                let call = self
-                                    .builder
-                                    .build_call(floor_fn, &[div.into()], "floordiv")
-                                    .unwrap();
+                                let call =
+                                    emit!(self.build_call(floor_fn, &[div.into()], "floordiv"));
                                 self.extract_call_value(call).into_float_value()
                             }
                             FloatArithOp::Pow => {
@@ -105,10 +100,8 @@ impl<'ctx> Codegen<'ctx> {
                                             .fn_type(&[f64_type.into(), f64_type.into()], false);
                                         self.module.add_function("llvm.pow.f64", fn_type, None)
                                     });
-                                let call = self
-                                    .builder
-                                    .build_call(pow_fn, &[l.into(), r.into()], "pow")
-                                    .unwrap();
+                                let call =
+                                    emit!(self.build_call(pow_fn, &[l.into(), r.into()], "pow"));
                                 self.extract_call_value(call).into_float_value()
                             }
                         };
@@ -120,42 +113,38 @@ impl<'ctx> Codegen<'ctx> {
                         let r = right_val.into_int_value();
 
                         let result = match int_op {
-                            IntArithOp::Add => self.builder.build_int_add(l, r, "add").unwrap(),
-                            IntArithOp::Sub => self.builder.build_int_sub(l, r, "sub").unwrap(),
-                            IntArithOp::Mul => self.builder.build_int_mul(l, r, "mul").unwrap(),
+                            IntArithOp::Add => emit!(self.build_int_add(l, r, "add")),
+                            IntArithOp::Sub => emit!(self.build_int_sub(l, r, "sub")),
+                            IntArithOp::Mul => emit!(self.build_int_mul(l, r, "mul")),
                             // No Div variant — Python `/` always returns float.
                             IntArithOp::Mod => {
-                                self.builder.build_int_signed_rem(l, r, "mod").unwrap()
+                                emit!(self.build_int_signed_rem(l, r, "mod"))
                             }
                             IntArithOp::FloorDiv => {
-                                let div =
-                                    self.builder.build_int_signed_div(l, r, "div_tmp").unwrap();
-                                let rem =
-                                    self.builder.build_int_signed_rem(l, r, "rem_tmp").unwrap();
+                                let div = emit!(self.build_int_signed_div(l, r, "div_tmp"));
+                                let rem = emit!(self.build_int_signed_rem(l, r, "rem_tmp"));
                                 let zero = self.i64_type().const_int(0, false);
-                                let rem_nonzero = self
-                                    .builder
-                                    .build_int_compare(IntPredicate::NE, rem, zero, "rem_nz")
-                                    .unwrap();
-                                let xor_val = self.builder.build_xor(l, r, "xor_signs").unwrap();
-                                let signs_differ = self
-                                    .builder
-                                    .build_int_compare(
-                                        IntPredicate::SLT,
-                                        xor_val,
-                                        zero,
-                                        "signs_diff",
-                                    )
-                                    .unwrap();
-                                let need_adjust = self
-                                    .builder
-                                    .build_and(rem_nonzero, signs_differ, "need_adj")
-                                    .unwrap();
-                                let adjust = self
-                                    .builder
-                                    .build_int_z_extend(need_adjust, self.i64_type(), "adj_ext")
-                                    .unwrap();
-                                self.builder.build_int_sub(div, adjust, "floordiv").unwrap()
+                                let rem_nonzero = emit!(self.build_int_compare(
+                                    IntPredicate::NE,
+                                    rem,
+                                    zero,
+                                    "rem_nz"
+                                ));
+                                let xor_val = emit!(self.build_xor(l, r, "xor_signs"));
+                                let signs_differ = emit!(self.build_int_compare(
+                                    IntPredicate::SLT,
+                                    xor_val,
+                                    zero,
+                                    "signs_diff",
+                                ));
+                                let need_adjust =
+                                    emit!(self.build_and(rem_nonzero, signs_differ, "need_adj"));
+                                let adjust = emit!(self.build_int_z_extend(
+                                    need_adjust,
+                                    self.i64_type(),
+                                    "adj_ext"
+                                ));
+                                emit!(self.build_int_sub(div, adjust, "floordiv"))
                             }
                             IntArithOp::Pow => {
                                 let pow_fn = self.get_or_declare_function(
@@ -163,10 +152,8 @@ impl<'ctx> Codegen<'ctx> {
                                     &[ValueType::Int, ValueType::Int],
                                     Some(ValueType::Int),
                                 );
-                                let call = self
-                                    .builder
-                                    .build_call(pow_fn, &[l.into(), r.into()], "ipow")
-                                    .unwrap();
+                                let call =
+                                    emit!(self.build_call(pow_fn, &[l.into(), r.into()], "ipow"));
                                 self.extract_call_value(call).into_int_value()
                             }
                         };
@@ -178,25 +165,21 @@ impl<'ctx> Codegen<'ctx> {
                         let right_int = right_val.into_int_value();
 
                         let result = match bitwise_op {
-                            BitwiseBinOp::BitAnd => self
-                                .builder
-                                .build_and(left_int, right_int, "bitand")
-                                .unwrap(),
-                            BitwiseBinOp::BitOr => {
-                                self.builder.build_or(left_int, right_int, "bitor").unwrap()
+                            BitwiseBinOp::BitAnd => {
+                                emit!(self.build_and(left_int, right_int, "bitand"))
                             }
-                            BitwiseBinOp::BitXor => self
-                                .builder
-                                .build_xor(left_int, right_int, "bitxor")
-                                .unwrap(),
-                            BitwiseBinOp::LShift => self
-                                .builder
-                                .build_left_shift(left_int, right_int, "lshift")
-                                .unwrap(),
-                            BitwiseBinOp::RShift => self
-                                .builder
-                                .build_right_shift(left_int, right_int, true, "rshift")
-                                .unwrap(),
+                            BitwiseBinOp::BitOr => {
+                                emit!(self.build_or(left_int, right_int, "bitor"))
+                            }
+                            BitwiseBinOp::BitXor => {
+                                emit!(self.build_xor(left_int, right_int, "bitxor"))
+                            }
+                            BitwiseBinOp::LShift => {
+                                emit!(self.build_left_shift(left_int, right_int, "lshift"))
+                            }
+                            BitwiseBinOp::RShift => {
+                                emit!(self.build_right_shift(left_int, right_int, true, "rshift"))
+                            }
                         };
                         result.into()
                     }
@@ -222,10 +205,11 @@ impl<'ctx> Codegen<'ctx> {
                         func.return_type(),
                     );
                     let arg_metadata = self.codegen_call_args(args);
-                    let call_site = self
-                        .builder
-                        .build_call(function, &arg_metadata, "list_get_elem")
-                        .unwrap();
+                    let call_site = emit!(self.build_call(
+                        function,
+                        &Self::to_meta_args(&arg_metadata),
+                        "list_get_elem"
+                    ));
                     let i64_val = self.extract_call_value(call_site).into_int_value();
                     return self.bitcast_from_i64(i64_val, &expr.ty);
                 }
@@ -243,10 +227,11 @@ impl<'ctx> Codegen<'ctx> {
                     let list_val = self.codegen_expr(&args[0]);
                     let elem_val = self.codegen_expr(&args[1]);
                     let i64_val = self.bitcast_to_i64(elem_val, &args[1].ty);
-                    let call_site = self
-                        .builder
-                        .build_call(function, &[list_val.into(), i64_val.into()], "list_elem_op")
-                        .unwrap();
+                    let call_site = emit!(self.build_call(
+                        function,
+                        &[list_val.into(), i64_val.into()],
+                        "list_elem_op"
+                    ));
                     return self.extract_call_value(call_site);
                 }
 
@@ -256,61 +241,47 @@ impl<'ctx> Codegen<'ctx> {
                     func.return_type(),
                 );
                 let arg_metadata = self.codegen_call_args(args);
-                let call_site = self
-                    .builder
-                    .build_call(function, &arg_metadata, "ext_call")
-                    .unwrap();
+                let call_site = emit!(self.build_call(
+                    function,
+                    &Self::to_meta_args(&arg_metadata),
+                    "ext_call"
+                ));
                 self.extract_call_value(call_site)
             }
 
             TirExprKind::Cast { kind, arg } => {
                 let arg_val = self.codegen_expr(arg);
                 match kind {
-                    CastKind::FloatToInt => self
-                        .builder
-                        .build_float_to_signed_int(
-                            arg_val.into_float_value(),
-                            self.i64_type(),
-                            "ftoi",
-                        )
-                        .unwrap()
-                        .into(),
+                    CastKind::FloatToInt => emit!(self.build_float_to_signed_int(
+                        arg_val.into_float_value(),
+                        self.i64_type(),
+                        "ftoi",
+                    ))
+                    .into(),
 
-                    CastKind::IntToFloat => self
-                        .builder
-                        .build_signed_int_to_float(
-                            arg_val.into_int_value(),
-                            self.f64_type(),
-                            "itof",
-                        )
-                        .unwrap()
-                        .into(),
+                    CastKind::IntToFloat => emit!(self.build_signed_int_to_float(
+                        arg_val.into_int_value(),
+                        self.f64_type(),
+                        "itof",
+                    ))
+                    .into(),
 
-                    CastKind::BoolToFloat => self
-                        .builder
-                        .build_signed_int_to_float(
-                            arg_val.into_int_value(),
-                            self.f64_type(),
-                            "btof",
-                        )
-                        .unwrap()
-                        .into(),
+                    CastKind::BoolToFloat => emit!(self.build_signed_int_to_float(
+                        arg_val.into_int_value(),
+                        self.f64_type(),
+                        "btof",
+                    ))
+                    .into(),
 
                     CastKind::IntToBool => {
                         let cmp = self.build_int_truthiness_check(arg_val.into_int_value(), "itob");
-                        self.builder
-                            .build_int_z_extend(cmp, self.i64_type(), "zext_bool")
-                            .unwrap()
-                            .into()
+                        emit!(self.build_int_z_extend(cmp, self.i64_type(), "zext_bool")).into()
                     }
 
                     CastKind::FloatToBool => {
                         let cmp =
                             self.build_float_truthiness_check(arg_val.into_float_value(), "ftob");
-                        self.builder
-                            .build_int_z_extend(cmp, self.i64_type(), "zext_bool")
-                            .unwrap()
-                            .into()
+                        emit!(self.build_int_z_extend(cmp, self.i64_type(), "zext_bool")).into()
                     }
 
                     CastKind::BoolToInt => arg_val, // same representation
@@ -322,50 +293,40 @@ impl<'ctx> Codegen<'ctx> {
                 let right_val = self.codegen_expr(right);
 
                 let cmp_result = if left.ty == ValueType::Float {
-                    self.builder
-                        .build_float_compare(
-                            Self::float_predicate(op),
-                            left_val.into_float_value(),
-                            right_val.into_float_value(),
-                            "fcmp",
-                        )
-                        .unwrap()
+                    emit!(self.build_float_compare(
+                        Self::float_predicate(op),
+                        left_val.into_float_value(),
+                        right_val.into_float_value(),
+                        "fcmp",
+                    ))
                 } else if left.ty.is_ref_type() {
                     // Pointer comparison for reference types (is/is not)
-                    let left_int = self
-                        .builder
-                        .build_ptr_to_int(
-                            left_val.into_pointer_value(),
-                            self.i64_type(),
-                            "ptr_to_int_l",
-                        )
-                        .unwrap();
-                    let right_int = self
-                        .builder
-                        .build_ptr_to_int(
-                            right_val.into_pointer_value(),
-                            self.i64_type(),
-                            "ptr_to_int_r",
-                        )
-                        .unwrap();
-                    self.builder
-                        .build_int_compare(Self::int_predicate(op), left_int, right_int, "ptrcmp")
-                        .unwrap()
+                    let left_int = emit!(self.build_ptr_to_int(
+                        left_val.into_pointer_value(),
+                        self.i64_type(),
+                        "ptr_to_int_l",
+                    ));
+                    let right_int = emit!(self.build_ptr_to_int(
+                        right_val.into_pointer_value(),
+                        self.i64_type(),
+                        "ptr_to_int_r",
+                    ));
+                    emit!(self.build_int_compare(
+                        Self::int_predicate(op),
+                        left_int,
+                        right_int,
+                        "ptrcmp"
+                    ))
                 } else {
-                    self.builder
-                        .build_int_compare(
-                            Self::int_predicate(op),
-                            left_val.into_int_value(),
-                            right_val.into_int_value(),
-                            "cmp",
-                        )
-                        .unwrap()
+                    emit!(self.build_int_compare(
+                        Self::int_predicate(op),
+                        left_val.into_int_value(),
+                        right_val.into_int_value(),
+                        "cmp",
+                    ))
                 };
 
-                self.builder
-                    .build_int_z_extend(cmp_result, self.i64_type(), "zext_bool")
-                    .unwrap()
-                    .into()
+                emit!(self.build_int_z_extend(cmp_result, self.i64_type(), "zext_bool")).into()
             }
 
             TirExprKind::UnaryOp { op, operand } => {
@@ -374,15 +335,15 @@ impl<'ctx> Codegen<'ctx> {
                     UnaryOpKind::Neg => {
                         if operand.ty == ValueType::Float {
                             let zero = self.f64_type().const_float(0.0);
-                            self.builder
-                                .build_float_sub(zero, operand_val.into_float_value(), "fneg")
-                                .unwrap()
-                                .into()
+                            emit!(self.build_float_sub(
+                                zero,
+                                operand_val.into_float_value(),
+                                "fneg"
+                            ))
+                            .into()
                         } else {
                             let zero = self.i64_type().const_int(0, false);
-                            self.builder
-                                .build_int_sub(zero, operand_val.into_int_value(), "neg")
-                                .unwrap()
+                            emit!(self.build_int_sub(zero, operand_val.into_int_value(), "neg"))
                                 .into()
                         }
                     }
@@ -393,36 +354,25 @@ impl<'ctx> Codegen<'ctx> {
                             &operand.ty,
                             "not_truth",
                         );
-                        let inverted = self.builder.build_not(truth, "not").unwrap();
-                        self.builder
-                            .build_int_z_extend(inverted, self.i64_type(), "not_zext")
-                            .unwrap()
-                            .into()
+                        let inverted = emit!(self.build_not(truth, "not"));
+                        emit!(self.build_int_z_extend(inverted, self.i64_type(), "not_zext")).into()
                     }
                     UnaryOpKind::BitNot => {
                         let val = operand_val.into_int_value();
                         let all_ones = self.i64_type().const_all_ones();
-                        self.builder
-                            .build_xor(val, all_ones, "bitnot")
-                            .unwrap()
-                            .into()
+                        emit!(self.build_xor(val, all_ones, "bitnot")).into()
                     }
                 }
             }
 
             TirExprKind::LogicalOp { op, left, right } => {
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
                 // Evaluate left side
                 let left_val = self.codegen_expr(left);
                 let left_truth =
                     self.build_truthiness_check_for_value(left_val, &left.ty, "log_left");
-                let left_bb = self.builder.get_insert_block().unwrap();
+                let left_bb = emit!(self.get_insert_block());
 
                 let right_bb = self.context.append_basic_block(function, "log_right");
                 let merge_bb = self.context.append_basic_block(function, "log_merge");
@@ -430,28 +380,24 @@ impl<'ctx> Codegen<'ctx> {
                 match op {
                     LogicalOp::And => {
                         // If left is falsy, short-circuit; else evaluate right
-                        self.builder
-                            .build_conditional_branch(left_truth, right_bb, merge_bb)
-                            .unwrap();
+                        emit!(self.build_conditional_branch(left_truth, right_bb, merge_bb));
                     }
                     LogicalOp::Or => {
                         // If left is truthy, short-circuit; else evaluate right
-                        self.builder
-                            .build_conditional_branch(left_truth, merge_bb, right_bb)
-                            .unwrap();
+                        emit!(self.build_conditional_branch(left_truth, merge_bb, right_bb));
                     }
                 }
 
                 // Evaluate right in right_bb
                 self.builder.position_at_end(right_bb);
                 let right_val = self.codegen_expr(right);
-                let right_end_bb = self.builder.get_insert_block().unwrap();
-                self.builder.build_unconditional_branch(merge_bb).unwrap();
+                let right_end_bb = emit!(self.get_insert_block());
+                emit!(self.build_unconditional_branch(merge_bb));
 
                 // Merge: phi node selects left_val or right_val
                 self.builder.position_at_end(merge_bb);
                 let llvm_type = self.get_llvm_type(&expr.ty);
-                let phi = self.builder.build_phi(llvm_type, "log_result").unwrap();
+                let phi = emit!(self.build_phi(llvm_type, "log_result"));
                 phi.add_incoming(&[(&left_val, left_bb), (&right_val, right_end_bb)]);
 
                 phi.as_basic_value()
@@ -467,19 +413,13 @@ impl<'ctx> Codegen<'ctx> {
 
                 // Allocate heap memory for the struct
                 let size = struct_type.size_of().unwrap();
-                let size_i64 = self
-                    .builder
-                    .build_int_cast(size, self.i64_type(), "size_i64")
-                    .unwrap();
+                let size_i64 = emit!(self.build_int_cast(size, self.i64_type(), "size_i64"));
                 let malloc_fn = self.get_or_declare_malloc();
-                let call_site = self
-                    .builder
-                    .build_call(malloc_fn, &[size_i64.into()], "malloc")
-                    .unwrap();
+                let call_site = emit!(self.build_call(malloc_fn, &[size_i64.into()], "malloc"));
                 let ptr = self.extract_call_value(call_site).into_pointer_value();
 
                 // Build full arg list: [self_ptr, ...args]
-                let mut init_args: Vec<inkwell::values::BasicMetadataValueEnum> = vec![ptr.into()];
+                let mut init_args: Vec<inkwell::values::BasicValueEnum> = vec![ptr.into()];
                 init_args.extend(self.codegen_call_args(args));
 
                 // Declare/get __init__ function
@@ -500,15 +440,15 @@ impl<'ctx> Codegen<'ctx> {
                 let obj_ptr = self.codegen_expr(object).into_pointer_value();
                 let struct_type = self.class_types[class_name.as_str()];
 
-                let field_ptr = self
-                    .builder
-                    .build_struct_gep(struct_type, obj_ptr, *field_index as u32, "field_ptr")
-                    .unwrap();
+                let field_ptr = emit!(self.build_struct_gep(
+                    struct_type,
+                    obj_ptr,
+                    *field_index as u32,
+                    "field_ptr"
+                ));
 
                 let field_llvm_type = self.get_llvm_type(&expr.ty);
-                self.builder
-                    .build_load(field_llvm_type, field_ptr, "field_val")
-                    .unwrap()
+                emit!(self.build_load(field_llvm_type, field_ptr, "field_val"))
             }
 
             TirExprKind::MethodCall {
@@ -519,9 +459,8 @@ impl<'ctx> Codegen<'ctx> {
                 let self_val = self.codegen_expr(object);
 
                 // Build full arg list: [self, ...args]
-                let mut all_meta: Vec<inkwell::values::BasicMetadataValueEnum> =
-                    vec![self_val.into()];
-                all_meta.extend(self.codegen_call_args(args));
+                let mut all_vals: Vec<inkwell::values::BasicValueEnum> = vec![self_val];
+                all_vals.extend(self.codegen_call_args(args));
 
                 // Declare/get method function
                 let mut param_types = vec![object.ty.clone()];
@@ -533,7 +472,7 @@ impl<'ctx> Codegen<'ctx> {
                 );
 
                 let call_site =
-                    self.build_call_maybe_invoke(method_fn, &all_meta, "method_call", true);
+                    self.build_call_maybe_invoke(method_fn, &all_vals, "method_call", true);
 
                 self.extract_call_value(call_site)
             }
@@ -544,24 +483,21 @@ impl<'ctx> Codegen<'ctx> {
             } => {
                 let struct_type = self.get_or_create_tuple_struct(element_types);
                 let size = struct_type.size_of().unwrap();
-                let size_i64 = self
-                    .builder
-                    .build_int_cast(size, self.i64_type(), "tuple_size_i64")
-                    .unwrap();
+                let size_i64 = emit!(self.build_int_cast(size, self.i64_type(), "tuple_size_i64"));
                 let malloc_fn = self.get_or_declare_malloc();
-                let call_site = self
-                    .builder
-                    .build_call(malloc_fn, &[size_i64.into()], "tuple_malloc")
-                    .unwrap();
+                let call_site =
+                    emit!(self.build_call(malloc_fn, &[size_i64.into()], "tuple_malloc"));
                 let tuple_ptr = self.extract_call_value(call_site).into_pointer_value();
 
                 for (i, elem) in elements.iter().enumerate() {
-                    let field_ptr = self
-                        .builder
-                        .build_struct_gep(struct_type, tuple_ptr, i as u32, "tuple_field_ptr")
-                        .unwrap();
+                    let field_ptr = emit!(self.build_struct_gep(
+                        struct_type,
+                        tuple_ptr,
+                        i as u32,
+                        "tuple_field_ptr"
+                    ));
                     let elem_val = self.codegen_expr(elem);
-                    self.builder.build_store(field_ptr, elem_val).unwrap();
+                    emit!(self.build_store(field_ptr, elem_val));
                 }
                 tuple_ptr.into()
             }
@@ -573,13 +509,13 @@ impl<'ctx> Codegen<'ctx> {
             } => {
                 let tuple_ptr = self.codegen_expr(tuple).into_pointer_value();
                 let struct_type = self.get_or_create_tuple_struct(element_types);
-                let field_ptr = self
-                    .builder
-                    .build_struct_gep(struct_type, tuple_ptr, *index as u32, "tuple_get_ptr")
-                    .unwrap();
-                self.builder
-                    .build_load(self.get_llvm_type(&expr.ty), field_ptr, "tuple_get")
-                    .unwrap()
+                let field_ptr = emit!(self.build_struct_gep(
+                    struct_type,
+                    tuple_ptr,
+                    *index as u32,
+                    "tuple_get_ptr"
+                ));
+                emit!(self.build_load(self.get_llvm_type(&expr.ty), field_ptr, "tuple_get"))
             }
 
             TirExprKind::TupleGetDynamic {
@@ -604,36 +540,22 @@ impl<'ctx> Codegen<'ctx> {
                         .const_null()
                         .into(),
                 };
-                self.builder
-                    .build_store(result_alloca, default_val)
-                    .unwrap();
+                emit!(self.build_store(result_alloca, default_val));
 
                 let len_i64 = self.i64_type().const_int(*len as u64, false);
-                let is_neg = self
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::SLT,
-                        idx_val,
-                        self.i64_type().const_zero(),
-                        "tuple_idx_neg",
-                    )
-                    .unwrap();
-                let neg_adjusted = self
-                    .builder
-                    .build_int_add(idx_val, len_i64, "tuple_idx_norm_neg")
-                    .unwrap();
-                let norm_idx = self
-                    .builder
-                    .build_select(is_neg, neg_adjusted, idx_val, "tuple_idx_norm")
-                    .unwrap()
-                    .into_int_value();
+                let is_neg = emit!(self.build_int_compare(
+                    IntPredicate::SLT,
+                    idx_val,
+                    self.i64_type().const_zero(),
+                    "tuple_idx_neg",
+                ));
+                let neg_adjusted =
+                    emit!(self.build_int_add(idx_val, len_i64, "tuple_idx_norm_neg"));
+                let norm_idx =
+                    emit!(self.build_select(is_neg, neg_adjusted, idx_val, "tuple_idx_norm"))
+                        .into_int_value();
 
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+                let function = emit!(self.get_insert_block()).get_parent().unwrap();
                 let default_bb = self
                     .context
                     .append_basic_block(function, "tuple_idx_default");
@@ -651,79 +573,34 @@ impl<'ctx> Codegen<'ctx> {
                     .enumerate()
                     .map(|(i, bb)| (self.i64_type().const_int(i as u64, false), *bb))
                     .collect();
-                self.builder
-                    .build_switch(norm_idx, default_bb, &switch_cases)
-                    .unwrap();
+                emit!(self.build_switch(norm_idx, default_bb, &switch_cases));
 
                 for (i, case_bb) in case_bbs.iter().enumerate() {
                     self.builder.position_at_end(*case_bb);
-                    let field_ptr = self
-                        .builder
-                        .build_struct_gep(struct_type, tuple_ptr, i as u32, "tuple_dyn_get_ptr")
-                        .unwrap();
-                    let field_val = self
-                        .builder
-                        .build_load(self.get_llvm_type(&expr.ty), field_ptr, "tuple_dyn_get")
-                        .unwrap();
-                    self.builder.build_store(result_alloca, field_val).unwrap();
-                    self.builder.build_unconditional_branch(merge_bb).unwrap();
+                    let field_ptr = emit!(self.build_struct_gep(
+                        struct_type,
+                        tuple_ptr,
+                        i as u32,
+                        "tuple_dyn_get_ptr"
+                    ));
+                    let field_val = emit!(self.build_load(
+                        self.get_llvm_type(&expr.ty),
+                        field_ptr,
+                        "tuple_dyn_get"
+                    ));
+                    emit!(self.build_store(result_alloca, field_val));
+                    emit!(self.build_unconditional_branch(merge_bb));
                 }
 
                 self.builder.position_at_end(default_bb);
-                self.builder.build_unconditional_branch(merge_bb).unwrap();
+                emit!(self.build_unconditional_branch(merge_bb));
 
                 self.builder.position_at_end(merge_bb);
-                self.builder
-                    .build_load(
-                        self.get_llvm_type(&expr.ty),
-                        result_alloca,
-                        "tuple_dyn_get_out",
-                    )
-                    .unwrap()
-            }
-
-            TirExprKind::ListToTuple {
-                list,
-                element_types,
-            } => {
-                let list_val = self.codegen_expr(list);
-                let struct_type = self.get_or_create_tuple_struct(element_types);
-
-                // Allocate tuple struct
-                let size = struct_type.size_of().unwrap();
-                let size_i64 = self
-                    .builder
-                    .build_int_cast(size, self.i64_type(), "l2t_size")
-                    .unwrap();
-                let malloc_fn = self.get_or_declare_malloc();
-                let call = self
-                    .builder
-                    .build_call(malloc_fn, &[size_i64.into()], "l2t_malloc")
-                    .unwrap();
-                let tuple_ptr = self.extract_call_value(call).into_pointer_value();
-
-                // Read elements from list into tuple fields
-                let list_get_fn = self.get_or_declare_function(
-                    "__tython_list_get",
-                    &[ValueType::List(Box::new(ValueType::Int)), ValueType::Int],
-                    Some(ValueType::Int),
-                );
-                for (i, elem_ty) in element_types.iter().enumerate() {
-                    let idx = self.i64_type().const_int(i as u64, false);
-                    let call = self
-                        .builder
-                        .build_call(list_get_fn, &[list_val.into(), idx.into()], "l2t_get")
-                        .unwrap();
-                    let elem_i64 = self.extract_call_value(call).into_int_value();
-                    let elem_val = self.bitcast_from_i64(elem_i64, elem_ty);
-                    let field_ptr = self
-                        .builder
-                        .build_struct_gep(struct_type, tuple_ptr, i as u32, "l2t_field_ptr")
-                        .unwrap();
-                    self.builder.build_store(field_ptr, elem_val).unwrap();
-                }
-
-                tuple_ptr.into()
+                emit!(self.build_load(
+                    self.get_llvm_type(&expr.ty),
+                    result_alloca,
+                    "tuple_dyn_get_out",
+                ))
             }
 
             TirExprKind::ListLiteral {
@@ -736,10 +613,7 @@ impl<'ctx> Codegen<'ctx> {
                         &[],
                         Some(ValueType::List(Box::new(element_type.clone()))),
                     );
-                    let call = self
-                        .builder
-                        .build_call(empty_fn, &[], "list_empty")
-                        .unwrap();
+                    let call = emit!(self.build_call(empty_fn, &[], "list_empty"));
                     self.extract_call_value(call)
                 } else {
                     let len = elements.len();
@@ -753,76 +627,59 @@ impl<'ctx> Codegen<'ctx> {
                         let zero = self.context.i32_type().const_int(0, false);
                         let idx = self.context.i32_type().const_int(i as u64, false);
                         let elem_ptr = unsafe {
-                            self.builder
-                                .build_in_bounds_gep(
-                                    array_ty,
-                                    array_alloca,
-                                    &[zero, idx],
-                                    "elem_ptr",
-                                )
-                                .unwrap()
+                            emit!(self.build_in_bounds_gep(
+                                array_ty,
+                                array_alloca,
+                                &[zero, idx],
+                                "elem_ptr",
+                            ))
                         };
-                        self.builder.build_store(elem_ptr, i64_val).unwrap();
+                        emit!(self.build_store(elem_ptr, i64_val));
                     }
 
                     let len_val = i64_ty.const_int(len as u64, false);
                     let list_new_fn = self.get_or_declare_list_new();
-                    let call = self
-                        .builder
-                        .build_call(
-                            list_new_fn,
-                            &[array_alloca.into(), len_val.into()],
-                            "list_new",
-                        )
-                        .unwrap();
+                    let call = emit!(self.build_call(
+                        list_new_fn,
+                        &[array_alloca.into(), len_val.into()],
+                        "list_new",
+                    ));
                     self.extract_call_value(call)
                 }
             }
 
             TirExprKind::FuncRef { mangled_name } => {
-                let func = if let ValueType::Function {
-                    ref params,
-                    ref return_type,
-                } = expr.ty
-                {
-                    self.get_or_declare_function(
-                        mangled_name,
-                        params,
-                        return_type.as_ref().map(|b| *b.clone()),
-                    )
-                } else {
-                    panic!("ICE: FuncRef with non-function type");
-                };
+                let (params, return_type) = expr.ty.unwrap_function();
+                let func = self.get_or_declare_function(
+                    mangled_name,
+                    params,
+                    return_type.as_ref().map(|b| *b.clone()),
+                );
                 func.as_global_value().as_pointer_value().into()
             }
 
             TirExprKind::IndirectCall { callee, args } => {
                 let callee_ptr = self.codegen_expr(callee).into_pointer_value();
-
-                let (param_types_vt, return_type_vt) = match &callee.ty {
-                    ValueType::Function {
-                        params,
-                        return_type,
-                    } => (params.clone(), return_type.clone()),
-                    _ => panic!("ICE: IndirectCall callee is not a function type"),
-                };
+                let (param_types_vt, return_type_vt) = callee.ty.unwrap_function();
 
                 let llvm_params: Vec<inkwell::types::BasicMetadataTypeEnum> = param_types_vt
                     .iter()
                     .map(|t| self.get_llvm_type(t).into())
                     .collect();
 
-                let fn_type = match &return_type_vt {
-                    None => self.context.void_type().fn_type(&llvm_params, false),
-                    Some(rt) => self.get_llvm_type(rt).fn_type(&llvm_params, false),
-                };
+                let rt = return_type_vt
+                    .as_ref()
+                    .expect("ICE: void IndirectCall in expr context");
+                let fn_type = self.get_llvm_type(rt).fn_type(&llvm_params, false);
 
                 let arg_metadata = self.codegen_call_args(args);
 
-                let call_site = self
-                    .builder
-                    .build_indirect_call(fn_type, callee_ptr, &arg_metadata, "indirect_call")
-                    .unwrap();
+                let call_site = emit!(self.build_indirect_call(
+                    fn_type,
+                    callee_ptr,
+                    &Self::to_meta_args(&arg_metadata),
+                    "indirect_call"
+                ));
 
                 self.extract_call_value(call_site)
             }

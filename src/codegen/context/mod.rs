@@ -15,6 +15,14 @@ use std::process::Command;
 use crate::ast::ClassInfo;
 use crate::tir::{OrderedCmpOp, TirExpr, TirFunction, TirStmt, ValueType};
 
+/// Shorthand for `self.builder.method(...).unwrap()`.
+/// Usage: `emit!(self.build_int_add(l, r, "add"))`
+macro_rules! emit {
+    ($s:ident . $method:ident ( $($arg:expr),* $(,)? )) => {
+        $s.builder.$method( $($arg),* ).unwrap()
+    };
+}
+
 mod expressions;
 mod statements;
 
@@ -164,14 +172,12 @@ impl<'ctx> Codegen<'ctx> {
         value: inkwell::values::IntValue<'ctx>,
         label: &str,
     ) -> inkwell::values::IntValue<'ctx> {
-        self.builder
-            .build_int_compare(
-                IntPredicate::NE,
-                value,
-                self.i64_type().const_int(0, false),
-                label,
-            )
-            .unwrap()
+        emit!(self.build_int_compare(
+            IntPredicate::NE,
+            value,
+            self.i64_type().const_int(0, false),
+            label,
+        ))
     }
 
     fn build_float_truthiness_check(
@@ -179,14 +185,12 @@ impl<'ctx> Codegen<'ctx> {
         value: inkwell::values::FloatValue<'ctx>,
         label: &str,
     ) -> inkwell::values::IntValue<'ctx> {
-        self.builder
-            .build_float_compare(
-                FloatPredicate::ONE,
-                value,
-                self.f64_type().const_float(0.0),
-                label,
-            )
-            .unwrap()
+        emit!(self.build_float_compare(
+            FloatPredicate::ONE,
+            value,
+            self.f64_type().const_float(0.0),
+            label,
+        ))
     }
 
     fn build_truthiness_check_for_value(
@@ -208,10 +212,7 @@ impl<'ctx> Codegen<'ctx> {
                                 &len_fn.param_types(),
                                 len_fn.return_type(),
                             );
-                            let call = self
-                                .builder
-                                .build_call(func, &[value.into()], "len_truth")
-                                .unwrap();
+                            let call = emit!(self.build_call(func, &[value.into()], "len_truth"));
                             let len_val = self.extract_call_value(call).into_int_value();
                             self.build_int_truthiness_check(len_val, label)
                         }
@@ -224,10 +225,7 @@ impl<'ctx> Codegen<'ctx> {
                             &len_fn.param_types(),
                             len_fn.return_type(),
                         );
-                        let call = self
-                            .builder
-                            .build_call(func, &[value.into()], "len_truth")
-                            .unwrap();
+                        let call = emit!(self.build_call(func, &[value.into()], "len_truth"));
                         let len_val = self.extract_call_value(call).into_int_value();
                         self.build_int_truthiness_check(len_val, label)
                     }
@@ -257,14 +255,9 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     fn branch_if_unterminated(&self, target: inkwell::basic_block::BasicBlock<'ctx>) -> bool {
-        let terminated = self
-            .builder
-            .get_insert_block()
-            .unwrap()
-            .get_terminator()
-            .is_some();
+        let terminated = emit!(self.get_insert_block()).get_terminator().is_some();
         if !terminated {
-            self.builder.build_unconditional_branch(target).unwrap();
+            emit!(self.build_unconditional_branch(target));
         }
         terminated
     }
@@ -470,18 +463,9 @@ impl<'ctx> Codegen<'ctx> {
             .struct_type(&[ptr_type.into(), i32_type.into()], false)
     }
 
-    /// Convert a `BasicMetadataValueEnum` to `BasicValueEnum`.
-    /// Panics if the value is a MetadataValue (never used for function args).
-    fn metadata_to_basic(val: BasicMetadataValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
-        match val {
-            BasicMetadataValueEnum::IntValue(v) => v.into(),
-            BasicMetadataValueEnum::FloatValue(v) => v.into(),
-            BasicMetadataValueEnum::PointerValue(v) => v.into(),
-            BasicMetadataValueEnum::StructValue(v) => v.into(),
-            BasicMetadataValueEnum::ArrayValue(v) => v.into(),
-            BasicMetadataValueEnum::VectorValue(v) => v.into(),
-            _ => panic!("ICE: MetadataValue in function call position"),
-        }
+    /// Convert `BasicValueEnum` args to `BasicMetadataValueEnum` for `build_call`.
+    fn to_meta_args(args: &[BasicValueEnum<'ctx>]) -> Vec<BasicMetadataValueEnum<'ctx>> {
+        args.iter().copied().map(Into::into).collect()
     }
 
     /// Emit a function call. When inside a try block (`try_depth > 0`) and
@@ -490,20 +474,12 @@ impl<'ctx> Codegen<'ctx> {
     fn build_call_maybe_invoke(
         &self,
         function: FunctionValue<'ctx>,
-        args: &[BasicMetadataValueEnum<'ctx>],
+        args: &[BasicValueEnum<'ctx>],
         name: &str,
         may_throw: bool,
     ) -> CallSiteValue<'ctx> {
         if may_throw && self.try_depth > 0 {
-            let basic_args: Vec<BasicValueEnum<'ctx>> =
-                args.iter().map(|a| Self::metadata_to_basic(*a)).collect();
-
-            let current_fn = self
-                .builder
-                .get_insert_block()
-                .unwrap()
-                .get_parent()
-                .unwrap();
+            let current_fn = emit!(self.get_insert_block()).get_parent().unwrap();
             let cont_bb = self
                 .context
                 .append_basic_block(current_fn, &format!("{}.cont", name));
@@ -512,15 +488,13 @@ impl<'ctx> Codegen<'ctx> {
                 .last()
                 .expect("ICE: try_depth > 0 but no unwind destination");
 
-            let call_site = self
-                .builder
-                .build_invoke(function, &basic_args, cont_bb, unwind_bb, name)
-                .unwrap();
+            let call_site = emit!(self.build_invoke(function, args, cont_bb, unwind_bb, name));
 
             self.builder.position_at_end(cont_bb);
             call_site
         } else {
-            self.builder.build_call(function, args, name).unwrap()
+            let meta_args = Self::to_meta_args(args);
+            emit!(self.build_call(function, &meta_args, name))
         }
     }
 
@@ -571,15 +545,10 @@ impl<'ctx> Codegen<'ctx> {
     ) -> inkwell::values::IntValue<'ctx> {
         match elem_ty {
             ValueType::Int | ValueType::Bool => val.into_int_value(),
-            ValueType::Float => self
-                .builder
-                .build_bit_cast(val, self.i64_type(), "f2i")
-                .unwrap()
-                .into_int_value(),
-            _ => self
-                .builder
-                .build_ptr_to_int(val.into_pointer_value(), self.i64_type(), "p2i")
-                .unwrap(),
+            ValueType::Float => {
+                emit!(self.build_bit_cast(val, self.i64_type(), "f2i")).into_int_value()
+            }
+            _ => emit!(self.build_ptr_to_int(val.into_pointer_value(), self.i64_type(), "p2i")),
         }
     }
 
@@ -590,26 +559,19 @@ impl<'ctx> Codegen<'ctx> {
     ) -> BasicValueEnum<'ctx> {
         match elem_ty {
             ValueType::Int | ValueType::Bool => val.into(),
-            ValueType::Float => self
-                .builder
-                .build_bit_cast(val, self.f64_type(), "i2f")
-                .unwrap(),
-            _ => self
-                .builder
-                .build_int_to_ptr(val, self.context.ptr_type(AddressSpace::default()), "i2p")
-                .unwrap()
-                .into(),
+            ValueType::Float => emit!(self.build_bit_cast(val, self.f64_type(), "i2f")),
+            _ => emit!(self.build_int_to_ptr(
+                val,
+                self.context.ptr_type(AddressSpace::default()),
+                "i2p"
+            ))
+            .into(),
         }
     }
 
-    /// Codegen a list of TIR args and return both value and metadata forms.
-    fn codegen_call_args(
-        &mut self,
-        args: &[TirExpr],
-    ) -> Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> {
-        args.iter()
-            .map(|arg| self.codegen_expr(arg).into())
-            .collect()
+    /// Codegen a list of TIR args into basic values.
+    fn codegen_call_args(&mut self, args: &[TirExpr]) -> Vec<BasicValueEnum<'ctx>> {
+        args.iter().map(|arg| self.codegen_expr(arg)).collect()
     }
 
     /// Create an alloca in the entry basic block of the current function.
@@ -620,12 +582,7 @@ impl<'ctx> Codegen<'ctx> {
         ty: inkwell::types::BasicTypeEnum<'ctx>,
         name: &str,
     ) -> PointerValue<'ctx> {
-        let function = self
-            .builder
-            .get_insert_block()
-            .unwrap()
-            .get_parent()
-            .unwrap();
+        let function = emit!(self.get_insert_block()).get_parent().unwrap();
         let entry_bb = function.get_first_basic_block().unwrap();
 
         // Create a temporary builder positioned at the start of the entry block
@@ -640,12 +597,7 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Create a dead basic block after an unconditional branch (break/continue).
     fn append_dead_block(&self, label: &str) {
-        let function = self
-            .builder
-            .get_insert_block()
-            .unwrap()
-            .get_parent()
-            .unwrap();
+        let function = emit!(self.get_insert_block()).get_parent().unwrap();
         let dead_bb = self.context.append_basic_block(function, label);
         self.builder.position_at_end(dead_bb);
     }
@@ -693,11 +645,8 @@ impl<'ctx> Codegen<'ctx> {
         self.unwind_dest_stack.clear();
         for (i, param) in func.params.iter().enumerate() {
             let param_value = function.get_nth_param(i as u32).unwrap();
-            let alloca = self
-                .builder
-                .build_alloca(self.get_llvm_type(&param.ty), &param.name)
-                .unwrap();
-            self.builder.build_store(alloca, param_value).unwrap();
+            let alloca = emit!(self.build_alloca(self.get_llvm_type(&param.ty), &param.name));
+            emit!(self.build_store(alloca, param_value));
             self.variables.insert(param.name.clone(), alloca);
         }
 
@@ -705,25 +654,16 @@ impl<'ctx> Codegen<'ctx> {
             self.codegen_stmt(stmt);
         }
 
-        let current_bb = self.builder.get_insert_block().unwrap();
+        let current_bb = emit!(self.get_insert_block());
         if current_bb.get_terminator().is_none() {
             if func.return_type.is_none() {
-                self.builder.build_return(None).unwrap();
+                emit!(self.build_return(None));
             } else {
                 // All reachable paths already returned a value; this block
                 // is dead (e.g. the merge point after a try/catch where
                 // every branch returns).  Add `unreachable` so the block
                 // is well-formed LLVM IR.
-                self.builder.build_unreachable().unwrap();
-            }
-        }
-
-        // Patch any other unterminated blocks (e.g. dead merge blocks
-        // created by try/catch or control-flow lowering).
-        for bb in function.get_basic_blocks() {
-            if bb.get_terminator().is_none() {
-                self.builder.position_at_end(bb);
-                self.builder.build_unreachable().unwrap();
+                emit!(self.build_unreachable());
             }
         }
     }
@@ -743,63 +683,44 @@ impl<'ctx> Codegen<'ctx> {
         // entry: invoke the user's __main__ function
         self.builder.position_at_end(entry);
         let entry_fn = self.module.get_function(entry_main_name).unwrap();
-        self.builder
-            .build_invoke(entry_fn, &[], normal_bb, unwind_bb, "call_main")
-            .unwrap();
+        emit!(self.build_invoke(entry_fn, &[], normal_bb, unwind_bb, "call_main"));
 
         // normal: return 0
         self.builder.position_at_end(normal_bb);
-        self.builder
-            .build_return(Some(&self.context.i32_type().const_int(0, false)))
-            .unwrap();
+        emit!(self.build_return(Some(&self.context.i32_type().const_int(0, false))));
 
         // unwind: catch all, print error, return 1
         self.builder.position_at_end(unwind_bb);
         let landing_type = self.get_exception_landing_type();
         let null_ptr = self.context.ptr_type(AddressSpace::default()).const_null();
-        let lp = self
-            .builder
-            .build_landing_pad(landing_type, personality, &[null_ptr.into()], false, "lp")
-            .unwrap();
+        let lp = emit!(self.build_landing_pad(
+            landing_type,
+            personality,
+            &[null_ptr.into()],
+            false,
+            "lp"
+        ));
 
-        let exc_ptr = self
-            .builder
-            .build_extract_value(lp.into_struct_value(), 0, "exc_ptr")
-            .unwrap();
+        let exc_ptr = emit!(self.build_extract_value(lp.into_struct_value(), 0, "exc_ptr"));
 
         let begin_catch = self.get_or_declare_cxa_begin_catch();
-        let caught = self
-            .builder
-            .build_call(begin_catch, &[exc_ptr.into()], "caught")
-            .unwrap();
+        let caught = emit!(self.build_call(begin_catch, &[exc_ptr.into()], "caught"));
         let caught_ptr = self.extract_call_value(caught);
 
         let type_tag_fn = self.get_or_declare_caught_type_tag();
-        let tag = self
-            .builder
-            .build_call(type_tag_fn, &[caught_ptr.into()], "tag")
-            .unwrap();
+        let tag = emit!(self.build_call(type_tag_fn, &[caught_ptr.into()], "tag"));
         let tag_val = self.extract_call_value(tag);
 
         let message_fn = self.get_or_declare_caught_message();
-        let msg = self
-            .builder
-            .build_call(message_fn, &[caught_ptr.into()], "msg")
-            .unwrap();
+        let msg = emit!(self.build_call(message_fn, &[caught_ptr.into()], "msg"));
         let msg_val = self.extract_call_value(msg);
 
         let end_catch = self.get_or_declare_cxa_end_catch();
-        self.builder
-            .build_call(end_catch, &[], "end_catch")
-            .unwrap();
+        emit!(self.build_call(end_catch, &[], "end_catch"));
 
         let print_fn = self.get_or_declare_print_unhandled();
-        self.builder
-            .build_call(print_fn, &[tag_val.into(), msg_val.into()], "print_exc")
-            .unwrap();
+        emit!(self.build_call(print_fn, &[tag_val.into(), msg_val.into()], "print_exc"));
 
-        self.builder
-            .build_return(Some(&self.context.i32_type().const_int(1, false)))
-            .unwrap();
+        emit!(self.build_return(Some(&self.context.i32_type().const_int(1, false))));
     }
 }
