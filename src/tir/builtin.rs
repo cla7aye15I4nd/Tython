@@ -112,6 +112,7 @@ pub fn resolve_print(arg_ty: &ValueType) -> Option<BuiltinFn> {
             ValueType::ByteArray => Some(BuiltinFn::PrintListByteArray),
             _ => None,
         },
+        ValueType::Tuple(_) => None,
         ValueType::Class(_) => None,
     }
 }

@@ -262,13 +262,25 @@ impl Lowering {
                     ty: ValueType::List(Box::new(elem_ty)),
                 })
             }
+            "Tuple" => {
+                let elts_list = ast_get_list!(node, "elts");
+                let mut elements = Vec::with_capacity(elts_list.len());
+                for elt in elts_list.iter() {
+                    elements.push(self.lower_expr(&elt)?);
+                }
+                let element_types = elements.iter().map(|elt| elt.ty.clone()).collect();
+                Ok(TirExpr {
+                    kind: TirExprKind::TupleLiteral { elements },
+                    ty: ValueType::Tuple(element_types),
+                })
+            }
 
             "Subscript" => {
                 let value_node = ast_getattr!(node, "value");
                 let slice_node = ast_getattr!(node, "slice");
                 let obj_expr = self.lower_expr(&value_node)?;
 
-                match &obj_expr.ty {
+                match obj_expr.ty.clone() {
                     ValueType::List(inner) => {
                         let index_expr = self.lower_expr(&slice_node)?;
                         if index_expr.ty != ValueType::Int {
@@ -277,7 +289,7 @@ impl Lowering {
                                 format!("list index must be `int`, got `{}`", index_expr.ty),
                             ));
                         }
-                        let elem_ty = inner.as_ref().clone();
+                        let elem_ty = (*inner).clone();
                         Ok(TirExpr {
                             kind: TirExprKind::ExternalCall {
                                 func: builtin::BuiltinFn::ListGet,
@@ -285,6 +297,60 @@ impl Lowering {
                             },
                             ty: elem_ty,
                         })
+                    }
+                    ValueType::Tuple(elements) => {
+                        let index_expr = self.lower_expr(&slice_node)?;
+                        if index_expr.ty != ValueType::Int {
+                            return Err(self.type_error(
+                                line,
+                                format!("tuple index must be `int`, got `{}`", index_expr.ty),
+                            ));
+                        }
+                        if let Some(raw_index) = Self::extract_static_int_literal(&slice_node) {
+                            let len = elements.len() as i64;
+                            let normalized = if raw_index < 0 {
+                                len + raw_index
+                            } else {
+                                raw_index
+                            };
+                            if normalized < 0 || normalized >= len {
+                                return Err(self.type_error(
+                                    line,
+                                    format!(
+                                        "tuple index {} out of bounds for {}-element tuple",
+                                        raw_index, len
+                                    ),
+                                ));
+                            }
+                            let idx = normalized as usize;
+                            let elem_ty = elements[idx].clone();
+                            Ok(TirExpr {
+                                kind: TirExprKind::TupleGet {
+                                    tuple: Box::new(obj_expr),
+                                    index: idx,
+                                },
+                                ty: elem_ty,
+                            })
+                        } else {
+                            let first = elements.first().ok_or_else(|| {
+                                self.type_error(line, "cannot index empty tuple".to_string())
+                            })?;
+                            if elements.iter().any(|ty| ty != first) {
+                                return Err(self.type_error(
+                                    line,
+                                    "tuple indexed by variable must have all elements of the same type"
+                                        .to_string(),
+                                ));
+                            }
+                            Ok(TirExpr {
+                                kind: TirExprKind::TupleGetDynamic {
+                                    tuple: Box::new(obj_expr),
+                                    index: Box::new(index_expr),
+                                    len: elements.len(),
+                                },
+                                ty: first.clone(),
+                            })
+                        }
                     }
                     other => {
                         Err(self.type_error(line, format!("type `{}` is not subscriptable", other)))
@@ -296,6 +362,28 @@ impl Lowering {
                 line,
                 format!("unsupported expression type: `{}`", node_type),
             )),
+        }
+    }
+
+    fn extract_static_int_literal(node: &Bound<PyAny>) -> Option<i64> {
+        match ast_type_name!(node).as_str() {
+            "Constant" => {
+                let value = ast_getattr!(node, "value");
+                if value.is_instance_of::<pyo3::types::PyBool>() {
+                    None
+                } else {
+                    value.extract::<i64>().ok()
+                }
+            }
+            "UnaryOp" => {
+                let op_node = ast_getattr!(node, "op");
+                let operand = ast_getattr!(node, "operand");
+                if ast_type_name!(op_node) != "USub" {
+                    return None;
+                }
+                Self::extract_static_int_literal(&operand).map(|v| -v)
+            }
+            _ => None,
         }
     }
 
@@ -577,7 +665,16 @@ impl Lowering {
         right: TirExpr,
     ) -> Result<(TirExpr, TirExpr)> {
         if left.ty == right.ty {
-            Ok((left, right))
+            match left.ty {
+                ValueType::Int | ValueType::Float | ValueType::Bool => Ok((left, right)),
+                _ => Err(self.type_error(
+                    line,
+                    format!(
+                        "comparison operands must have compatible types: `{}` vs `{}`",
+                        left.ty, right.ty
+                    ),
+                )),
+            }
         } else if matches!(
             (&left.ty, &right.ty),
             (ValueType::Int, ValueType::Float) | (ValueType::Float, ValueType::Int)

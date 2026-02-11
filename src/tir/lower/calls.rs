@@ -69,10 +69,10 @@ impl Lowering {
                             self.check_call_args(line, &func_name, &scope_type, &tir_args)?;
                         let mangled = self.mangle_name(&func_name);
                         if return_type == Type::Unit {
-                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::Named(mangled),
                                 args: tir_args,
-                            }))
+                            })))
                         } else {
                             Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::Call {
@@ -110,10 +110,10 @@ impl Lowering {
                         let return_type =
                             self.check_call_args(line, &func_name, &func_type, &tir_args)?;
                         if return_type == Type::Unit {
-                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::Named(mangled.clone()),
                                 args: tir_args,
-                            }))
+                            })))
                         } else {
                             Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::Call {
@@ -174,10 +174,10 @@ impl Lowering {
                         };
 
                         return if return_type == Type::Unit {
-                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::Named(resolved),
                                 args: tir_args,
-                            }))
+                            })))
                         } else {
                             Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::Call {
@@ -256,13 +256,13 @@ impl Lowering {
                         let mangled = method.mangled_name.clone();
 
                         if *return_type == Type::Unit {
-                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::MethodCall {
                                     mangled_name: mangled,
                                     object: obj_expr,
                                 },
                                 args: tir_args,
-                            }))
+                            })))
                         } else {
                             Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::MethodCall {
@@ -294,10 +294,10 @@ impl Lowering {
                                     ),
                                 ));
                             }
-                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::Builtin(builtin::BuiltinFn::ByteArrayAppend),
                                 args: vec![obj_expr, tir_args.remove(0)],
-                            }))
+                            })))
                         }
                         "extend" => {
                             if tir_args.len() != 1 {
@@ -318,10 +318,10 @@ impl Lowering {
                                     ),
                                 ));
                             }
-                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::Builtin(builtin::BuiltinFn::ByteArrayExtend),
                                 args: vec![obj_expr, tir_args.remove(0)],
-                            }))
+                            })))
                         }
                         "clear" => {
                             if !tir_args.is_empty() {
@@ -330,10 +330,10 @@ impl Lowering {
                                     "bytearray.clear() takes no arguments".to_string(),
                                 ));
                             }
-                            Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::Builtin(builtin::BuiltinFn::ByteArrayClear),
                                 args: vec![obj_expr],
-                            }))
+                            })))
                         }
                         _ => Err(self
                             .attribute_error(line, format!("bytearray has no method `{}`", attr))),
@@ -368,10 +368,10 @@ impl Lowering {
                                         ),
                                     ));
                                 }
-                                Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                     target: CallTarget::Builtin(builtin::BuiltinFn::ListAppend),
                                     args: vec![obj_expr, tir_args.remove(0)],
-                                }))
+                                })))
                             }
                             "clear" => {
                                 if !tir_args.is_empty() {
@@ -380,10 +380,10 @@ impl Lowering {
                                         "list.clear() takes no arguments".to_string(),
                                     ));
                                 }
-                                Ok(CallResult::VoidStmt(TirStmt::VoidCall {
+                                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                     target: CallTarget::Builtin(builtin::BuiltinFn::ListClear),
                                     args: vec![obj_expr],
-                                }))
+                                })))
                             }
                             "pop" => {
                                 if !tir_args.is_empty() {
@@ -470,6 +470,10 @@ impl Lowering {
                     ty: target_type,
                 })
             }
+            type_rules::BuiltinCallRule::ConstInt(value) => CallResult::Expr(TirExpr {
+                kind: TirExprKind::IntLiteral(value),
+                ty: ValueType::Int,
+            }),
             type_rules::BuiltinCallRule::PowFloat => {
                 let right = tir_args.remove(1);
                 let left = tir_args.remove(0);

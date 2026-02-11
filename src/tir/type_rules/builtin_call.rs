@@ -18,6 +18,8 @@ pub enum BuiltinCallRule {
     },
     /// Primitive cast lowered to `TirExprKind::Cast`.
     PrimitiveCast { target_type: ValueType },
+    /// Compile-time constant i64 result.
+    ConstInt(i64),
     /// `pow(float, float)` lowers to a `BinOp(**)` instead of a runtime call.
     PowFloat,
 }
@@ -172,6 +174,9 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
             func: BuiltinFn::ListLen,
             return_type: ValueType::Int,
         }),
+        ("len", [ValueType::Tuple(elements)]) => {
+            Some(BuiltinCallRule::ConstInt(elements.len() as i64))
+        }
 
         ("abs", _) => numeric_unary_builtin(arg_types, BuiltinFn::AbsInt, BuiltinFn::AbsFloat),
         ("min", _) => numeric_variadic_builtin(arg_types, BuiltinFn::MinInt, BuiltinFn::MinFloat),
@@ -224,7 +229,7 @@ pub fn builtin_call_error_message(name: &str, arg_types: &[&ValueType], provided
                 format!("len() expects exactly 1 argument, got {}", provided)
             } else {
                 format!(
-                    "len() requires a `str`, `bytes`, `bytearray`, `list`, or a class with `__len__() -> int`, got `{}`",
+                    "len() requires a `str`, `bytes`, `bytearray`, `list`, `tuple`, or a class with `__len__() -> int`, got `{}`",
                     arg_types[0]
                 )
             }

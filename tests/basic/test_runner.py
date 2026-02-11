@@ -29,6 +29,7 @@ import basic.test_magic_len as test_magic_len
 import basic.test_bytes as test_bytes
 import basic.test_bytearray as test_bytearray
 import basic.test_list as test_list
+import basic.test_tuple as test_tuple
 
 
 def run_all_tests() -> None:
@@ -63,3 +64,4 @@ def run_all_tests() -> None:
     test_bytes.run_tests()
     test_bytearray.run_tests()
     test_list.run_tests()
+    test_tuple.run_tests()

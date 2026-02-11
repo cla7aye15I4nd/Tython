@@ -263,7 +263,7 @@ impl Lowering {
             let call_result = self.lower_call(&value_node, line)?;
             return match call_result {
                 CallResult::Expr(expr) => Ok(vec![TirStmt::Expr(expr)]),
-                CallResult::VoidStmt(stmt) => Ok(vec![stmt]),
+                CallResult::VoidStmt(stmt) => Ok(vec![*stmt]),
             };
         }
 
@@ -292,12 +292,32 @@ impl Lowering {
                     },
                     ty: ValueType::Bool,
                 },
-                ValueType::Str | ValueType::Bytes | ValueType::ByteArray | ValueType::List(_) => {
+                ValueType::Str
+                | ValueType::Bytes
+                | ValueType::ByteArray
+                | ValueType::List(_)
+                | ValueType::Tuple(_) => {
                     let len_fn = match &condition.ty {
                         ValueType::Str => builtin::BuiltinFn::StrLen,
                         ValueType::Bytes => builtin::BuiltinFn::BytesLen,
                         ValueType::ByteArray => builtin::BuiltinFn::ByteArrayLen,
                         ValueType::List(_) => builtin::BuiltinFn::ListLen,
+                        ValueType::Tuple(elements) => {
+                            let len_expr = TirExpr {
+                                kind: TirExprKind::IntLiteral(elements.len() as i64),
+                                ty: ValueType::Int,
+                            };
+                            return Ok(vec![TirStmt::VoidCall {
+                                target: CallTarget::Builtin(builtin::BuiltinFn::Assert),
+                                args: vec![TirExpr {
+                                    kind: TirExprKind::Cast {
+                                        kind: CastKind::IntToBool,
+                                        arg: Box::new(len_expr),
+                                    },
+                                    ty: ValueType::Bool,
+                                }],
+                            }]);
+                        }
                         _ => unreachable!(),
                     };
                     let len_expr = TirExpr {
@@ -436,6 +456,9 @@ impl Lowering {
                     value: tir_value,
                 }])
             }
+            ValueType::Tuple(_) => {
+                Err(self.type_error(line, "tuple does not support index assignment".to_string()))
+            }
             other => Err(self.type_error(
                 line,
                 format!("type `{}` does not support index assignment", other),
@@ -491,6 +514,9 @@ impl Lowering {
                     index: index_expr,
                     value: binop_expr,
                 }])
+            }
+            ValueType::Tuple(_) => {
+                Err(self.type_error(line, "tuple does not support index assignment".to_string()))
             }
             other => Err(self.type_error(
                 line,

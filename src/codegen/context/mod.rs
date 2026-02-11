@@ -25,6 +25,7 @@ pub struct Codegen<'ctx> {
         inkwell::basic_block::BasicBlock<'ctx>,
     )>,
     class_types: HashMap<String, StructType<'ctx>>,
+    tuple_types: HashMap<String, StructType<'ctx>>,
 }
 
 impl<'ctx> Codegen<'ctx> {
@@ -57,6 +58,7 @@ impl<'ctx> Codegen<'ctx> {
             variables: HashMap::new(),
             loop_stack: Vec::new(),
             class_types: HashMap::new(),
+            tuple_types: HashMap::new(),
         }
     }
 
@@ -99,6 +101,30 @@ impl<'ctx> Codegen<'ctx> {
             .insert(class_info.name.clone(), struct_type);
     }
 
+    fn tuple_signature_key(elem_types: &[ValueType]) -> String {
+        elem_types
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
+    fn get_or_create_tuple_struct(&mut self, elem_types: &[ValueType]) -> StructType<'ctx> {
+        let key = Self::tuple_signature_key(elem_types);
+        if let Some(existing) = self.tuple_types.get(&key) {
+            return *existing;
+        }
+
+        let struct_name = format!("__tython_tuple${}", self.tuple_types.len());
+        let field_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> =
+            elem_types.iter().map(|ty| self.get_llvm_type(ty)).collect();
+
+        let struct_type = self.context.opaque_struct_type(&struct_name);
+        struct_type.set_body(&field_types, false);
+        self.tuple_types.insert(key, struct_type);
+        struct_type
+    }
+
     // ── type helpers ──────────────────────────────────────────────────
 
     fn get_llvm_type(&self, ty: &ValueType) -> inkwell::types::BasicTypeEnum<'ctx> {
@@ -109,6 +135,7 @@ impl<'ctx> Codegen<'ctx> {
             | ValueType::Bytes
             | ValueType::ByteArray
             | ValueType::List(_)
+            | ValueType::Tuple(_)
             | ValueType::Class(_) => self.context.ptr_type(AddressSpace::default()).into(),
         }
     }
@@ -193,6 +220,10 @@ impl<'ctx> Codegen<'ctx> {
                         let len_val = self.extract_call_value(call).into_int_value();
                         self.build_int_truthiness_check(len_val, label)
                     }
+                    ValueType::Tuple(elements) => self
+                        .context
+                        .bool_type()
+                        .const_int((!elements.is_empty()) as u64, false),
                     ValueType::Class(_) => self.i64_type().const_int(1, false),
                     _ => self.build_int_truthiness_check(value.into_int_value(), label),
                 }

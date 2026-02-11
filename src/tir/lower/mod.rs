@@ -372,21 +372,39 @@ impl Lowering {
                     bail!("unsupported subscript type annotation");
                 }
                 let container_name = ast_get_string!(value_node, "id");
-                if container_name != "list" {
-                    bail!("unsupported generic type `{}`", container_name);
+                match container_name.as_str() {
+                    "list" => {
+                        let inner_ty = self.convert_type_annotation(&slice_node)?;
+                        match &inner_ty {
+                            Type::Int
+                            | Type::Float
+                            | Type::Bool
+                            | Type::Str
+                            | Type::Bytes
+                            | Type::ByteArray
+                            | Type::Class(_) => {}
+                            _ => bail!("unsupported list element type `{}`", inner_ty),
+                        }
+                        Ok(Type::List(Box::new(inner_ty)))
+                    }
+                    "tuple" => {
+                        let element_types = if ast_type_name!(slice_node) == "Tuple" {
+                            let elts = ast_get_list!(slice_node, "elts");
+                            let mut out = Vec::with_capacity(elts.len());
+                            for elt in elts.iter() {
+                                out.push(self.convert_type_annotation(&elt)?);
+                            }
+                            out
+                        } else {
+                            vec![self.convert_type_annotation(&slice_node)?]
+                        };
+                        if ValueType::from_type(&Type::Tuple(element_types.clone())).is_none() {
+                            bail!("unsupported tuple element type in annotation");
+                        }
+                        Ok(Type::Tuple(element_types))
+                    }
+                    _ => bail!("unsupported generic type `{}`", container_name),
                 }
-                let inner_ty = self.convert_type_annotation(&slice_node)?;
-                match &inner_ty {
-                    Type::Int
-                    | Type::Float
-                    | Type::Bool
-                    | Type::Str
-                    | Type::Bytes
-                    | Type::ByteArray
-                    | Type::Class(_) => {}
-                    _ => bail!("unsupported list element type `{}`", inner_ty),
-                }
-                Ok(Type::List(Box::new(inner_ty)))
             }
             _ => bail!("unsupported type annotation: `{}`", node_type),
         }

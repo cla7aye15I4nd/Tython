@@ -17,6 +17,7 @@ pub enum ValueType {
     Bytes,
     ByteArray,
     List(Box<ValueType>),
+    Tuple(Vec<ValueType>),
     Class(String),
 }
 
@@ -30,6 +31,12 @@ impl ValueType {
             Type::Bytes => Some(ValueType::Bytes),
             Type::ByteArray => Some(ValueType::ByteArray),
             Type::List(inner) => Some(ValueType::List(Box::new(ValueType::from_type(inner)?))),
+            Type::Tuple(elements) => Some(ValueType::Tuple(
+                elements
+                    .iter()
+                    .map(ValueType::from_type)
+                    .collect::<Option<Vec<_>>>()?,
+            )),
             Type::Class(name) => Some(ValueType::Class(name.clone())),
             _ => None,
         }
@@ -44,6 +51,9 @@ impl ValueType {
             ValueType::Bytes => Type::Bytes,
             ValueType::ByteArray => Type::ByteArray,
             ValueType::List(inner) => Type::List(Box::new(inner.to_type())),
+            ValueType::Tuple(elements) => {
+                Type::Tuple(elements.iter().map(ValueType::to_type).collect())
+            }
             ValueType::Class(name) => Type::Class(name.clone()),
         }
     }
@@ -63,6 +73,16 @@ impl std::fmt::Display for ValueType {
             ValueType::Bytes => write!(f, "bytes"),
             ValueType::ByteArray => write!(f, "bytearray"),
             ValueType::List(inner) => write!(f, "list[{}]", inner),
+            ValueType::Tuple(elements) => {
+                write!(f, "tuple[")?;
+                for (i, elt) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elt)?;
+                }
+                write!(f, "]")
+            }
             ValueType::Class(name) => write!(f, "{}", name),
         }
     }
@@ -376,6 +396,18 @@ pub enum TirExprKind {
         method_mangled_name: String,
         args: Vec<TirExpr>,
     },
+    TupleLiteral {
+        elements: Vec<TirExpr>,
+    },
+    TupleGet {
+        tuple: Box<TirExpr>,
+        index: usize,
+    },
+    TupleGetDynamic {
+        tuple: Box<TirExpr>,
+        index: Box<TirExpr>,
+        len: usize,
+    },
     ListLiteral {
         element_type: ValueType,
         elements: Vec<TirExpr>,
@@ -385,5 +417,5 @@ pub enum TirExprKind {
 /// Result of lowering a call expression — either a valued expression or a void statement.
 pub enum CallResult {
     Expr(TirExpr),
-    VoidStmt(TirStmt),
+    VoidStmt(Box<TirStmt>),
 }

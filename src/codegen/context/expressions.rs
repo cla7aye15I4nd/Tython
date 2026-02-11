@@ -1,4 +1,5 @@
 use inkwell::values::BasicValueEnum;
+use inkwell::AddressSpace;
 use inkwell::IntPredicate;
 
 use crate::tir::{
@@ -502,6 +503,152 @@ impl<'ctx> Codegen<'ctx> {
                     .unwrap();
 
                 self.extract_call_value(call_site)
+            }
+
+            TirExprKind::TupleLiteral { elements } => {
+                let element_types = match &expr.ty {
+                    ValueType::Tuple(types) => types,
+                    _ => unreachable!("ICE: TupleLiteral must have tuple type"),
+                };
+                let struct_type = self.get_or_create_tuple_struct(element_types);
+                let size = struct_type.size_of().unwrap();
+                let size_i64 = self
+                    .builder
+                    .build_int_cast(size, self.i64_type(), "tuple_size_i64")
+                    .unwrap();
+                let malloc_fn = self.get_or_declare_malloc();
+                let call_site = self
+                    .builder
+                    .build_call(malloc_fn, &[size_i64.into()], "tuple_malloc")
+                    .unwrap();
+                let tuple_ptr = self.extract_call_value(call_site).into_pointer_value();
+
+                for (i, elem) in elements.iter().enumerate() {
+                    let field_ptr = self
+                        .builder
+                        .build_struct_gep(struct_type, tuple_ptr, i as u32, "tuple_field_ptr")
+                        .unwrap();
+                    let elem_val = self.codegen_expr(elem);
+                    self.builder.build_store(field_ptr, elem_val).unwrap();
+                }
+                tuple_ptr.into()
+            }
+
+            TirExprKind::TupleGet { tuple, index } => {
+                let tuple_ptr = self.codegen_expr(tuple).into_pointer_value();
+                let element_types = match &tuple.ty {
+                    ValueType::Tuple(types) => types,
+                    _ => unreachable!("ICE: TupleGet source must have tuple type"),
+                };
+                let struct_type = self.get_or_create_tuple_struct(element_types);
+                let field_ptr = self
+                    .builder
+                    .build_struct_gep(struct_type, tuple_ptr, *index as u32, "tuple_get_ptr")
+                    .unwrap();
+                self.builder
+                    .build_load(self.get_llvm_type(&expr.ty), field_ptr, "tuple_get")
+                    .unwrap()
+            }
+
+            TirExprKind::TupleGetDynamic { tuple, index, len } => {
+                let tuple_ptr = self.codegen_expr(tuple).into_pointer_value();
+                let idx_val = self.codegen_expr(index).into_int_value();
+                let element_types = match &tuple.ty {
+                    ValueType::Tuple(types) => types,
+                    _ => unreachable!("ICE: TupleGetDynamic source must have tuple type"),
+                };
+                let struct_type = self.get_or_create_tuple_struct(element_types);
+
+                let result_alloca = self
+                    .builder
+                    .build_alloca(self.get_llvm_type(&expr.ty), "tuple_dyn_get_tmp")
+                    .unwrap();
+
+                let default_val: BasicValueEnum<'ctx> = match &expr.ty {
+                    ValueType::Int | ValueType::Bool => self.i64_type().const_zero().into(),
+                    ValueType::Float => self.f64_type().const_float(0.0).into(),
+                    _ => self
+                        .context
+                        .ptr_type(AddressSpace::default())
+                        .const_null()
+                        .into(),
+                };
+                self.builder
+                    .build_store(result_alloca, default_val)
+                    .unwrap();
+
+                let len_i64 = self.i64_type().const_int(*len as u64, false);
+                let is_neg = self
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::SLT,
+                        idx_val,
+                        self.i64_type().const_zero(),
+                        "tuple_idx_neg",
+                    )
+                    .unwrap();
+                let neg_adjusted = self
+                    .builder
+                    .build_int_add(idx_val, len_i64, "tuple_idx_norm_neg")
+                    .unwrap();
+                let norm_idx = self
+                    .builder
+                    .build_select(is_neg, neg_adjusted, idx_val, "tuple_idx_norm")
+                    .unwrap()
+                    .into_int_value();
+
+                let function = self
+                    .builder
+                    .get_insert_block()
+                    .unwrap()
+                    .get_parent()
+                    .unwrap();
+                let default_bb = self
+                    .context
+                    .append_basic_block(function, "tuple_idx_default");
+                let merge_bb = self.context.append_basic_block(function, "tuple_idx_merge");
+
+                let mut case_bbs = Vec::with_capacity(*len);
+                for i in 0..*len {
+                    case_bbs.push(
+                        self.context
+                            .append_basic_block(function, &format!("tuple_idx_case_{}", i)),
+                    );
+                }
+                let switch_cases: Vec<_> = case_bbs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, bb)| (self.i64_type().const_int(i as u64, false), *bb))
+                    .collect();
+                self.builder
+                    .build_switch(norm_idx, default_bb, &switch_cases)
+                    .unwrap();
+
+                for (i, case_bb) in case_bbs.iter().enumerate() {
+                    self.builder.position_at_end(*case_bb);
+                    let field_ptr = self
+                        .builder
+                        .build_struct_gep(struct_type, tuple_ptr, i as u32, "tuple_dyn_get_ptr")
+                        .unwrap();
+                    let field_val = self
+                        .builder
+                        .build_load(self.get_llvm_type(&expr.ty), field_ptr, "tuple_dyn_get")
+                        .unwrap();
+                    self.builder.build_store(result_alloca, field_val).unwrap();
+                    self.builder.build_unconditional_branch(merge_bb).unwrap();
+                }
+
+                self.builder.position_at_end(default_bb);
+                self.builder.build_unconditional_branch(merge_bb).unwrap();
+
+                self.builder.position_at_end(merge_bb);
+                self.builder
+                    .build_load(
+                        self.get_llvm_type(&expr.ty),
+                        result_alloca,
+                        "tuple_dyn_get_out",
+                    )
+                    .unwrap()
             }
 
             TirExprKind::ListLiteral {
