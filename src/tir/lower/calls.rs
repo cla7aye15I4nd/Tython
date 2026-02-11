@@ -29,211 +29,21 @@ impl Lowering {
                     return Err(self.syntax_error(line, "print() can only be used as a statement"));
                 }
 
-                // str() constructor
-                if func_name == "str" {
-                    if tir_args.len() != 1 {
-                        return Err(self.type_error(
-                            line,
-                            format!("str() expects exactly 1 argument, got {}", tir_args.len()),
-                        ));
-                    }
-                    let arg = tir_args.remove(0);
-                    if arg.ty == ValueType::Str {
-                        return Ok(CallResult::Expr(arg));
-                    }
-                    let builtin_fn = match &arg.ty {
-                        ValueType::Int => builtin::BuiltinFn::StrFromInt,
-                        ValueType::Float => builtin::BuiltinFn::StrFromFloat,
-                        ValueType::Bool => builtin::BuiltinFn::StrFromBool,
-                        other => {
-                            return Err(
-                                self.type_error(line, format!("str() cannot convert `{}`", other))
-                            )
-                        }
-                    };
-                    return Ok(CallResult::Expr(TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin_fn,
-                            args: vec![arg],
-                        },
-                        ty: ValueType::Str,
-                    }));
-                }
-
-                // bytes() constructor
-                if func_name == "bytes" {
-                    if tir_args.len() != 1 {
-                        return Err(self.type_error(
-                            line,
-                            format!("bytes() expects exactly 1 argument, got {}", tir_args.len()),
-                        ));
-                    }
-                    let arg = tir_args.remove(0);
-                    if arg.ty == ValueType::Bytes {
-                        return Ok(CallResult::Expr(arg));
-                    }
-                    let builtin_fn = match &arg.ty {
-                        ValueType::Int => builtin::BuiltinFn::BytesFromInt,
-                        ValueType::Str => builtin::BuiltinFn::BytesFromStr,
-                        other => {
-                            return Err(self
-                                .type_error(line, format!("bytes() cannot convert `{}`", other)))
-                        }
-                    };
-                    return Ok(CallResult::Expr(TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin_fn,
-                            args: vec![arg],
-                        },
-                        ty: ValueType::Bytes,
-                    }));
-                }
-
-                // bytearray() constructor
-                if func_name == "bytearray" {
-                    if tir_args.is_empty() {
-                        return Ok(CallResult::Expr(TirExpr {
-                            kind: TirExprKind::ExternalCall {
-                                func: builtin::BuiltinFn::ByteArrayEmpty,
-                                args: vec![],
-                            },
-                            ty: ValueType::ByteArray,
-                        }));
-                    }
-                    if tir_args.len() != 1 {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "bytearray() expects 0 or 1 arguments, got {}",
-                                tir_args.len()
-                            ),
-                        ));
-                    }
-                    let arg = tir_args.remove(0);
-                    if arg.ty == ValueType::ByteArray {
-                        return Ok(CallResult::Expr(arg));
-                    }
-                    let builtin_fn = match &arg.ty {
-                        ValueType::Int => builtin::BuiltinFn::ByteArrayFromInt,
-                        ValueType::Bytes => builtin::BuiltinFn::ByteArrayFromBytes,
-                        other => {
-                            return Err(self.type_error(
-                                line,
-                                format!("bytearray() cannot convert `{}`", other),
-                            ))
-                        }
-                    };
-                    return Ok(CallResult::Expr(TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin_fn,
-                            args: vec![arg],
-                        },
-                        ty: ValueType::ByteArray,
-                    }));
-                }
-
-                if func_name == "int" || func_name == "float" || func_name == "bool" {
-                    if tir_args.len() != 1 {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "{}() expects exactly 1 argument, got {}",
-                                func_name,
-                                tir_args.len()
-                            ),
-                        ));
-                    }
-                    let arg = tir_args.remove(0);
-                    let target_ty = match func_name.as_str() {
-                        "int" => {
-                            if !arg.ty.is_primitive() {
-                                return Err(self.type_error(
-                                    line,
-                                    format!("int() cannot convert `{}`", arg.ty),
-                                ));
-                            }
-                            ValueType::Int
-                        }
-                        "float" => {
-                            if !arg.ty.is_primitive() {
-                                return Err(self.type_error(
-                                    line,
-                                    format!("float() cannot convert `{}`", arg.ty),
-                                ));
-                            }
-                            ValueType::Float
-                        }
-                        "bool" => {
-                            if !arg.ty.is_primitive() {
-                                return Err(self.type_error(
-                                    line,
-                                    format!("bool() cannot convert `{}`", arg.ty),
-                                ));
-                            }
-                            ValueType::Bool
-                        }
-                        _ => unreachable!(),
-                    };
-
-                    if arg.ty == target_ty {
-                        return Ok(CallResult::Expr(arg));
-                    }
-
-                    let cast_kind = Self::compute_cast_kind(&arg.ty, &target_ty);
-                    return Ok(CallResult::Expr(TirExpr {
-                        kind: TirExprKind::Cast {
-                            kind: cast_kind,
-                            arg: Box::new(arg),
-                        },
-                        ty: target_ty,
-                    }));
-                }
-
-                // Built-in numeric functions (abs, pow, min, max, round)
-                if let Some(arity) = type_rules::builtin_fn_arity(&func_name) {
-                    if tir_args.len() != arity {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "{}() expects {} argument{}, got {}",
-                                func_name,
-                                arity,
-                                if arity == 1 { "" } else { "s" },
-                                tir_args.len()
-                            ),
-                        ));
-                    }
+                if type_rules::is_builtin_call(&func_name) {
                     let arg_types: Vec<&ValueType> = tir_args.iter().map(|a| &a.ty).collect();
-                    let rule =
-                        type_rules::lookup_builtin_fn(&func_name, &arg_types).ok_or_else(|| {
+                    let rule = type_rules::lookup_builtin_call(&func_name, &arg_types).ok_or_else(
+                        || {
                             self.type_error(
                                 line,
-                                type_rules::builtin_fn_type_error_message(&func_name, &arg_types),
+                                type_rules::builtin_call_error_message(
+                                    &func_name,
+                                    &arg_types,
+                                    tir_args.len(),
+                                ),
                             )
-                        })?;
-                    return match rule {
-                        type_rules::BuiltinCallRule::ExternalCall { func, return_type } => {
-                            Ok(CallResult::Expr(TirExpr {
-                                kind: TirExprKind::ExternalCall {
-                                    func,
-                                    args: tir_args,
-                                },
-                                ty: return_type,
-                            }))
-                        }
-                        type_rules::BuiltinCallRule::PowFloat => {
-                            let right = tir_args.remove(1);
-                            let left = tir_args.remove(0);
-                            Ok(CallResult::Expr(TirExpr {
-                                kind: TirExprKind::BinOp {
-                                    op: TypedBinOp::FloatArith(FloatArithOp::Pow),
-                                    left: Box::new(left),
-                                    right: Box::new(right),
-                                },
-                                ty: ValueType::Float,
-                            }))
-                        }
-                    };
+                        },
+                    )?;
+                    return Ok(Self::lower_builtin_rule(rule, tir_args));
                 }
 
                 let scope_type = self.lookup(&func_name).cloned().ok_or_else(|| {
@@ -595,6 +405,72 @@ impl Lowering {
     }
 
     // ── call argument checking ─────────────────────────────────────────
+
+    fn lower_builtin_rule(
+        rule: type_rules::BuiltinCallRule,
+        mut tir_args: Vec<TirExpr>,
+    ) -> CallResult {
+        match rule {
+            type_rules::BuiltinCallRule::Identity => {
+                let arg = tir_args
+                    .into_iter()
+                    .next()
+                    .expect("ICE: identity conversion expects one arg");
+                CallResult::Expr(arg)
+            }
+            type_rules::BuiltinCallRule::ExternalCall { func, return_type } => {
+                CallResult::Expr(TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func,
+                        args: tir_args,
+                    },
+                    ty: return_type,
+                })
+            }
+            type_rules::BuiltinCallRule::FoldExternalCall { func, return_type } => {
+                let mut iter = tir_args.into_iter();
+                let mut acc = iter
+                    .next()
+                    .expect("ICE: FoldExternalCall expects at least two args");
+                for arg in iter {
+                    acc = TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func,
+                            args: vec![acc, arg],
+                        },
+                        ty: return_type.clone(),
+                    };
+                }
+                CallResult::Expr(acc)
+            }
+            type_rules::BuiltinCallRule::PrimitiveCast { target_type } => {
+                let arg = tir_args
+                    .into_iter()
+                    .next()
+                    .expect("ICE: primitive cast expects one arg");
+                let cast_kind = Self::compute_cast_kind(&arg.ty, &target_type);
+                CallResult::Expr(TirExpr {
+                    kind: TirExprKind::Cast {
+                        kind: cast_kind,
+                        arg: Box::new(arg),
+                    },
+                    ty: target_type,
+                })
+            }
+            type_rules::BuiltinCallRule::PowFloat => {
+                let right = tir_args.remove(1);
+                let left = tir_args.remove(0);
+                CallResult::Expr(TirExpr {
+                    kind: TirExprKind::BinOp {
+                        op: TypedBinOp::FloatArith(FloatArithOp::Pow),
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    ty: ValueType::Float,
+                })
+            }
+        }
+    }
 
     fn check_call_args(
         &self,

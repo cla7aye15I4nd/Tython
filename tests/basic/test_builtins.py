@@ -37,6 +37,11 @@ def test_min_float() -> None:
     assert x == 1.5
 
 
+def test_min_int_variadic() -> None:
+    x: int = min(9, 3, 7, 4)
+    assert x == 3
+
+
 def test_max_int() -> None:
     x: int = max(3, 7)
     print(x)
@@ -46,6 +51,11 @@ def test_max_int() -> None:
 def test_max_float() -> None:
     x: float = max(2.5, 1.5)
     assert x == 2.5
+
+
+def test_max_float_variadic() -> None:
+    x: float = max(2.5, 1.5, 9.0, 3.0)
+    assert x == 9.0
 
 
 def test_pow_builtin_int() -> None:
@@ -71,6 +81,14 @@ def test_round_down() -> None:
     assert x == 3
 
 
+def test_print_variadic() -> None:
+    print("vals", 1, 2, 3, True)
+
+
+def test_print_empty() -> None:
+    print()
+
+
 def run_tests() -> None:
     test_abs_int_pos()
     test_abs_int_neg()
@@ -79,9 +97,13 @@ def run_tests() -> None:
     test_min_int()
     test_min_int_equal()
     test_min_float()
+    test_min_int_variadic()
     test_max_int()
     test_max_float()
+    test_max_float_variadic()
     test_pow_builtin_int()
     test_pow_builtin_float()
     test_round_up()
     test_round_down()
+    test_print_variadic()
+    test_print_empty()
