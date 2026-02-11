@@ -3,7 +3,7 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, FloatType, IntType, StructType};
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue, ValueKind};
+use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel};
 use std::collections::HashMap;
 use std::path::Path;
@@ -155,29 +155,36 @@ impl<'ctx> Codegen<'ctx> {
         ty: &ValueType,
         label: &str,
     ) -> inkwell::values::IntValue<'ctx> {
-        match ty {
-            ValueType::Float => self.build_float_truthiness_check(value.into_float_value(), label),
-            ValueType::Str | ValueType::Bytes | ValueType::ByteArray => {
-                use crate::tir::builtin::BuiltinFn;
-                let len_fn = match ty {
-                    ValueType::Str => BuiltinFn::StrLen,
-                    ValueType::Bytes => BuiltinFn::BytesLen,
-                    ValueType::ByteArray => BuiltinFn::ByteArrayLen,
-                    _ => unreachable!(),
-                };
-                let func = self.get_or_declare_function(
-                    len_fn.symbol(),
-                    &len_fn.param_types(),
-                    len_fn.return_type(),
-                );
-                let call = self
-                    .builder
-                    .build_call(func, &[value.into()], "len_truth")
-                    .unwrap();
-                let len_val = self.extract_call_value(call).into_int_value();
-                self.build_int_truthiness_check(len_val, label)
-            }
-            _ => self.build_int_truthiness_check(value.into_int_value(), label),
+        macro_rules! seq_truthiness {
+            ($($variant:ident => $builtin:ident),+ $(,)?) => {
+                match ty {
+                    ValueType::Float => self.build_float_truthiness_check(value.into_float_value(), label),
+                    $(
+                        ValueType::$variant => {
+                            use crate::tir::builtin::BuiltinFn;
+                            let len_fn = BuiltinFn::$builtin;
+                            let func = self.get_or_declare_function(
+                                len_fn.symbol(),
+                                &len_fn.param_types(),
+                                len_fn.return_type(),
+                            );
+                            let call = self
+                                .builder
+                                .build_call(func, &[value.into()], "len_truth")
+                                .unwrap();
+                            let len_val = self.extract_call_value(call).into_int_value();
+                            self.build_int_truthiness_check(len_val, label)
+                        }
+                    )+
+                    ValueType::Class(_) => self.i64_type().const_int(1, false),
+                    _ => self.build_int_truthiness_check(value.into_int_value(), label),
+                }
+            };
+        }
+        seq_truthiness! {
+            Str => StrLen,
+            Bytes => BytesLen,
+            ByteArray => ByteArrayLen,
         }
     }
 
@@ -187,10 +194,7 @@ impl<'ctx> Codegen<'ctx> {
         &self,
         call_site: inkwell::values::CallSiteValue<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        match call_site.try_as_basic_value() {
-            ValueKind::Basic(val) => val,
-            ValueKind::Instruction(_) => unreachable!("call to non-void function returned void"),
-        }
+        call_site.try_as_basic_value().basic().unwrap()
     }
 
     fn branch_if_unterminated(&self, target: inkwell::basic_block::BasicBlock<'ctx>) -> bool {
@@ -348,34 +352,10 @@ impl<'ctx> Codegen<'ctx> {
         let entry = self.context.append_basic_block(c_main, "entry");
         self.builder.position_at_end(entry);
 
-        match self.module.get_function(entry_main_name) {
-            Some(entry_fn) => {
-                let result = self.builder.build_call(entry_fn, &[], "call_main").unwrap();
-
-                // Check if the entry function returns void via LLVM type
-                if entry_fn.get_type().get_return_type().is_none() {
-                    self.builder
-                        .build_return(Some(&self.context.i32_type().const_int(0, false)))
-                        .unwrap();
-                } else {
-                    let return_val = self.extract_call_value(result);
-                    let i32_result = self
-                        .builder
-                        .build_int_cast(
-                            return_val.into_int_value(),
-                            self.context.i32_type(),
-                            "cast_to_i32",
-                        )
-                        .unwrap();
-                    self.builder.build_return(Some(&i32_result)).unwrap();
-                }
-            }
-            None => {
-                // No entry function — return 0
-                self.builder
-                    .build_return(Some(&self.context.i32_type().const_int(0, false)))
-                    .unwrap();
-            }
-        }
+        let entry_fn = self.module.get_function(entry_main_name).unwrap();
+        self.builder.build_call(entry_fn, &[], "call_main").unwrap();
+        self.builder
+            .build_return(Some(&self.context.i32_type().const_int(0, false)))
+            .unwrap();
     }
 }
