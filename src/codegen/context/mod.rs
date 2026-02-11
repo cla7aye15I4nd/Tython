@@ -705,15 +705,26 @@ impl<'ctx> Codegen<'ctx> {
             self.codegen_stmt(stmt);
         }
 
-        if func.return_type.is_none()
-            && self
-                .builder
-                .get_insert_block()
-                .unwrap()
-                .get_terminator()
-                .is_none()
-        {
-            self.builder.build_return(None).unwrap();
+        let current_bb = self.builder.get_insert_block().unwrap();
+        if current_bb.get_terminator().is_none() {
+            if func.return_type.is_none() {
+                self.builder.build_return(None).unwrap();
+            } else {
+                // All reachable paths already returned a value; this block
+                // is dead (e.g. the merge point after a try/catch where
+                // every branch returns).  Add `unreachable` so the block
+                // is well-formed LLVM IR.
+                self.builder.build_unreachable().unwrap();
+            }
+        }
+
+        // Patch any other unterminated blocks (e.g. dead merge blocks
+        // created by try/catch or control-flow lowering).
+        for bb in function.get_basic_blocks() {
+            if bb.get_terminator().is_none() {
+                self.builder.position_at_end(bb);
+                self.builder.build_unreachable().unwrap();
+            }
         }
     }
 

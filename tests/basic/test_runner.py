@@ -34,6 +34,7 @@ import basic.test_for as test_for
 import basic.test_comprehension as test_comprehension
 import basic.test_exception_iter_stress as test_exception_iter_stress
 import basic.test_callable as test_callable
+import basic.test_codegen_edges as test_codegen_edges
 
 
 def run_all_tests() -> None:
@@ -73,3 +74,4 @@ def run_all_tests() -> None:
     test_comprehension.run_tests()
     test_exception_iter_stress.run_tests()
     test_callable.run_tests()
+    test_codegen_edges.run_tests()
