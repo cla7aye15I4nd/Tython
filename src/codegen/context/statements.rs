@@ -46,12 +46,26 @@ impl<'ctx> Codegen<'ctx> {
                         &builtin_fn.param_types(),
                         builtin_fn.return_type(),
                     );
-                    if matches!(builtin_fn, BuiltinFn::ListAppend) {
+                    if matches!(builtin_fn, BuiltinFn::ListAppend | BuiltinFn::ListRemove) {
+                        // list, value — value needs bitcast to i64
                         let list_val = self.codegen_expr(&args[0]);
                         let elem_val = self.codegen_expr(&args[1]);
                         let i64_val = self.bitcast_to_i64(elem_val, &args[1].ty);
                         self.builder
-                            .build_call(function, &[list_val.into(), i64_val.into()], "list_append")
+                            .build_call(function, &[list_val.into(), i64_val.into()], "list_method")
+                            .unwrap();
+                    } else if matches!(builtin_fn, BuiltinFn::ListInsert) {
+                        // list, index, value — value needs bitcast to i64
+                        let list_val = self.codegen_expr(&args[0]);
+                        let idx_val = self.codegen_expr(&args[1]);
+                        let elem_val = self.codegen_expr(&args[2]);
+                        let i64_val = self.bitcast_to_i64(elem_val, &args[2].ty);
+                        self.builder
+                            .build_call(
+                                function,
+                                &[list_val.into(), idx_val.into(), i64_val.into()],
+                                "list_insert",
+                            )
                             .unwrap();
                     } else {
                         let arg_metadata = self.codegen_call_args(args);
@@ -154,7 +168,9 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirStmt::While {
-                condition, body, ..
+                condition,
+                body,
+                else_body,
             } => {
                 let function = self
                     .builder
@@ -165,6 +181,11 @@ impl<'ctx> Codegen<'ctx> {
 
                 let header_bb = self.context.append_basic_block(function, "while.header");
                 let body_bb = self.context.append_basic_block(function, "while.body");
+                let else_bb = if !else_body.is_empty() {
+                    Some(self.context.append_basic_block(function, "while.else"))
+                } else {
+                    None
+                };
                 let after_bb = self.context.append_basic_block(function, "while.after");
 
                 self.builder.build_unconditional_branch(header_bb).unwrap();
@@ -173,17 +194,26 @@ impl<'ctx> Codegen<'ctx> {
                 let cond_val = self.codegen_expr(condition);
                 let cond_bool =
                     self.build_truthiness_check_for_value(cond_val, &condition.ty, "whilecond");
+                let false_dest = else_bb.unwrap_or(after_bb);
                 self.builder
-                    .build_conditional_branch(cond_bool, body_bb, after_bb)
+                    .build_conditional_branch(cond_bool, body_bb, false_dest)
                     .unwrap();
 
                 self.builder.position_at_end(body_bb);
-                self.loop_stack.push((header_bb, after_bb));
+                self.loop_stack.push((header_bb, after_bb)); // break → after (skips else)
                 for s in body {
                     self.codegen_stmt(s);
                 }
                 self.loop_stack.pop();
                 self.branch_if_unterminated(header_bb);
+
+                if let Some(else_bb) = else_bb {
+                    self.builder.position_at_end(else_bb);
+                    for s in else_body {
+                        self.codegen_stmt(s);
+                    }
+                    self.branch_if_unterminated(after_bb);
+                }
 
                 self.builder.position_at_end(after_bb);
             }
@@ -194,7 +224,7 @@ impl<'ctx> Codegen<'ctx> {
                 stop_var,
                 step_var,
                 body,
-                ..
+                else_body,
             } => {
                 let function = self
                     .builder
@@ -206,6 +236,11 @@ impl<'ctx> Codegen<'ctx> {
                 let header_bb = self.context.append_basic_block(function, "for.header");
                 let body_bb = self.context.append_basic_block(function, "for.body");
                 let incr_bb = self.context.append_basic_block(function, "for.incr");
+                let else_bb = if !else_body.is_empty() {
+                    Some(self.context.append_basic_block(function, "for.else"))
+                } else {
+                    None
+                };
                 let after_bb = self.context.append_basic_block(function, "for.after");
 
                 let loop_ptr = if let Some(&existing_ptr) = self.variables.get(loop_var.as_str()) {
@@ -261,12 +296,13 @@ impl<'ctx> Codegen<'ctx> {
                     .build_select(step_pos, cond_pos, cond_neg, "for.cond")
                     .unwrap()
                     .into_int_value();
+                let false_dest = else_bb.unwrap_or(after_bb);
                 self.builder
-                    .build_conditional_branch(cond, body_bb, after_bb)
+                    .build_conditional_branch(cond, body_bb, false_dest)
                     .unwrap();
 
                 self.builder.position_at_end(body_bb);
-                self.loop_stack.push((incr_bb, after_bb));
+                self.loop_stack.push((incr_bb, after_bb)); // break → after (skips else)
                 for s in body {
                     self.codegen_stmt(s);
                 }
@@ -290,6 +326,14 @@ impl<'ctx> Codegen<'ctx> {
                     .unwrap();
                 self.builder.build_store(loop_ptr, i_next).unwrap();
                 self.builder.build_unconditional_branch(header_bb).unwrap();
+
+                if let Some(else_bb) = else_bb {
+                    self.builder.position_at_end(else_bb);
+                    for s in else_body {
+                        self.codegen_stmt(s);
+                    }
+                    self.branch_if_unterminated(after_bb);
+                }
 
                 self.builder.position_at_end(after_bb);
             }
@@ -334,8 +378,49 @@ impl<'ctx> Codegen<'ctx> {
                             .unwrap();
                         self.builder.build_unreachable().unwrap();
                     }
+                } else if let Some((tag_alloca, msg_alloca)) = self.reraise_state {
+                    // Bare raise inside except handler: re-raise saved exception
+                    let tag_val = self
+                        .builder
+                        .build_load(self.i64_type(), tag_alloca, "reraise_tag")
+                        .unwrap();
+                    let msg_val = self
+                        .builder
+                        .build_load(
+                            self.context.ptr_type(AddressSpace::default()),
+                            msg_alloca,
+                            "reraise_msg",
+                        )
+                        .unwrap();
+                    let raise_fn = self.get_or_declare_exc_raise();
+                    if self.try_depth > 0 {
+                        let function = self
+                            .builder
+                            .get_insert_block()
+                            .unwrap()
+                            .get_parent()
+                            .unwrap();
+                        let dead_bb = self.context.append_basic_block(function, "reraise.dead");
+                        let unwind_bb = *self.unwind_dest_stack.last().unwrap();
+                        self.builder
+                            .build_invoke(
+                                raise_fn,
+                                &[tag_val, msg_val],
+                                dead_bb,
+                                unwind_bb,
+                                "reraise",
+                            )
+                            .unwrap();
+                        self.builder.position_at_end(dead_bb);
+                        self.builder.build_unreachable().unwrap();
+                    } else {
+                        self.builder
+                            .build_call(raise_fn, &[tag_val.into(), msg_val.into()], "reraise")
+                            .unwrap();
+                        self.builder.build_unreachable().unwrap();
+                    }
                 } else {
-                    // Bare raise: re-raise via __cxa_rethrow
+                    // Bare raise outside except handler: use __cxa_rethrow as fallback
                     let rethrow_fn = self.get_or_declare_cxa_rethrow();
                     self.builder.build_call(rethrow_fn, &[], "rethrow").unwrap();
                     self.builder.build_unreachable().unwrap();
@@ -346,9 +431,9 @@ impl<'ctx> Codegen<'ctx> {
             TirStmt::TryCatch {
                 try_body,
                 except_clauses,
+                else_body,
                 finally_body,
                 has_finally,
-                ..
             } => {
                 let function = self
                     .builder
@@ -378,6 +463,14 @@ impl<'ctx> Codegen<'ctx> {
                 };
                 let after_bb = self.context.append_basic_block(function, "try.after");
                 let target_bb = finally_bb.unwrap_or(after_bb);
+
+                let try_else_bb = if !else_body.is_empty() {
+                    Some(self.context.append_basic_block(function, "try.else"))
+                } else {
+                    None
+                };
+                // try body normal exit → else (if present) → target
+                let try_exit_dest = try_else_bb.unwrap_or(target_bb);
 
                 // Allocas for catch state
                 let caught_alloca = self.build_entry_block_alloca(ptr_type.into(), "caught_alloca");
@@ -409,7 +502,16 @@ impl<'ctx> Codegen<'ctx> {
 
                 self.try_depth -= 1;
                 self.unwind_dest_stack.pop();
-                self.branch_if_unterminated(target_bb);
+                self.branch_if_unterminated(try_exit_dest);
+
+                // ── Try else block ──────────────────────────────────────
+                if let Some(try_else_bb) = try_else_bb {
+                    self.builder.position_at_end(try_else_bb);
+                    for s in else_body {
+                        self.codegen_stmt(s);
+                    }
+                    self.branch_if_unterminated(target_bb);
+                }
 
                 // ── Landing pad ───────────────────────────────────────────
                 self.builder.position_at_end(landingpad_bb);
@@ -515,19 +617,53 @@ impl<'ctx> Codegen<'ctx> {
                 }
 
                 // ── Handler bodies ────────────────────────────────────────
+                // Allocas to save exception state for bare `raise` re-raise
+                let reraise_tag_alloca =
+                    self.build_entry_block_alloca(self.i64_type().into(), "reraise_tag");
+                let reraise_msg_alloca =
+                    self.build_entry_block_alloca(ptr_type.into(), "reraise_msg");
+                let caught_type_tag_fn = self.get_or_declare_caught_type_tag();
+
+                let prev_reraise_state = self.reraise_state;
+
                 for (i, clause) in except_clauses.iter().enumerate() {
                     self.builder.position_at_end(handler_bbs[i]);
 
+                    // Save exception type_tag and message before end_catch
+                    // so bare `raise` in handler body can re-raise
+                    let caught_reload = self
+                        .builder
+                        .build_load(ptr_type, caught_alloca, "caught_for_reraise")
+                        .unwrap();
+                    let tag = self
+                        .builder
+                        .build_call(
+                            caught_type_tag_fn,
+                            &[caught_reload.into()],
+                            "reraise_tag_val",
+                        )
+                        .unwrap();
+                    let tag_val = self.extract_call_value(tag);
+                    self.builder
+                        .build_store(reraise_tag_alloca, tag_val)
+                        .unwrap();
+
+                    let msg = self
+                        .builder
+                        .build_call(
+                            caught_message_fn,
+                            &[caught_reload.into()],
+                            "reraise_msg_val",
+                        )
+                        .unwrap();
+                    let msg_val = self.extract_call_value(msg);
+                    self.builder
+                        .build_store(reraise_msg_alloca, msg_val)
+                        .unwrap();
+
+                    self.reraise_state = Some((reraise_tag_alloca, reraise_msg_alloca));
+
                     if let Some(var_name) = &clause.var_name {
-                        let caught_reload = self
-                            .builder
-                            .build_load(ptr_type, caught_alloca, "caught_for_msg")
-                            .unwrap();
-                        let msg = self
-                            .builder
-                            .build_call(caught_message_fn, &[caught_reload.into()], "exc_msg")
-                            .unwrap();
-                        let msg_val = self.extract_call_value(msg);
                         let alloca = self.build_entry_block_alloca(ptr_type.into(), var_name);
                         self.builder.build_store(alloca, msg_val).unwrap();
                         self.variables.insert(var_name.clone(), alloca);
@@ -543,6 +679,8 @@ impl<'ctx> Codegen<'ctx> {
                     }
                     self.branch_if_unterminated(target_bb);
                 }
+
+                self.reraise_state = prev_reraise_state;
 
                 // ── Unhandled block ───────────────────────────────────────
                 self.builder.position_at_end(unhandled_bb);
@@ -604,7 +742,7 @@ impl<'ctx> Codegen<'ctx> {
                 index_var,
                 len_var,
                 body,
-                ..
+                else_body,
             } => {
                 let function = self
                     .builder
@@ -616,6 +754,11 @@ impl<'ctx> Codegen<'ctx> {
                 let header_bb = self.context.append_basic_block(function, "forlist.header");
                 let body_bb = self.context.append_basic_block(function, "forlist.body");
                 let incr_bb = self.context.append_basic_block(function, "forlist.incr");
+                let else_bb = if !else_body.is_empty() {
+                    Some(self.context.append_basic_block(function, "forlist.else"))
+                } else {
+                    None
+                };
                 let after_bb = self.context.append_basic_block(function, "forlist.after");
 
                 // Get list pointer
@@ -688,8 +831,9 @@ impl<'ctx> Codegen<'ctx> {
                     .builder
                     .build_int_compare(IntPredicate::SLT, idx_val, len_loaded, "forlist.cond")
                     .unwrap();
+                let forlist_false_dest = else_bb.unwrap_or(after_bb);
                 self.builder
-                    .build_conditional_branch(cond, body_bb, after_bb)
+                    .build_conditional_branch(cond, body_bb, forlist_false_dest)
                     .unwrap();
 
                 // Body: loop_var = list_get(list, idx)
@@ -729,7 +873,7 @@ impl<'ctx> Codegen<'ctx> {
                 self.builder.build_store(loop_var_ptr, elem_val).unwrap();
 
                 // Body statements
-                self.loop_stack.push((incr_bb, after_bb));
+                self.loop_stack.push((incr_bb, after_bb)); // break → after (skips else)
                 for s in body {
                     self.codegen_stmt(s);
                 }
@@ -758,6 +902,14 @@ impl<'ctx> Codegen<'ctx> {
                 self.builder.build_store(idx_alloca, idx_next).unwrap();
                 self.builder.build_unconditional_branch(header_bb).unwrap();
 
+                if let Some(else_bb) = else_bb {
+                    self.builder.position_at_end(else_bb);
+                    for s in else_body {
+                        self.codegen_stmt(s);
+                    }
+                    self.branch_if_unterminated(after_bb);
+                }
+
                 self.builder.position_at_end(after_bb);
             }
 
@@ -768,7 +920,7 @@ impl<'ctx> Codegen<'ctx> {
                 iterator_class,
                 next_mangled,
                 body,
-                ..
+                else_body,
             } => {
                 let function = self
                     .builder
@@ -795,6 +947,11 @@ impl<'ctx> Codegen<'ctx> {
                 let stop_bb = self.context.append_basic_block(function, "foriter.stop");
                 let reraise_bb = self.context.append_basic_block(function, "foriter.reraise");
                 let body_bb = self.context.append_basic_block(function, "foriter.body");
+                let else_bb = if !else_body.is_empty() {
+                    Some(self.context.append_basic_block(function, "foriter.else"))
+                } else {
+                    None
+                };
                 let after_bb = self.context.append_basic_block(function, "foriter.after");
 
                 let iter_ptr = self.variables[iterator_var.as_str()];
@@ -882,13 +1039,14 @@ impl<'ctx> Codegen<'ctx> {
                     .build_conditional_branch(is_stop, stop_bb, reraise_bb)
                     .unwrap();
 
-                // ── Stop: end catch and exit loop ─────────────────────────
+                // ── Stop: end catch and exit loop (→ else or after) ─────
                 self.builder.position_at_end(stop_bb);
                 let end_catch = self.get_or_declare_cxa_end_catch();
                 self.builder
                     .build_call(end_catch, &[], "foriter.end_catch")
                     .unwrap();
-                self.builder.build_unconditional_branch(after_bb).unwrap();
+                let stop_dest = else_bb.unwrap_or(after_bb);
+                self.builder.build_unconditional_branch(stop_dest).unwrap();
 
                 // ── Re-raise: not StopIteration ───────────────────────────
                 self.builder.position_at_end(reraise_bb);
@@ -903,12 +1061,20 @@ impl<'ctx> Codegen<'ctx> {
 
                 // ── Body ──────────────────────────────────────────────────
                 self.builder.position_at_end(body_bb);
-                self.loop_stack.push((call_next_bb, after_bb));
+                self.loop_stack.push((call_next_bb, after_bb)); // break → after (skips else)
                 for s in body {
                     self.codegen_stmt(s);
                 }
                 self.loop_stack.pop();
                 self.branch_if_unterminated(call_next_bb);
+
+                if let Some(else_bb) = else_bb {
+                    self.builder.position_at_end(else_bb);
+                    for s in else_body {
+                        self.codegen_stmt(s);
+                    }
+                    self.branch_if_unterminated(after_bb);
+                }
 
                 self.builder.position_at_end(after_bb);
             }

@@ -118,3 +118,42 @@ void __tython_bytearray_extend(TythonByteArray* ba, TythonBytes* other) {
 void __tython_bytearray_clear(TythonByteArray* ba) {
     ba->len = 0;
 }
+
+void __tython_bytearray_insert(TythonByteArray* ba, int64_t index, int64_t byte_val) {
+    if (index < 0) index = ba->len + index;
+    if (index < 0) index = 0;
+    if (index > ba->len) index = ba->len;
+    if (ba->len >= ba->capacity) {
+        int64_t new_cap = ba->capacity * 2;
+        if (new_cap < 8) new_cap = 8;
+        uint8_t* new_data = (uint8_t*)__tython_malloc(new_cap);
+        memcpy(new_data, ba->data, (size_t)ba->len);
+        free(ba->data);
+        ba->data = new_data;
+        ba->capacity = new_cap;
+    }
+    memmove(ba->data + index + 1, ba->data + index, (size_t)(ba->len - index));
+    ba->data[index] = (uint8_t)(byte_val & 0xFF);
+    ba->len++;
+}
+
+void __tython_bytearray_remove(TythonByteArray* ba, int64_t byte_val) {
+    uint8_t target = (uint8_t)(byte_val & 0xFF);
+    for (int64_t i = 0; i < ba->len; i++) {
+        if (ba->data[i] == target) {
+            memmove(ba->data + i, ba->data + i + 1, (size_t)(ba->len - i - 1));
+            ba->len--;
+            return;
+        }
+    }
+    fprintf(stderr, "ValueError: value not found in bytearray\n");
+    exit(1);
+}
+
+void __tython_bytearray_reverse(TythonByteArray* ba) {
+    for (int64_t i = 0, j = ba->len - 1; i < j; i++, j--) {
+        uint8_t tmp = ba->data[i];
+        ba->data[i] = ba->data[j];
+        ba->data[j] = tmp;
+    }
+}

@@ -29,96 +29,6 @@ impl Lowering {
                     return Err(self.syntax_error(line, "print() can only be used as a statement"));
                 }
 
-                // iter(obj) → obj.__iter__()
-                if func_name == "iter" {
-                    if tir_args.len() != 1 {
-                        return Err(self.type_error(
-                            line,
-                            format!("iter() expects 1 argument, got {}", tir_args.len()),
-                        ));
-                    }
-                    let arg = tir_args.remove(0);
-                    match &arg.ty {
-                        ValueType::Class(class_name) => {
-                            let class_info = self.lookup_class(line, class_name)?;
-                            let iter_method =
-                                class_info.methods.get("__iter__").ok_or_else(|| {
-                                    self.type_error(
-                                        line,
-                                        format!(
-                                            "class `{}` does not implement `__iter__`",
-                                            class_name
-                                        ),
-                                    )
-                                })?;
-                            let ret_ty = Self::to_value_type(&iter_method.return_type);
-                            let mangled = iter_method.mangled_name.clone();
-                            return Ok(CallResult::Expr(TirExpr {
-                                kind: TirExprKind::MethodCall {
-                                    object: Box::new(arg),
-                                    method_mangled_name: mangled,
-                                    args: vec![],
-                                },
-                                ty: ret_ty,
-                            }));
-                        }
-                        _ => {
-                            return Err(self.type_error(
-                                line,
-                                format!(
-                                    "iter() argument must be a class with `__iter__`, got `{}`",
-                                    arg.ty
-                                ),
-                            ))
-                        }
-                    }
-                }
-
-                // next(obj) → obj.__next__()
-                if func_name == "next" {
-                    if tir_args.len() != 1 {
-                        return Err(self.type_error(
-                            line,
-                            format!("next() expects 1 argument, got {}", tir_args.len()),
-                        ));
-                    }
-                    let arg = tir_args.remove(0);
-                    match &arg.ty {
-                        ValueType::Class(class_name) => {
-                            let class_info = self.lookup_class(line, class_name)?;
-                            let next_method =
-                                class_info.methods.get("__next__").ok_or_else(|| {
-                                    self.type_error(
-                                        line,
-                                        format!(
-                                            "class `{}` does not implement `__next__`",
-                                            class_name
-                                        ),
-                                    )
-                                })?;
-                            let ret_ty = Self::to_value_type(&next_method.return_type);
-                            let mangled = next_method.mangled_name.clone();
-                            return Ok(CallResult::Expr(TirExpr {
-                                kind: TirExprKind::MethodCall {
-                                    object: Box::new(arg),
-                                    method_mangled_name: mangled,
-                                    args: vec![],
-                                },
-                                ty: ret_ty,
-                            }));
-                        }
-                        _ => {
-                            return Err(self.type_error(
-                                line,
-                                format!(
-                                    "next() argument must be a class with `__next__`, got `{}`",
-                                    arg.ty
-                                ),
-                            ))
-                        }
-                    }
-                }
-
                 if tir_args.len() == 1 && matches!(tir_args[0].ty, ValueType::Class(_)) {
                     if let Some(magic_rule) = type_rules::lookup_builtin_class_magic(&func_name) {
                         let arg = tir_args.remove(0);
@@ -130,6 +40,64 @@ impl Lowering {
                             &func_name,
                         )?));
                     }
+                }
+
+                // sorted(list) → copy + sort + return copy
+                if func_name == "sorted" {
+                    if tir_args.len() != 1 {
+                        return Err(self.type_error(
+                            line,
+                            format!("sorted() expects 1 argument, got {}", tir_args.len()),
+                        ));
+                    }
+                    let list_arg = tir_args.remove(0);
+                    let inner = match &list_arg.ty {
+                        ValueType::List(inner) => inner.clone(),
+                        other => {
+                            return Err(self.type_error(
+                                line,
+                                format!("sorted() requires a list, got `{}`", other),
+                            ));
+                        }
+                    };
+                    let sort_fn = match inner.as_ref() {
+                        ValueType::Int | ValueType::Bool => builtin::BuiltinFn::ListSortInt,
+                        ValueType::Float => builtin::BuiltinFn::ListSortFloat,
+                        _ => {
+                            return Err(self.type_error(
+                                line,
+                                format!("sorted() not supported for list[{}]", inner),
+                            ));
+                        }
+                    };
+                    let list_ty = ValueType::List(inner);
+                    let tmp_name = self.fresh_internal("sorted");
+                    // copy
+                    let copy_expr = TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::ListCopy,
+                            args: vec![list_arg],
+                        },
+                        ty: list_ty.clone(),
+                    };
+                    self.pre_stmts.push(TirStmt::Let {
+                        name: tmp_name.clone(),
+                        ty: list_ty.clone(),
+                        value: copy_expr,
+                    });
+                    // sort in-place
+                    self.pre_stmts.push(TirStmt::VoidCall {
+                        target: CallTarget::Builtin(sort_fn),
+                        args: vec![TirExpr {
+                            kind: TirExprKind::Var(tmp_name.clone()),
+                            ty: list_ty.clone(),
+                        }],
+                    });
+                    // return the sorted copy
+                    return Ok(CallResult::Expr(TirExpr {
+                        kind: TirExprKind::Var(tmp_name),
+                        ty: list_ty,
+                    }));
                 }
 
                 if type_rules::is_builtin_call(&func_name) {
@@ -364,135 +332,24 @@ impl Lowering {
                             }))
                         }
                     }
-                    ValueType::ByteArray => match attr.as_str() {
-                        "append" => {
-                            if tir_args.len() != 1 {
-                                return Err(self.type_error(
-                                    line,
-                                    format!(
-                                        "bytearray.append() expects 1 argument, got {}",
-                                        tir_args.len()
-                                    ),
-                                ));
-                            }
-                            if tir_args[0].ty != ValueType::Int {
-                                return Err(self.type_error(
-                                    line,
-                                    format!(
-                                        "bytearray.append() expects `int`, got `{}`",
-                                        tir_args[0].ty
-                                    ),
-                                ));
-                            }
-                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                                target: CallTarget::Builtin(builtin::BuiltinFn::ByteArrayAppend),
-                                args: vec![obj_expr, tir_args.remove(0)],
-                            })))
-                        }
-                        "extend" => {
-                            if tir_args.len() != 1 {
-                                return Err(self.type_error(
-                                    line,
-                                    format!(
-                                        "bytearray.extend() expects 1 argument, got {}",
-                                        tir_args.len()
-                                    ),
-                                ));
-                            }
-                            if tir_args[0].ty != ValueType::Bytes {
-                                return Err(self.type_error(
-                                    line,
-                                    format!(
-                                        "bytearray.extend() expects `bytes`, got `{}`",
-                                        tir_args[0].ty
-                                    ),
-                                ));
-                            }
-                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                                target: CallTarget::Builtin(builtin::BuiltinFn::ByteArrayExtend),
-                                args: vec![obj_expr, tir_args.remove(0)],
-                            })))
-                        }
-                        "clear" => {
-                            if !tir_args.is_empty() {
-                                return Err(self.type_error(
-                                    line,
-                                    "bytearray.clear() takes no arguments".to_string(),
-                                ));
-                            }
-                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                                target: CallTarget::Builtin(builtin::BuiltinFn::ByteArrayClear),
-                                args: vec![obj_expr],
-                            })))
-                        }
-                        _ => Err(self
-                            .attribute_error(line, format!("bytearray has no method `{}`", attr))),
-                    },
-                    ValueType::List(inner) => {
-                        match attr.as_str() {
-                            "append" => {
-                                if !inner.is_primitive() {
-                                    return Err(self.type_error(
-                                    line,
-                                    format!(
-                                        "list[{}].append() is not supported; only list[int], list[float], list[bool] support append",
-                                        inner
-                                    ),
-                                ));
-                                }
-                                if tir_args.len() != 1 {
-                                    return Err(self.type_error(
-                                        line,
-                                        format!(
-                                            "list.append() expects 1 argument, got {}",
-                                            tir_args.len()
-                                        ),
-                                    ));
-                                }
-                                if tir_args[0].ty != *inner.as_ref() {
-                                    return Err(self.type_error(
-                                        line,
-                                        format!(
-                                            "list[{}].append() expects `{}`, got `{}`",
-                                            inner, inner, tir_args[0].ty
-                                        ),
-                                    ));
-                                }
-                                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                                    target: CallTarget::Builtin(builtin::BuiltinFn::ListAppend),
-                                    args: vec![obj_expr, tir_args.remove(0)],
-                                })))
-                            }
-                            "clear" => {
-                                if !tir_args.is_empty() {
-                                    return Err(self.type_error(
-                                        line,
-                                        "list.clear() takes no arguments".to_string(),
-                                    ));
-                                }
-                                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                                    target: CallTarget::Builtin(builtin::BuiltinFn::ListClear),
-                                    args: vec![obj_expr],
-                                })))
-                            }
-                            "pop" => {
-                                if !tir_args.is_empty() {
-                                    return Err(self.type_error(
-                                        line,
-                                        "list.pop() takes no arguments".to_string(),
-                                    ));
-                                }
-                                Ok(CallResult::Expr(TirExpr {
-                                    kind: TirExprKind::ExternalCall {
-                                        func: builtin::BuiltinFn::ListPop,
-                                        args: vec![obj_expr],
-                                    },
-                                    ty: (*inner).clone(),
-                                }))
-                            }
-                            _ => Err(self
-                                .attribute_error(line, format!("list has no method `{}`", attr))),
-                        }
+                    ValueType::ByteArray => self.lower_builtin_method_call(
+                        line,
+                        obj_expr,
+                        tir_args,
+                        &attr,
+                        "bytearray",
+                        type_rules::lookup_bytearray_method(&attr),
+                    ),
+                    ValueType::List(ref inner) => {
+                        let type_name = format!("list[{}]", inner);
+                        self.lower_builtin_method_call(
+                            line,
+                            obj_expr,
+                            tir_args,
+                            &attr,
+                            &type_name,
+                            type_rules::lookup_list_method(inner, &attr),
+                        )
                     }
                     other => {
                         Err(self.type_error(line, format!("`{}` is not a class instance", other)))
@@ -677,7 +534,7 @@ impl Lowering {
         line: usize,
         object: TirExpr,
         method_names: &[&str],
-        expected_return_type: ValueType,
+        expected_return_type: Option<ValueType>,
         caller_name: &str,
     ) -> Result<TirExpr> {
         if method_names.is_empty() {
@@ -736,15 +593,20 @@ impl Lowering {
             ));
         }
 
-        if method.return_type != expected_return_type.to_type() {
-            return Err(self.type_error(
-                line,
-                format!(
-                    "{}.{}() must return `{}`, got `{}`",
-                    class_name, method.name, expected_return_type, method.return_type
-                ),
-            ));
-        }
+        let return_type = if let Some(ref expected) = expected_return_type {
+            if method.return_type != expected.to_type() {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "{}.{}() must return `{}`, got `{}`",
+                        class_name, method.name, expected, method.return_type
+                    ),
+                ));
+            }
+            expected.clone()
+        } else {
+            Self::to_value_type(&method.return_type)
+        };
 
         Ok(TirExpr {
             kind: TirExprKind::MethodCall {
@@ -752,7 +614,69 @@ impl Lowering {
                 method_mangled_name: method.mangled_name.clone(),
                 args: vec![],
             },
-            ty: expected_return_type,
+            ty: return_type,
+        })
+    }
+
+    /// Lower a method call on a builtin type using a resolved `MethodCallRule`.
+    fn lower_builtin_method_call(
+        &self,
+        line: usize,
+        obj_expr: TirExpr,
+        tir_args: Vec<TirExpr>,
+        method_name: &str,
+        type_name: &str,
+        lookup: Option<Result<type_rules::MethodCallRule, String>>,
+    ) -> Result<CallResult> {
+        let rule = match lookup {
+            Some(Ok(rule)) => rule,
+            Some(Err(msg)) => return Err(self.type_error(line, msg)),
+            None => {
+                return Err(self.attribute_error(
+                    line,
+                    format!("{} has no method `{}`", type_name, method_name),
+                ))
+            }
+        };
+
+        if tir_args.len() != rule.params.len() {
+            return Err(self.type_error(
+                line,
+                type_rules::method_call_arity_error(
+                    type_name,
+                    method_name,
+                    rule.params.len(),
+                    tir_args.len(),
+                ),
+            ));
+        }
+        for (arg, expected) in tir_args.iter().zip(rule.params.iter()) {
+            if arg.ty != *expected {
+                return Err(self.type_error(
+                    line,
+                    type_rules::method_call_type_error(type_name, method_name, expected, &arg.ty),
+                ));
+            }
+        }
+
+        let mut full_args = Vec::with_capacity(1 + tir_args.len());
+        full_args.push(obj_expr);
+        full_args.extend(tir_args);
+
+        Ok(match rule.result {
+            type_rules::MethodCallResult::Void(func) => {
+                CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                    target: CallTarget::Builtin(func),
+                    args: full_args,
+                }))
+            }
+            type_rules::MethodCallResult::Expr { func, return_type } => CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func,
+                    args: full_args,
+                },
+                ty: return_type,
+            }),
         })
     }
 }

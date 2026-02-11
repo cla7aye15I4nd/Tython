@@ -212,11 +212,9 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirExprKind::ExternalCall { func, args } => {
-                if matches!(
-                    func,
-                    crate::tir::builtin::BuiltinFn::ListPop
-                        | crate::tir::builtin::BuiltinFn::ListGet
-                ) {
+                use crate::tir::builtin::BuiltinFn;
+                if matches!(func, BuiltinFn::ListPop | BuiltinFn::ListGet) {
+                    // Return value is i64 slot — bitcast from i64 to actual type
                     let function = self.get_or_declare_function(
                         func.symbol(),
                         &func.param_types(),
@@ -225,10 +223,30 @@ impl<'ctx> Codegen<'ctx> {
                     let arg_metadata = self.codegen_call_args(args);
                     let call_site = self
                         .builder
-                        .build_call(function, &arg_metadata, "list_pop")
+                        .build_call(function, &arg_metadata, "list_get_elem")
                         .unwrap();
                     let i64_val = self.extract_call_value(call_site).into_int_value();
                     return self.bitcast_from_i64(i64_val, &expr.ty);
+                }
+
+                if matches!(
+                    func,
+                    BuiltinFn::ListContains | BuiltinFn::ListIndex | BuiltinFn::ListCount
+                ) {
+                    // args = [list, value] — value needs bitcast to i64
+                    let function = self.get_or_declare_function(
+                        func.symbol(),
+                        &func.param_types(),
+                        func.return_type(),
+                    );
+                    let list_val = self.codegen_expr(&args[0]);
+                    let elem_val = self.codegen_expr(&args[1]);
+                    let i64_val = self.bitcast_to_i64(elem_val, &args[1].ty);
+                    let call_site = self
+                        .builder
+                        .build_call(function, &[list_val.into(), i64_val.into()], "list_elem_op")
+                        .unwrap();
+                    return self.extract_call_value(call_site);
                 }
 
                 let function = self.get_or_declare_function(
@@ -310,6 +328,27 @@ impl<'ctx> Codegen<'ctx> {
                             right_val.into_float_value(),
                             "fcmp",
                         )
+                        .unwrap()
+                } else if left.ty.is_ref_type() {
+                    // Pointer comparison for reference types (is/is not)
+                    let left_int = self
+                        .builder
+                        .build_ptr_to_int(
+                            left_val.into_pointer_value(),
+                            self.i64_type(),
+                            "ptr_to_int_l",
+                        )
+                        .unwrap();
+                    let right_int = self
+                        .builder
+                        .build_ptr_to_int(
+                            right_val.into_pointer_value(),
+                            self.i64_type(),
+                            "ptr_to_int_r",
+                        )
+                        .unwrap();
+                    self.builder
+                        .build_int_compare(Self::int_predicate(op), left_int, right_int, "ptrcmp")
                         .unwrap()
                 } else {
                     self.builder

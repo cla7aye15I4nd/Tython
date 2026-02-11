@@ -863,6 +863,14 @@ impl Lowering {
             "AttributeError" => Some(10),
             "NotImplementedError" => Some(11),
             "NameError" => Some(12),
+            "ArithmeticError" => Some(13),
+            "LookupError" => Some(14),
+            "AssertionError" => Some(15),
+            "ImportError" => Some(16),
+            "ModuleNotFoundError" => Some(17),
+            "FileNotFoundError" => Some(18),
+            "PermissionError" => Some(19),
+            "OSError" | "IOError" => Some(20),
             _ => None,
         }
     }

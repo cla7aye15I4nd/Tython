@@ -58,6 +58,7 @@ void       __tython_print_str(TythonStr* s);
 TythonStr* __tython_str_from_int(int64_t v);
 TythonStr* __tython_str_from_float(double v);
 TythonStr* __tython_str_from_bool(int64_t v);
+int64_t    __tython_str_contains(TythonStr* haystack, TythonStr* needle);
 
 /* ── bytes ─────────────────────────────────────────────────────────── */
 
@@ -88,6 +89,9 @@ void             __tython_print_bytearray(TythonByteArray* ba);
 void             __tython_bytearray_append(TythonByteArray* ba, int64_t byte_val);
 void             __tython_bytearray_extend(TythonByteArray* ba, TythonBytes* other);
 void             __tython_bytearray_clear(TythonByteArray* ba);
+void             __tython_bytearray_insert(TythonByteArray* ba, int64_t index, int64_t byte_val);
+void             __tython_bytearray_remove(TythonByteArray* ba, int64_t byte_val);
+void             __tython_bytearray_reverse(TythonByteArray* ba);
 
 /* ── list ──────────────────────────────────────────────────────────── */
 
@@ -113,6 +117,23 @@ void        __tython_print_list_str(TythonList* lst);
 void        __tython_print_list_bytes(TythonList* lst);
 void        __tython_print_list_bytearray(TythonList* lst);
 
+int64_t     __tython_list_contains(TythonList* lst, int64_t value);
+void        __tython_list_insert(TythonList* lst, int64_t index, int64_t value);
+void        __tython_list_remove(TythonList* lst, int64_t value);
+int64_t     __tython_list_index(TythonList* lst, int64_t value);
+int64_t     __tython_list_count(TythonList* lst, int64_t value);
+void        __tython_list_reverse(TythonList* lst);
+void        __tython_list_sort_int(TythonList* lst);
+void        __tython_list_sort_float(TythonList* lst);
+void        __tython_list_extend(TythonList* lst, TythonList* other);
+TythonList* __tython_list_copy(TythonList* lst);
+int64_t     __tython_sum_int(TythonList* lst);
+double      __tython_sum_float(TythonList* lst);
+int64_t     __tython_sum_int_start(TythonList* lst, int64_t start);
+double      __tython_sum_float_start(TythonList* lst, double start);
+int64_t     __tython_all_list(TythonList* lst);
+int64_t     __tython_any_list(TythonList* lst);
+
 int64_t     __tython_list_eq_shallow(TythonList* a, TythonList* b);
 int64_t     __tython_list_eq_deep(TythonList* a, TythonList* b, int64_t depth);
 
@@ -131,6 +152,14 @@ int64_t     __tython_list_eq_deep(TythonList* a, TythonList* b, int64_t depth);
 #define TYTHON_EXC_ATTRIBUTE_ERROR 10
 #define TYTHON_EXC_NOT_IMPLEMENTED 11
 #define TYTHON_EXC_NAME_ERROR      12
+#define TYTHON_EXC_ARITHMETIC_ERROR 13
+#define TYTHON_EXC_LOOKUP_ERROR     14
+#define TYTHON_EXC_ASSERTION_ERROR  15
+#define TYTHON_EXC_IMPORT_ERROR     16
+#define TYTHON_EXC_MODULE_NOT_FOUND 17
+#define TYTHON_EXC_FILE_NOT_FOUND   18
+#define TYTHON_EXC_PERMISSION_ERROR 19
+#define TYTHON_EXC_OS_ERROR         20
 typedef struct {
     int64_t    type_tag;
     TythonStr* message;

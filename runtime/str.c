@@ -88,3 +88,13 @@ TythonStr* __tython_str_from_bool(int64_t v) {
         return __tython_str_new("False", 5);
     }
 }
+
+int64_t __tython_str_contains(TythonStr* haystack, TythonStr* needle) {
+    if (needle->len == 0) return 1;
+    if (needle->len > haystack->len) return 0;
+    for (int64_t i = 0; i <= haystack->len - needle->len; i++) {
+        if (memcmp(haystack->data + i, needle->data, (size_t)needle->len) == 0)
+            return 1;
+    }
+    return 0;
+}

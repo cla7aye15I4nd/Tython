@@ -40,6 +40,12 @@ pub fn is_builtin_call(name: &str) -> bool {
             | "pow"
             | "min"
             | "max"
+            | "sum"
+            | "all"
+            | "any"
+            | "sorted"
+            | "iter"
+            | "next"
     )
 }
 
@@ -192,6 +198,43 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
             func: BuiltinFn::RoundFloat,
             return_type: ValueType::Int,
         }),
+
+        ("sum", [ValueType::List(inner)]) => match inner.as_ref() {
+            ValueType::Int | ValueType::Bool => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::SumInt,
+                return_type: ValueType::Int,
+            }),
+            ValueType::Float => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::SumFloat,
+                return_type: ValueType::Float,
+            }),
+            _ => None,
+        },
+        ("sum", [ValueType::List(inner), ValueType::Int]) => match inner.as_ref() {
+            ValueType::Int | ValueType::Bool => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::SumIntStart,
+                return_type: ValueType::Int,
+            }),
+            _ => None,
+        },
+        ("sum", [ValueType::List(inner), ValueType::Float]) => match inner.as_ref() {
+            ValueType::Float => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::SumFloatStart,
+                return_type: ValueType::Float,
+            }),
+            _ => None,
+        },
+
+        ("all", [ValueType::List(_)]) => Some(BuiltinCallRule::ExternalCall {
+            func: BuiltinFn::AllList,
+            return_type: ValueType::Bool,
+        }),
+
+        ("any", [ValueType::List(_)]) => Some(BuiltinCallRule::ExternalCall {
+            func: BuiltinFn::AnyList,
+            return_type: ValueType::Bool,
+        }),
+
         _ => None,
     }
 }
@@ -281,6 +324,50 @@ pub fn builtin_call_error_message(name: &str, arg_types: &[&ValueType], provided
                 format!(
                     "{}() requires numeric arguments, got `{}`",
                     name, arg_types[0]
+                )
+            }
+        }
+        "sum" => {
+            if provided == 0 || provided > 2 {
+                format!("sum() expects 1 or 2 arguments, got {}", provided)
+            } else {
+                format!(
+                    "sum() requires a list of numbers and optional start value, got `{}`",
+                    arg_types[0]
+                )
+            }
+        }
+        "all" | "any" => {
+            if provided != 1 {
+                format!("{}() expects exactly 1 argument, got {}", name, provided)
+            } else {
+                format!("{}() requires a list, got `{}`", name, arg_types[0])
+            }
+        }
+        "sorted" => {
+            if provided != 1 {
+                format!("sorted() expects exactly 1 argument, got {}", provided)
+            } else {
+                format!("sorted() requires a list, got `{}`", arg_types[0])
+            }
+        }
+        "iter" => {
+            if provided != 1 {
+                format!("iter() expects 1 argument, got {}", provided)
+            } else {
+                format!(
+                    "iter() argument must be a class with `__iter__`, got `{}`",
+                    arg_types[0]
+                )
+            }
+        }
+        "next" => {
+            if provided != 1 {
+                format!("next() expects 1 argument, got {}", provided)
+            } else {
+                format!(
+                    "next() argument must be a class with `__next__`, got `{}`",
+                    arg_types[0]
                 )
             }
         }

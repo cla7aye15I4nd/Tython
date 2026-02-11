@@ -61,6 +61,18 @@ impl ValueType {
     pub fn is_primitive(&self) -> bool {
         matches!(self, ValueType::Int | ValueType::Float | ValueType::Bool)
     }
+
+    pub fn is_ref_type(&self) -> bool {
+        matches!(
+            self,
+            ValueType::Str
+                | ValueType::Bytes
+                | ValueType::ByteArray
+                | ValueType::List(_)
+                | ValueType::Tuple(_)
+                | ValueType::Class(_)
+        )
+    }
 }
 
 impl std::fmt::Display for ValueType {

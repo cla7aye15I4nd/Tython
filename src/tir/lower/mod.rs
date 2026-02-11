@@ -454,6 +454,10 @@ impl Lowering {
             "LtE" => Ok(CmpOp::LtEq),
             "Gt" => Ok(CmpOp::Gt),
             "GtE" => Ok(CmpOp::GtEq),
+            "In" => Ok(CmpOp::In),
+            "NotIn" => Ok(CmpOp::NotIn),
+            "Is" => Ok(CmpOp::Is),
+            "IsNot" => Ok(CmpOp::IsNot),
             _ => bail!("unsupported comparison operator: `{}`", op_type),
         }
     }

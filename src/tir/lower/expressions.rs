@@ -558,6 +558,65 @@ impl Lowering {
         left: TirExpr,
         right: TirExpr,
     ) -> Result<TirExpr> {
+        // `in` / `not in` — containment check (must be before seq comparison)
+        if matches!(cmp_op, CmpOp::In | CmpOp::NotIn) {
+            let contains_expr = match &right.ty {
+                ValueType::List(_inner) => TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::ListContains,
+                        args: vec![right, left],
+                    },
+                    ty: ValueType::Bool,
+                },
+                ValueType::Str => {
+                    if left.ty != ValueType::Str {
+                        return Err(self.type_error(
+                            line,
+                            format!("`in <str>` requires str operand, got `{}`", left.ty),
+                        ));
+                    }
+                    TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::StrContains,
+                            args: vec![right, left],
+                        },
+                        ty: ValueType::Bool,
+                    }
+                }
+                _ => {
+                    return Err(self
+                        .type_error(line, format!("`in` not supported for type `{}`", right.ty)));
+                }
+            };
+            if cmp_op == CmpOp::NotIn {
+                return Ok(TirExpr {
+                    kind: TirExprKind::UnaryOp {
+                        op: crate::tir::UnaryOpKind::Not,
+                        operand: Box::new(contains_expr),
+                    },
+                    ty: ValueType::Bool,
+                });
+            }
+            return Ok(contains_expr);
+        }
+
+        // `is` / `is not` — identity (pointer equality for ref types, value equality for primitives)
+        if matches!(cmp_op, CmpOp::Is | CmpOp::IsNot) {
+            let eq_op = if cmp_op == CmpOp::Is {
+                CmpOp::Eq
+            } else {
+                CmpOp::NotEq
+            };
+            return Ok(TirExpr {
+                kind: TirExprKind::Compare {
+                    op: eq_op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                ty: ValueType::Bool,
+            });
+        }
+
         // Sequence comparison: dispatch to runtime functions
         if let Some((eq_fn, cmp_fn)) = Self::seq_compare_builtins(&left.ty) {
             if left.ty != right.ty {

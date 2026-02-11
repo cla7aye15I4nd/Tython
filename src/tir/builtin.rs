@@ -79,6 +79,9 @@ define_builtins! {
     ByteArrayFromInt   => "__tython_bytearray_from_int",   params: [ValueType::Int],                             ret: Some(ValueType::ByteArray);
     ByteArrayFromBytes => "__tython_bytearray_from_bytes", params: [ValueType::Bytes],                           ret: Some(ValueType::ByteArray);
     ByteArrayEmpty     => "__tython_bytearray_empty",      params: [],                                           ret: Some(ValueType::ByteArray);
+    ByteArrayInsert    => "__tython_bytearray_insert",     params: [ValueType::ByteArray, ValueType::Int, ValueType::Int], ret: None;
+    ByteArrayRemove    => "__tython_bytearray_remove",     params: [ValueType::ByteArray, ValueType::Int],       ret: None;
+    ByteArrayReverse   => "__tython_bytearray_reverse",    params: [ValueType::ByteArray],                       ret: None;
 
     // list builtins (all List(...) map to ptr in LLVM; inner type is a sentinel)
     ListEmpty          => "__tython_list_empty",          params: [],                                                                                ret: Some(ValueType::List(Box::new(ValueType::Int)));
@@ -97,6 +100,31 @@ define_builtins! {
     // list equality
     ListEqShallow      => "__tython_list_eq_shallow",     params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
     ListEqDeep         => "__tython_list_eq_deep",        params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+
+    // list containment
+    ListContains       => "__tython_list_contains",       params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+
+    // str containment
+    StrContains        => "__tython_str_contains",        params: [ValueType::Str, ValueType::Str], ret: Some(ValueType::Bool);
+
+    // list methods
+    ListInsert         => "__tython_list_insert",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: None;
+    ListRemove         => "__tython_list_remove",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    ListIndex          => "__tython_list_index",          params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
+    ListCount          => "__tython_list_count",          params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
+    ListReverse        => "__tython_list_reverse",        params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
+    ListSortInt        => "__tython_list_sort_int",       params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
+    ListSortFloat      => "__tython_list_sort_float",     params: [ValueType::List(Box::new(ValueType::Float))], ret: None;
+    ListExtend         => "__tython_list_extend",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: None;
+    ListCopy           => "__tython_list_copy",           params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
+
+    // aggregate builtins
+    SumInt             => "__tython_sum_int",             params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
+    SumFloat           => "__tython_sum_float",           params: [ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::Float);
+    SumIntStart        => "__tython_sum_int_start",       params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
+    SumFloatStart      => "__tython_sum_float_start",     params: [ValueType::List(Box::new(ValueType::Float)), ValueType::Float], ret: Some(ValueType::Float);
+    AllList            => "__tython_all_list",            params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
+    AnyList            => "__tython_any_list",            params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
 }
 
 pub fn resolve_print(arg_ty: &ValueType) -> Option<BuiltinFn> {

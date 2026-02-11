@@ -30,6 +30,9 @@ pub struct Codegen<'ctx> {
     try_depth: usize,
     /// Stack of unwind destinations for nested try/ForIter blocks.
     unwind_dest_stack: Vec<BasicBlock<'ctx>>,
+    /// Saved exception state for bare `raise` inside except handlers.
+    /// (type_tag_alloca, message_ptr_alloca)
+    reraise_state: Option<(PointerValue<'ctx>, PointerValue<'ctx>)>,
 }
 
 impl<'ctx> Codegen<'ctx> {
@@ -65,6 +68,7 @@ impl<'ctx> Codegen<'ctx> {
             tuple_types: HashMap::new(),
             try_depth: 0,
             unwind_dest_stack: Vec::new(),
+            reraise_state: None,
         }
     }
 
