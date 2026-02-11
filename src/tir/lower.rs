@@ -14,6 +14,16 @@ use crate::ast::{ClassField, ClassInfo, ClassMethod, Type};
 use crate::errors::{ErrorCategory, TythonError};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
+macro_rules! define_error_helpers {
+    ($($name:ident => $category:ident),* $(,)?) => {
+        $(
+            fn $name(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
+                self.make_error(ErrorCategory::$category, line, msg.into())
+            }
+        )*
+    }
+}
+
 pub struct Lowering {
     symbol_table: HashMap<String, Type>,
 
@@ -69,24 +79,12 @@ impl Lowering {
         .into()
     }
 
-    fn type_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
-        self.make_error(ErrorCategory::TypeError, line, msg.into())
-    }
-
-    fn name_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
-        self.make_error(ErrorCategory::NameError, line, msg.into())
-    }
-
-    fn syntax_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
-        self.make_error(ErrorCategory::SyntaxError, line, msg.into())
-    }
-
-    fn value_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
-        self.make_error(ErrorCategory::ValueError, line, msg.into())
-    }
-
-    fn attribute_error(&self, line: usize, msg: impl Into<String>) -> anyhow::Error {
-        self.make_error(ErrorCategory::AttributeError, line, msg.into())
+    define_error_helpers! {
+        type_error     => TypeError,
+        name_error     => NameError,
+        syntax_error   => SyntaxError,
+        value_error    => ValueError,
+        attribute_error => AttributeError,
     }
 
     // ── scope helpers ──────────────────────────────────────────────────
@@ -110,6 +108,44 @@ impl Lowering {
             }
         }
         None
+    }
+
+    /// Lower a block of statements inside a new scope.
+    fn lower_block(&mut self, stmts: &Bound<PyList>) -> Result<Vec<TirStmt>> {
+        self.push_scope();
+        let mut body = Vec::new();
+        for stmt_node in stmts.iter() {
+            body.extend(self.lower_stmt(&stmt_node)?);
+        }
+        self.pop_scope();
+        Ok(body)
+    }
+
+    /// Look up a class in the registry, or return a NameError.
+    fn lookup_class(&self, line: usize, class_name: &str) -> Result<ClassInfo> {
+        self.class_registry
+            .get(class_name)
+            .cloned()
+            .ok_or_else(|| self.name_error(line, format!("unknown class `{}`", class_name)))
+    }
+
+    /// Look up a field index in a class, or return an AttributeError.
+    fn lookup_field_index(
+        &self,
+        line: usize,
+        class_info: &ClassInfo,
+        field_name: &str,
+    ) -> Result<usize> {
+        class_info
+            .field_map
+            .get(field_name)
+            .copied()
+            .ok_or_else(|| {
+                self.attribute_error(
+                    line,
+                    format!("class `{}` has no field `{}`", class_info.name, field_name),
+                )
+            })
     }
 
     // ── helpers: Type → ValueType conversion ────────────────────────
@@ -579,300 +615,261 @@ impl Lowering {
             "FunctionDef" => {
                 Err(self.syntax_error(line, "nested function definitions are not supported"))
             }
-
-            "ClassDef" => {
-                let raw_name = ast_get_string!(node, "name");
-                let fn_name = self.current_function_name.as_deref().unwrap_or("_");
-                let qualified = format!("{}${}${}", self.current_module_name, fn_name, raw_name);
-
-                // Register the class (Phase 1a-equivalent)
-                self.class_registry.insert(
-                    qualified.clone(),
-                    ClassInfo {
-                        name: qualified.clone(),
-                        fields: Vec::new(),
-                        methods: HashMap::new(),
-                        field_map: HashMap::new(),
-                    },
-                );
-                self.declare(raw_name, Type::Class(qualified.clone()));
-
-                // Discover nested classes inside this class
-                let body = ast_get_list!(node, "body");
-                self.discover_classes(&body, &qualified)?;
-
-                // Collect fields and methods (Phase 1b-equivalent)
-                self.collect_class_definition(node, &qualified)?;
-                self.collect_classes(&body, &qualified)?;
-
-                // Lower the class definition — results go into deferred state
-                let (class_infos, methods) = self.lower_class_def(node, &qualified)?;
-                self.deferred_classes.extend(class_infos);
-                self.deferred_functions.extend(methods);
-
-                Ok(vec![])
-            }
-
-            "AnnAssign" => {
-                let target_node = ast_getattr!(node, "target");
-                if ast_type_name!(target_node) != "Name" {
-                    return Err(
-                        self.syntax_error(line, "only simple variable assignments are supported")
-                    );
-                }
-                let target = ast_get_string!(target_node, "id");
-
-                let annotation = ast_getattr!(node, "annotation");
-                let annotated_ty = (!annotation.is_none())
-                    .then(|| self.convert_type_annotation(&annotation))
-                    .transpose()?;
-
-                let value_node = ast_getattr!(node, "value");
-                let tir_value = self.lower_expr(&value_node)?;
-
-                let tir_value_ast_ty = tir_value.ty.to_type();
-                if let Some(ref ann_ty) = annotated_ty {
-                    if ann_ty != &tir_value_ast_ty {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "type mismatch: expected `{}`, got `{}`",
-                                ann_ty, tir_value_ast_ty
-                            ),
-                        ));
-                    }
-                }
-
-                let var_type = annotated_ty.unwrap_or(tir_value_ast_ty);
-                self.declare(target.clone(), var_type.clone());
-
-                Ok(vec![TirStmt::Let {
-                    name: target,
-                    ty: Self::to_value_type(&var_type),
-                    value: tir_value,
-                }])
-            }
-
-            "Assign" => {
-                let targets_list = ast_get_list!(node, "targets");
-                if targets_list.len() != 1 {
-                    return Err(
-                        self.syntax_error(line, "multiple assignment targets are not supported")
-                    );
-                }
-
-                let target_node = targets_list.get_item(0)?;
-                match ast_type_name!(target_node).as_str() {
-                    "Name" => {
-                        let target = ast_get_string!(target_node, "id");
-                        let value_node = ast_getattr!(node, "value");
-                        let tir_value = self.lower_expr(&value_node)?;
-                        let var_type = tir_value.ty.to_type();
-                        self.declare(target.clone(), var_type);
-
-                        Ok(vec![TirStmt::Let {
-                            name: target,
-                            ty: tir_value.ty.clone(),
-                            value: tir_value,
-                        }])
-                    }
-                    "Attribute" => self.lower_attribute_assign(&target_node, node, line),
-                    _ => Err(self.syntax_error(
-                        line,
-                        "only variable or attribute assignments are supported",
-                    )),
-                }
-            }
-
-            "AugAssign" => {
-                let target_node = ast_getattr!(node, "target");
-                match ast_type_name!(target_node).as_str() {
-                    "Name" => {
-                        let target = ast_get_string!(target_node, "id");
-
-                        let target_ty = self.lookup(&target).cloned().ok_or_else(|| {
-                            self.name_error(line, format!("undefined variable `{}`", target))
-                        })?;
-
-                        let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
-                        let value_expr = self.lower_expr(&ast_getattr!(node, "value"))?;
-
-                        if op == TypedBinOp::Arith(ArithBinOp::Div) && target_ty == Type::Int {
-                            return Err(self.type_error(
-                                line,
-                                format!("`/=` on `int` variable `{}` would change type to `float`; use `//=` for integer division", target),
-                            ));
-                        }
-
-                        let target_ref = TirExpr {
-                            kind: TirExprKind::Var(target.clone()),
-                            ty: Self::to_value_type(&target_ty),
-                        };
-
-                        let (final_left, final_right, result_ty) =
-                            self.resolve_binop_types(line, op, target_ref, value_expr)?;
-
-                        let result_vty = Self::to_value_type(&result_ty);
-                        let binop_expr = TirExpr {
-                            kind: TirExprKind::BinOp {
-                                op,
-                                left: Box::new(final_left),
-                                right: Box::new(final_right),
-                            },
-                            ty: result_vty.clone(),
-                        };
-
-                        self.declare(target.clone(), result_ty);
-
-                        Ok(vec![TirStmt::Let {
-                            name: target,
-                            ty: result_vty,
-                            value: binop_expr,
-                        }])
-                    }
-                    "Attribute" => self.lower_attribute_aug_assign(&target_node, node, line),
-                    _ => Err(self.syntax_error(
-                        line,
-                        "only variable or attribute augmented assignments are supported",
-                    )),
-                }
-            }
-
-            "Return" => {
-                let value_node = ast_getattr!(node, "value");
-                if value_node.is_none() {
-                    if let Some(ref expected) = self.current_return_type {
-                        if *expected != Type::Unit {
-                            return Err(self.type_error(
-                                line,
-                                format!(
-                                    "return without value, but function expects `{}`",
-                                    expected
-                                ),
-                            ));
-                        }
-                    }
-                    Ok(vec![TirStmt::Return(None)])
-                } else {
-                    let tir_expr = self.lower_expr(&value_node)?;
-                    if let Some(ref expected) = self.current_return_type {
-                        if *expected != tir_expr.ty.to_type() {
-                            return Err(self.type_error(
-                                line,
-                                format!(
-                                    "return type mismatch: expected `{}`, got `{}`",
-                                    expected, tir_expr.ty
-                                ),
-                            ));
-                        }
-                    }
-                    Ok(vec![TirStmt::Return(Some(tir_expr))])
-                }
-            }
-
-            "Expr" => {
-                let value_node = ast_getattr!(node, "value");
-
-                if ast_type_name!(value_node) == "Call" {
-                    let func_node = ast_getattr!(value_node, "func");
-                    if ast_type_name!(func_node) == "Name"
-                        && ast_get_string!(func_node, "id") == "print"
-                    {
-                        return self.lower_print_stmt(&value_node);
-                    }
-
-                    let call_result = self.lower_call(&value_node, line)?;
-                    return match call_result {
-                        CallResult::Expr(expr) => Ok(vec![TirStmt::Expr(expr)]),
-                        CallResult::VoidStmt(stmt) => Ok(vec![stmt]),
-                    };
-                }
-
-                Ok(vec![TirStmt::Expr(self.lower_expr(&value_node)?)])
-            }
-
+            "ClassDef" => self.handle_class_def_stmt(node, line),
+            "AnnAssign" => self.handle_ann_assign(node, line),
+            "Assign" => self.handle_assign(node, line),
+            "AugAssign" => self.handle_aug_assign(node, line),
+            "Return" => self.handle_return(node, line),
+            "Expr" => self.handle_expr_stmt(node, line),
             "If" => {
-                let test_node = ast_getattr!(node, "test");
-                let condition = self.lower_expr(&test_node)?;
-
-                let body_list = ast_get_list!(node, "body");
-                self.push_scope();
-                let mut then_body = Vec::new();
-                for stmt_node in body_list.iter() {
-                    then_body.extend(self.lower_stmt(&stmt_node)?);
-                }
-                self.pop_scope();
-
-                let orelse_list = ast_get_list!(node, "orelse");
-                self.push_scope();
-                let mut else_body = Vec::new();
-                for stmt_node in orelse_list.iter() {
-                    else_body.extend(self.lower_stmt(&stmt_node)?);
-                }
-                self.pop_scope();
-
+                let condition = self.lower_expr(&ast_getattr!(node, "test"))?;
+                let then_body = self.lower_block(&ast_get_list!(node, "body"))?;
+                let else_body = self.lower_block(&ast_get_list!(node, "orelse"))?;
                 Ok(vec![TirStmt::If {
                     condition,
                     then_body,
                     else_body,
                 }])
             }
-
             "While" => {
-                let test_node = ast_getattr!(node, "test");
-                let condition = self.lower_expr(&test_node)?;
-
-                let body_list = ast_get_list!(node, "body");
-                self.push_scope();
-                let mut body = Vec::new();
-                for stmt_node in body_list.iter() {
-                    body.extend(self.lower_stmt(&stmt_node)?);
-                }
-                self.pop_scope();
-
+                let condition = self.lower_expr(&ast_getattr!(node, "test"))?;
+                let body = self.lower_block(&ast_get_list!(node, "body"))?;
                 Ok(vec![TirStmt::While { condition, body }])
             }
-
             "Break" => Ok(vec![TirStmt::Break]),
-
             "Continue" => Ok(vec![TirStmt::Continue]),
-
-            "Assert" => {
-                let test_node = ast_getattr!(node, "test");
-                let condition = self.lower_expr(&test_node)?;
-
-                let bool_condition = if condition.ty == ValueType::Bool {
-                    condition
-                } else {
-                    let cast_kind = match &condition.ty {
-                        ValueType::Int => CastKind::IntToBool,
-                        ValueType::Float => CastKind::FloatToBool,
-                        _ => {
-                            return Err(self.type_error(
-                                line,
-                                format!("cannot use `{}` in assert", condition.ty),
-                            ))
-                        }
-                    };
-                    TirExpr {
-                        kind: TirExprKind::Cast {
-                            kind: cast_kind,
-                            arg: Box::new(condition),
-                        },
-                        ty: ValueType::Bool,
-                    }
-                };
-
-                Ok(vec![TirStmt::VoidCall {
-                    target: CallTarget::Builtin(builtin::BuiltinFn::Assert),
-                    args: vec![bool_condition],
-                }])
-            }
-
+            "Assert" => self.handle_assert(node, line),
             _ => {
                 Err(self.syntax_error(line, format!("unsupported statement type: `{}`", node_type)))
             }
         }
+    }
+
+    fn handle_class_def_stmt(&mut self, node: &Bound<PyAny>, _line: usize) -> Result<Vec<TirStmt>> {
+        let raw_name = ast_get_string!(node, "name");
+        let fn_name = self.current_function_name.as_deref().unwrap_or("_");
+        let qualified = format!("{}${}${}", self.current_module_name, fn_name, raw_name);
+
+        self.class_registry.insert(
+            qualified.clone(),
+            ClassInfo {
+                name: qualified.clone(),
+                fields: Vec::new(),
+                methods: HashMap::new(),
+                field_map: HashMap::new(),
+            },
+        );
+        self.declare(raw_name, Type::Class(qualified.clone()));
+
+        let body = ast_get_list!(node, "body");
+        self.discover_classes(&body, &qualified)?;
+        self.collect_class_definition(node, &qualified)?;
+        self.collect_classes(&body, &qualified)?;
+
+        let (class_infos, methods) = self.lower_class_def(node, &qualified)?;
+        self.deferred_classes.extend(class_infos);
+        self.deferred_functions.extend(methods);
+
+        Ok(vec![])
+    }
+
+    fn handle_ann_assign(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
+        let target_node = ast_getattr!(node, "target");
+        if ast_type_name!(target_node) != "Name" {
+            return Err(self.syntax_error(line, "only simple variable assignments are supported"));
+        }
+        let target = ast_get_string!(target_node, "id");
+
+        let annotation = ast_getattr!(node, "annotation");
+        let annotated_ty = (!annotation.is_none())
+            .then(|| self.convert_type_annotation(&annotation))
+            .transpose()?;
+
+        let value_node = ast_getattr!(node, "value");
+        let tir_value = self.lower_expr(&value_node)?;
+
+        let tir_value_ast_ty = tir_value.ty.to_type();
+        if let Some(ref ann_ty) = annotated_ty {
+            if ann_ty != &tir_value_ast_ty {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "type mismatch: expected `{}`, got `{}`",
+                        ann_ty, tir_value_ast_ty
+                    ),
+                ));
+            }
+        }
+
+        let var_type = annotated_ty.unwrap_or(tir_value_ast_ty);
+        self.declare(target.clone(), var_type.clone());
+
+        Ok(vec![TirStmt::Let {
+            name: target,
+            ty: Self::to_value_type(&var_type),
+            value: tir_value,
+        }])
+    }
+
+    fn handle_assign(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
+        let targets_list = ast_get_list!(node, "targets");
+        if targets_list.len() != 1 {
+            return Err(self.syntax_error(line, "multiple assignment targets are not supported"));
+        }
+
+        let target_node = targets_list.get_item(0)?;
+        match ast_type_name!(target_node).as_str() {
+            "Name" => {
+                let target = ast_get_string!(target_node, "id");
+                let value_node = ast_getattr!(node, "value");
+                let tir_value = self.lower_expr(&value_node)?;
+                let var_type = tir_value.ty.to_type();
+                self.declare(target.clone(), var_type);
+
+                Ok(vec![TirStmt::Let {
+                    name: target,
+                    ty: tir_value.ty.clone(),
+                    value: tir_value,
+                }])
+            }
+            "Attribute" => self.lower_attribute_assign(&target_node, node, line),
+            _ => {
+                Err(self.syntax_error(line, "only variable or attribute assignments are supported"))
+            }
+        }
+    }
+
+    fn handle_aug_assign(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
+        let target_node = ast_getattr!(node, "target");
+        match ast_type_name!(target_node).as_str() {
+            "Name" => {
+                let target = ast_get_string!(target_node, "id");
+
+                let target_ty = self.lookup(&target).cloned().ok_or_else(|| {
+                    self.name_error(line, format!("undefined variable `{}`", target))
+                })?;
+
+                let op = Self::convert_binop(&ast_getattr!(node, "op"))?;
+                let value_expr = self.lower_expr(&ast_getattr!(node, "value"))?;
+
+                if op == TypedBinOp::Arith(ArithBinOp::Div) && target_ty == Type::Int {
+                    return Err(self.type_error(
+                        line,
+                        format!("`/=` on `int` variable `{}` would change type to `float`; use `//=` for integer division", target),
+                    ));
+                }
+
+                let target_ref = TirExpr {
+                    kind: TirExprKind::Var(target.clone()),
+                    ty: Self::to_value_type(&target_ty),
+                };
+
+                let (final_left, final_right, result_ty) =
+                    self.resolve_binop_types(line, op, target_ref, value_expr)?;
+
+                let result_vty = Self::to_value_type(&result_ty);
+                let binop_expr = TirExpr {
+                    kind: TirExprKind::BinOp {
+                        op,
+                        left: Box::new(final_left),
+                        right: Box::new(final_right),
+                    },
+                    ty: result_vty.clone(),
+                };
+
+                self.declare(target.clone(), result_ty);
+
+                Ok(vec![TirStmt::Let {
+                    name: target,
+                    ty: result_vty,
+                    value: binop_expr,
+                }])
+            }
+            "Attribute" => self.lower_attribute_aug_assign(&target_node, node, line),
+            _ => Err(self.syntax_error(
+                line,
+                "only variable or attribute augmented assignments are supported",
+            )),
+        }
+    }
+
+    fn handle_return(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
+        let value_node = ast_getattr!(node, "value");
+        if value_node.is_none() {
+            if let Some(ref expected) = self.current_return_type {
+                if *expected != Type::Unit {
+                    return Err(self.type_error(
+                        line,
+                        format!("return without value, but function expects `{}`", expected),
+                    ));
+                }
+            }
+            Ok(vec![TirStmt::Return(None)])
+        } else {
+            let tir_expr = self.lower_expr(&value_node)?;
+            if let Some(ref expected) = self.current_return_type {
+                if *expected != tir_expr.ty.to_type() {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "return type mismatch: expected `{}`, got `{}`",
+                            expected, tir_expr.ty
+                        ),
+                    ));
+                }
+            }
+            Ok(vec![TirStmt::Return(Some(tir_expr))])
+        }
+    }
+
+    fn handle_expr_stmt(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
+        let value_node = ast_getattr!(node, "value");
+
+        if ast_type_name!(value_node) == "Call" {
+            let func_node = ast_getattr!(value_node, "func");
+            if ast_type_name!(func_node) == "Name" && ast_get_string!(func_node, "id") == "print" {
+                return self.lower_print_stmt(&value_node);
+            }
+
+            let call_result = self.lower_call(&value_node, line)?;
+            return match call_result {
+                CallResult::Expr(expr) => Ok(vec![TirStmt::Expr(expr)]),
+                CallResult::VoidStmt(stmt) => Ok(vec![stmt]),
+            };
+        }
+
+        Ok(vec![TirStmt::Expr(self.lower_expr(&value_node)?)])
+    }
+
+    fn handle_assert(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
+        let test_node = ast_getattr!(node, "test");
+        let condition = self.lower_expr(&test_node)?;
+
+        let bool_condition = if condition.ty == ValueType::Bool {
+            condition
+        } else {
+            let cast_kind = match &condition.ty {
+                ValueType::Int => CastKind::IntToBool,
+                ValueType::Float => CastKind::FloatToBool,
+                _ => {
+                    return Err(
+                        self.type_error(line, format!("cannot use `{}` in assert", condition.ty))
+                    )
+                }
+            };
+            TirExpr {
+                kind: TirExprKind::Cast {
+                    kind: cast_kind,
+                    arg: Box::new(condition),
+                },
+                ty: ValueType::Bool,
+            }
+        };
+
+        Ok(vec![TirStmt::VoidCall {
+            target: CallTarget::Builtin(builtin::BuiltinFn::Assert),
+            args: vec![bool_condition],
+        }])
     }
 
     // ── attribute assignment ───────────────────────────────────────────
@@ -897,19 +894,8 @@ impl Lowering {
             }
         };
 
-        let class_info = self
-            .class_registry
-            .get(&class_name)
-            .ok_or_else(|| self.name_error(line, format!("unknown class `{}`", class_name)))?
-            .clone();
-
-        let field_index = *class_info.field_map.get(&field_name).ok_or_else(|| {
-            self.attribute_error(
-                line,
-                format!("class `{}` has no field `{}`", class_name, field_name),
-            )
-        })?;
-
+        let class_info = self.lookup_class(line, &class_name)?;
+        let field_index = self.lookup_field_index(line, &class_info, &field_name)?;
         let field = &class_info.fields[field_index];
 
         // Enforce reference-type field immutability outside __init__
@@ -974,19 +960,8 @@ impl Lowering {
             }
         };
 
-        let class_info = self
-            .class_registry
-            .get(&class_name)
-            .ok_or_else(|| self.name_error(line, format!("unknown class `{}`", class_name)))?
-            .clone();
-
-        let field_index = *class_info.field_map.get(&field_name).ok_or_else(|| {
-            self.attribute_error(
-                line,
-                format!("class `{}` has no field `{}`", class_name, field_name),
-            )
-        })?;
-
+        let class_info = self.lookup_class(line, &class_name)?;
+        let field_index = self.lookup_field_index(line, &class_info, &field_name)?;
         let field = &class_info.fields[field_index];
         let field_vty = Self::to_value_type(&field.ty);
 
@@ -1854,32 +1829,15 @@ impl Lowering {
     ) -> Result<(TirExpr, TirExpr)> {
         if left.ty == right.ty {
             Ok((left, right))
-        } else if (left.ty == ValueType::Int && right.ty == ValueType::Float)
-            || (left.ty == ValueType::Float && right.ty == ValueType::Int)
-        {
-            let pl = if left.ty == ValueType::Int {
-                TirExpr {
-                    kind: TirExprKind::Cast {
-                        kind: CastKind::IntToFloat,
-                        arg: Box::new(left),
-                    },
-                    ty: ValueType::Float,
-                }
-            } else {
-                left
-            };
-            let pr = if right.ty == ValueType::Int {
-                TirExpr {
-                    kind: TirExprKind::Cast {
-                        kind: CastKind::IntToFloat,
-                        arg: Box::new(right),
-                    },
-                    ty: ValueType::Float,
-                }
-            } else {
-                right
-            };
-            Ok((pl, pr))
+        } else if matches!(
+            (&left.ty, &right.ty),
+            (ValueType::Int, ValueType::Float) | (ValueType::Float, ValueType::Int)
+        ) {
+            // Promote whichever side is Int to Float; apply_coercion is a no-op on Float.
+            Ok((
+                Self::apply_coercion(left, type_rules::Coercion::ToFloat),
+                Self::apply_coercion(right, type_rules::Coercion::ToFloat),
+            ))
         } else {
             Err(self.type_error(
                 line,

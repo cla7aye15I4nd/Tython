@@ -216,6 +216,52 @@ impl<'ctx> Codegen<'ctx> {
             })
     }
 
+    /// Codegen a list of TIR args and return both value and metadata forms.
+    fn codegen_call_args(
+        &mut self,
+        args: &[TirExpr],
+    ) -> Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> {
+        args.iter()
+            .map(|arg| self.codegen_expr(arg).into())
+            .collect()
+    }
+
+    /// Create a dead basic block after an unconditional branch (break/continue).
+    fn append_dead_block(&self, label: &str) {
+        let function = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
+        let dead_bb = self.context.append_basic_block(function, label);
+        self.builder.position_at_end(dead_bb);
+    }
+
+    /// Map a CmpOp to LLVM float predicate.
+    fn float_predicate(op: &CmpOp) -> FloatPredicate {
+        match op {
+            CmpOp::Eq => FloatPredicate::OEQ,
+            CmpOp::NotEq => FloatPredicate::ONE,
+            CmpOp::Lt => FloatPredicate::OLT,
+            CmpOp::LtEq => FloatPredicate::OLE,
+            CmpOp::Gt => FloatPredicate::OGT,
+            CmpOp::GtEq => FloatPredicate::OGE,
+        }
+    }
+
+    /// Map a CmpOp to LLVM int predicate.
+    fn int_predicate(op: &CmpOp) -> IntPredicate {
+        match op {
+            CmpOp::Eq => IntPredicate::EQ,
+            CmpOp::NotEq => IntPredicate::NE,
+            CmpOp::Lt => IntPredicate::SLT,
+            CmpOp::LtEq => IntPredicate::SLE,
+            CmpOp::Gt => IntPredicate::SGT,
+            CmpOp::GtEq => IntPredicate::SGE,
+        }
+    }
+
     pub fn generate(&mut self, func: &TirFunction) {
         let param_types: Vec<ValueType> = func.params.iter().map(|p| p.ty.clone()).collect();
         let function =
@@ -282,9 +328,7 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirStmt::VoidCall { target, args } => {
-                let arg_values: Vec<BasicValueEnum> =
-                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
-                let arg_metadata: Vec<_> = arg_values.iter().map(|v| (*v).into()).collect();
+                let arg_metadata = self.codegen_call_args(args);
 
                 match target {
                     CallTarget::Named(func_name) => {
@@ -425,29 +469,13 @@ impl<'ctx> Codegen<'ctx> {
             TirStmt::Break => {
                 let (_, after_bb) = self.loop_stack.last().unwrap();
                 self.builder.build_unconditional_branch(*after_bb).unwrap();
-                // Create dead block for any unreachable code after break
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
-                let dead_bb = self.context.append_basic_block(function, "break.dead");
-                self.builder.position_at_end(dead_bb);
+                self.append_dead_block("break.dead");
             }
 
             TirStmt::Continue => {
                 let (header_bb, _) = self.loop_stack.last().unwrap();
                 self.builder.build_unconditional_branch(*header_bb).unwrap();
-                // Create dead block for any unreachable code after continue
-                let function = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
-                let dead_bb = self.context.append_basic_block(function, "cont.dead");
-                self.builder.position_at_end(dead_bb);
+                self.append_dead_block("cont.dead");
             }
         }
     }
@@ -663,17 +691,11 @@ impl<'ctx> Codegen<'ctx> {
                 let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty.clone()).collect();
                 let function =
                     self.get_or_declare_function(func, &arg_types, Some(expr.ty.clone()));
-
-                let arg_values: Vec<BasicValueEnum> =
-                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
-
-                let arg_metadata: Vec<_> = arg_values.iter().map(|v| (*v).into()).collect();
-
+                let arg_metadata = self.codegen_call_args(args);
                 let call_site = self
                     .builder
                     .build_call(function, &arg_metadata, "call")
                     .unwrap();
-
                 self.extract_call_value(call_site)
             }
 
@@ -683,16 +705,11 @@ impl<'ctx> Codegen<'ctx> {
                     &func.param_types(),
                     func.return_type(),
                 );
-
-                let arg_values: Vec<BasicValueEnum> =
-                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
-                let arg_metadata: Vec<_> = arg_values.iter().map(|v| (*v).into()).collect();
-
+                let arg_metadata = self.codegen_call_args(args);
                 let call_site = self
                     .builder
                     .build_call(function, &arg_metadata, "ext_call")
                     .unwrap();
-
                 self.extract_call_value(call_site)
             }
 
@@ -755,34 +772,18 @@ impl<'ctx> Codegen<'ctx> {
                 let right_val = self.codegen_expr(right);
 
                 let cmp_result = if left.ty == ValueType::Float {
-                    let predicate = match op {
-                        CmpOp::Eq => FloatPredicate::OEQ,
-                        CmpOp::NotEq => FloatPredicate::ONE,
-                        CmpOp::Lt => FloatPredicate::OLT,
-                        CmpOp::LtEq => FloatPredicate::OLE,
-                        CmpOp::Gt => FloatPredicate::OGT,
-                        CmpOp::GtEq => FloatPredicate::OGE,
-                    };
                     self.builder
                         .build_float_compare(
-                            predicate,
+                            Self::float_predicate(op),
                             left_val.into_float_value(),
                             right_val.into_float_value(),
                             "fcmp",
                         )
                         .unwrap()
                 } else {
-                    let predicate = match op {
-                        CmpOp::Eq => IntPredicate::EQ,
-                        CmpOp::NotEq => IntPredicate::NE,
-                        CmpOp::Lt => IntPredicate::SLT,
-                        CmpOp::LtEq => IntPredicate::SLE,
-                        CmpOp::Gt => IntPredicate::SGT,
-                        CmpOp::GtEq => IntPredicate::SGE,
-                    };
                     self.builder
                         .build_int_compare(
-                            predicate,
+                            Self::int_predicate(op),
                             left_val.into_int_value(),
                             right_val.into_int_value(),
                             "cmp",
@@ -906,15 +907,9 @@ impl<'ctx> Codegen<'ctx> {
                     .unwrap();
                 let ptr = self.extract_call_value(call_site).into_pointer_value();
 
-                // Codegen __init__ args
-                let arg_values: Vec<BasicValueEnum> =
-                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
-
                 // Build full arg list: [self_ptr, ...args]
                 let mut init_args: Vec<inkwell::values::BasicMetadataValueEnum> = vec![ptr.into()];
-                for v in &arg_values {
-                    init_args.push((*v).into());
-                }
+                init_args.extend(self.codegen_call_args(args));
 
                 // Declare/get __init__ function
                 let mut param_types = vec![ValueType::Class(class_name.clone())];
@@ -958,16 +953,10 @@ impl<'ctx> Codegen<'ctx> {
             } => {
                 let self_val = self.codegen_expr(object);
 
-                // Codegen method args
-                let arg_values: Vec<BasicValueEnum> =
-                    args.iter().map(|arg| self.codegen_expr(arg)).collect();
-
                 // Build full arg list: [self, ...args]
                 let mut all_meta: Vec<inkwell::values::BasicMetadataValueEnum> =
                     vec![self_val.into()];
-                for v in &arg_values {
-                    all_meta.push((*v).into());
-                }
+                all_meta.extend(self.codegen_call_args(args));
 
                 // Declare/get method function
                 let mut param_types = vec![object.ty.clone()];

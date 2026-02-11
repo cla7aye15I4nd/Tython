@@ -124,10 +124,13 @@ impl Resolver {
         }
     }
 
-    fn resolve_absolute_import(&self, import: &str) -> Result<PathBuf> {
-        let module_path = import.replace('.', "/");
-        let module_file = self.base_dir.join(format!("{}.py", module_path));
+    /// Convert a dotted module name to a file path relative to a directory.
+    fn module_to_file_path(dir: &Path, module: &str) -> PathBuf {
+        dir.join(format!("{}.py", module.replace('.', "/")))
+    }
 
+    fn resolve_absolute_import(&self, import: &str) -> Result<PathBuf> {
+        let module_file = Self::module_to_file_path(&self.base_dir, import);
         if module_file.exists() && module_file.is_file() {
             Ok(module_file)
         } else {
@@ -148,9 +151,7 @@ impl Resolver {
                 .context("Cannot resolve relative import: not enough parent directories")?;
         }
 
-        let module_path = module.replace('.', "/");
-        let module_file = current.join(format!("{}.py", module_path));
-
+        let module_file = Self::module_to_file_path(current, module);
         if module_file.exists() && module_file.is_file() {
             module_file
                 .canonicalize()

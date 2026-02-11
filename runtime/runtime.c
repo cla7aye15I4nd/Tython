@@ -71,21 +71,15 @@ double __tython_abs_float(double x) {
     return fabs(x);
 }
 
-int64_t __tython_min_int(int64_t a, int64_t b) {
-    return a < b ? a : b;
-}
+#define DEFINE_MINMAX(name, type, op) \
+    type __tython_##name(type a, type b) { return (a op b) ? a : b; }
 
-double __tython_min_float(double a, double b) {
-    return a < b ? a : b;
-}
+DEFINE_MINMAX(min_int,   int64_t, <)
+DEFINE_MINMAX(min_float, double,  <)
+DEFINE_MINMAX(max_int,   int64_t, >)
+DEFINE_MINMAX(max_float, double,  >)
 
-int64_t __tython_max_int(int64_t a, int64_t b) {
-    return a > b ? a : b;
-}
-
-double __tython_max_float(double a, double b) {
-    return a > b ? a : b;
-}
+#undef DEFINE_MINMAX
 
 int64_t __tython_round_float(double x) {
     return (int64_t)round(x);

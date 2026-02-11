@@ -59,42 +59,35 @@ impl BinOpRule {
     }
 }
 
+/// Standard numeric type rule: same type preserves type, mixed int/float promotes to float.
+fn standard_numeric_rule(left: &Type, right: &Type) -> Option<BinOpRule> {
+    use Type::*;
+    match (left, right) {
+        (Int, Int) => Some(BinOpRule::same(Int)),
+        (Float, Float) => Some(BinOpRule::same(Float)),
+        (Int, Float) => Some(BinOpRule::promote_left_to_float()),
+        (Float, Int) => Some(BinOpRule::promote_right_to_float()),
+        _ => None,
+    }
+}
+
 /// Look up the type rule for a binary operation.
 /// Returns `None` if the (op, left, right) combination is invalid.
 pub fn lookup_binop(op: TypedBinOp, left: &Type, right: &Type) -> Option<BinOpRule> {
     use Type::*;
 
     match op {
-        // ── Bitwise: Int × Int → Int only ────────────────────────────
         TypedBinOp::Bitwise(_) => match (left, right) {
             (Int, Int) => Some(BinOpRule::same(Int)),
             _ => None,
         },
-
-        // ── Arithmetic ───────────────────────────────────────────────
-        TypedBinOp::Arith(arith) => match arith {
-            // True division: always produces Float
-            ArithBinOp::Div => match (left, right) {
-                (Int, Int) => Some(BinOpRule::promote_both_to_float()),
-                (Float, Float) => Some(BinOpRule::same(Float)),
-                (Int, Float) => Some(BinOpRule::promote_left_to_float()),
-                (Float, Int) => Some(BinOpRule::promote_right_to_float()),
-                _ => None,
-            },
-            // Other arithmetic: same type → same type, mixed → Float
-            ArithBinOp::Add
-            | ArithBinOp::Sub
-            | ArithBinOp::Mul
-            | ArithBinOp::FloorDiv
-            | ArithBinOp::Mod
-            | ArithBinOp::Pow => match (left, right) {
-                (Int, Int) => Some(BinOpRule::same(Int)),
-                (Float, Float) => Some(BinOpRule::same(Float)),
-                (Int, Float) => Some(BinOpRule::promote_left_to_float()),
-                (Float, Int) => Some(BinOpRule::promote_right_to_float()),
-                _ => None,
-            },
+        // True division: always produces Float (even Int / Int)
+        TypedBinOp::Arith(ArithBinOp::Div) => match (left, right) {
+            (Int, Int) => Some(BinOpRule::promote_both_to_float()),
+            _ => standard_numeric_rule(left, right),
         },
+        // All other arithmetic: standard numeric rules
+        TypedBinOp::Arith(_) => standard_numeric_rule(left, right),
     }
 }
 
@@ -179,47 +172,55 @@ pub fn builtin_fn_arity(name: &str) -> Option<usize> {
 /// Look up the type rule for a built-in function call.
 /// Returns `None` if the argument types are invalid for the function.
 /// Caller should check arity with [`builtin_fn_arity`] first.
+/// Resolve a unary numeric builtin (like abs) that has int and float variants.
+fn numeric_unary_builtin(
+    arg_types: &[&ValueType],
+    int_fn: BuiltinFn,
+    float_fn: BuiltinFn,
+) -> Option<BuiltinCallRule> {
+    match arg_types {
+        [ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
+            func: int_fn,
+            return_type: ValueType::Int,
+        }),
+        [ValueType::Float] => Some(BuiltinCallRule::ExternalCall {
+            func: float_fn,
+            return_type: ValueType::Float,
+        }),
+        _ => None,
+    }
+}
+
+/// Resolve a binary numeric builtin (like min/max) that has int and float variants.
+fn numeric_binary_builtin(
+    arg_types: &[&ValueType],
+    int_fn: BuiltinFn,
+    float_fn: BuiltinFn,
+) -> Option<BuiltinCallRule> {
+    match arg_types {
+        [ValueType::Int, ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
+            func: int_fn,
+            return_type: ValueType::Int,
+        }),
+        [ValueType::Float, ValueType::Float] => Some(BuiltinCallRule::ExternalCall {
+            func: float_fn,
+            return_type: ValueType::Float,
+        }),
+        _ => None,
+    }
+}
+
 pub fn lookup_builtin_fn(name: &str, arg_types: &[&ValueType]) -> Option<BuiltinCallRule> {
     match name {
-        "abs" => match arg_types {
-            [ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::AbsInt,
-                return_type: ValueType::Int,
-            }),
-            [ValueType::Float] => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::AbsFloat,
-                return_type: ValueType::Float,
-            }),
-            _ => None,
-        },
+        "abs" => numeric_unary_builtin(arg_types, BuiltinFn::AbsInt, BuiltinFn::AbsFloat),
+        "min" => numeric_binary_builtin(arg_types, BuiltinFn::MinInt, BuiltinFn::MinFloat),
+        "max" => numeric_binary_builtin(arg_types, BuiltinFn::MaxInt, BuiltinFn::MaxFloat),
         "pow" => match arg_types {
             [ValueType::Int, ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
                 func: BuiltinFn::PowInt,
                 return_type: ValueType::Int,
             }),
             [ValueType::Float, ValueType::Float] => Some(BuiltinCallRule::PowFloat),
-            _ => None,
-        },
-        "min" => match arg_types {
-            [ValueType::Int, ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::MinInt,
-                return_type: ValueType::Int,
-            }),
-            [ValueType::Float, ValueType::Float] => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::MinFloat,
-                return_type: ValueType::Float,
-            }),
-            _ => None,
-        },
-        "max" => match arg_types {
-            [ValueType::Int, ValueType::Int] => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::MaxInt,
-                return_type: ValueType::Int,
-            }),
-            [ValueType::Float, ValueType::Float] => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::MaxFloat,
-                return_type: ValueType::Float,
-            }),
             _ => None,
         },
         "round" => match arg_types {
