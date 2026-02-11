@@ -1,7 +1,8 @@
-def test_precedence_mul_before_add() -> None:
+def test_precedence_mul_before_add(x: int) -> None:
     result: int = 2 + 3 * 4
     print(result)
     assert result == 14
+    print("X", x)
 
 
 def test_precedence_parentheses() -> None:
@@ -116,7 +117,7 @@ def test_negative_mul_negative() -> None:
 
 
 def run_tests() -> None:
-    test_precedence_mul_before_add()
+    test_precedence_mul_before_add(1)
     test_precedence_parentheses()
     test_precedence_nested_parens()
     test_precedence_sub_mul()
