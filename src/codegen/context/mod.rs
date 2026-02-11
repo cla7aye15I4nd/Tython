@@ -293,17 +293,6 @@ impl<'ctx> Codegen<'ctx> {
             })
     }
 
-    fn get_or_declare_list_get(&self) -> FunctionValue<'ctx> {
-        self.module
-            .get_function("__tython_list_get")
-            .unwrap_or_else(|| {
-                let ptr_type = self.context.ptr_type(AddressSpace::default());
-                let i64_type = self.context.i64_type();
-                let fn_type = i64_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
-                self.module.add_function("__tython_list_get", fn_type, None)
-            })
-    }
-
     fn get_or_declare_list_set(&self) -> FunctionValue<'ctx> {
         self.module
             .get_function("__tython_list_set")

@@ -83,6 +83,30 @@ def test_list_clear() -> None:
     assert len(xs) == 0
 
 
+def test_list_pop_int() -> None:
+    xs: list[int] = [1, 2, 3]
+    v: int = xs.pop()
+    assert v == 3
+    assert len(xs) == 2
+    assert xs[1] == 2
+
+
+def test_list_pop_float() -> None:
+    xs: list[float] = [1.5, 2.5]
+    v: float = xs.pop()
+    assert v == 2.5
+    assert len(xs) == 1
+    assert xs[0] == 1.5
+
+
+def test_list_pop_bool() -> None:
+    xs: list[bool] = [True, False, True]
+    v: bool = xs.pop()
+    assert v == True
+    assert len(xs) == 2
+    assert xs[1] == False
+
+
 def test_list_truthiness() -> None:
     xs: list[int] = [1, 2, 3]
     if xs:
@@ -145,6 +169,9 @@ def run_tests() -> None:
     test_list_append_int()
     test_list_append_float()
     test_list_append_bool()
+    test_list_pop_int()
+    test_list_pop_float()
+    test_list_pop_bool()
     test_list_clear()
     test_list_truthiness()
     test_list_assert()

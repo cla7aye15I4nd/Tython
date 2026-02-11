@@ -214,6 +214,25 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirExprKind::ExternalCall { func, args } => {
+                if matches!(
+                    func,
+                    crate::tir::builtin::BuiltinFn::ListPop
+                        | crate::tir::builtin::BuiltinFn::ListGet
+                ) {
+                    let function = self.get_or_declare_function(
+                        func.symbol(),
+                        &func.param_types(),
+                        func.return_type(),
+                    );
+                    let arg_metadata = self.codegen_call_args(args);
+                    let call_site = self
+                        .builder
+                        .build_call(function, &arg_metadata, "list_pop")
+                        .unwrap();
+                    let i64_val = self.extract_call_value(call_site).into_int_value();
+                    return self.bitcast_from_i64(i64_val, &expr.ty);
+                }
+
                 let function = self.get_or_declare_function(
                     func.symbol(),
                     &func.param_types(),
@@ -536,22 +555,6 @@ impl<'ctx> Codegen<'ctx> {
                         .unwrap();
                     self.extract_call_value(call)
                 }
-            }
-
-            TirExprKind::ListGet { list, index } => {
-                let list_val = self.codegen_expr(list);
-                let index_val = self.codegen_expr(index);
-                let list_get_fn = self.get_or_declare_list_get();
-                let call = self
-                    .builder
-                    .build_call(
-                        list_get_fn,
-                        &[list_val.into(), index_val.into()],
-                        "list_get",
-                    )
-                    .unwrap();
-                let i64_val = self.extract_call_value(call).into_int_value();
-                self.bitcast_from_i64(i64_val, &expr.ty)
             }
         }
     }

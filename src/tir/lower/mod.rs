@@ -170,21 +170,19 @@ impl Lowering {
     pub fn lower_module(
         &mut self,
         canonical_path: &Path,
-        module_path: &str,
+        module_name: &str,
         imports: &HashMap<String, Type>,
     ) -> Result<TirModule> {
         self.scopes.clear();
         self.current_return_type = None;
-        self.current_module_name = module_path.to_string();
+        self.current_module_name = module_name.to_string();
         self.current_file = canonical_path.display().to_string();
         self.current_function_name = None;
 
         self.push_scope();
 
         for (local_name, ty) in imports {
-            if let Type::Module(mangled) = ty {
-                self.declare(local_name.clone(), Type::Module(mangled.clone()));
-            }
+            self.declare(local_name.clone(), ty.clone());
         }
 
         Python::attach(|py| -> Result<_> {

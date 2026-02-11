@@ -379,10 +379,6 @@ pub enum TirExprKind {
         element_type: ValueType,
         elements: Vec<TirExpr>,
     },
-    ListGet {
-        list: Box<TirExpr>,
-        index: Box<TirExpr>,
-    },
 }
 
 /// Result of lowering a call expression — either a valued expression or a void statement.

@@ -383,12 +383,13 @@ impl Lowering {
                 // Not a class path — lower value as an expression (must be a class instance)
                 let obj_expr = self.lower_expr(&value_node)?;
 
-                match &obj_expr.ty {
+                let obj_ty = obj_expr.ty.clone();
+                match obj_ty {
                     ValueType::Class(class_name) => {
                         // Method call on a class instance
                         let class_info = self
                             .class_registry
-                            .get(class_name)
+                            .get(&class_name)
                             .ok_or_else(|| {
                                 self.name_error(line, format!("unknown class `{}`", class_name))
                             })?
@@ -561,13 +562,27 @@ impl Lowering {
                                     args: vec![obj_expr],
                                 }))
                             }
+                            "pop" => {
+                                if !tir_args.is_empty() {
+                                    return Err(self.type_error(
+                                        line,
+                                        "list.pop() takes no arguments".to_string(),
+                                    ));
+                                }
+                                Ok(CallResult::Expr(TirExpr {
+                                    kind: TirExprKind::ExternalCall {
+                                        func: builtin::BuiltinFn::ListPop,
+                                        args: vec![obj_expr],
+                                    },
+                                    ty: (*inner).clone(),
+                                }))
+                            }
                             _ => Err(self
                                 .attribute_error(line, format!("list has no method `{}`", attr))),
                         }
                     }
-                    _ => {
-                        Err(self
-                            .type_error(line, format!("`{}` is not a class instance", obj_expr.ty)))
+                    other => {
+                        Err(self.type_error(line, format!("`{}` is not a class instance", other)))
                     }
                 }
             }

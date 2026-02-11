@@ -279,9 +279,9 @@ impl Lowering {
                         }
                         let elem_ty = inner.as_ref().clone();
                         Ok(TirExpr {
-                            kind: TirExprKind::ListGet {
-                                list: Box::new(obj_expr),
-                                index: Box::new(index_expr),
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::ListGet,
+                                args: vec![obj_expr, index_expr],
                             },
                             ty: elem_ty,
                         })

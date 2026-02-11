@@ -52,6 +52,15 @@ void __tython_list_append(TythonList* lst, int64_t value) {
     lst->len++;
 }
 
+int64_t __tython_list_pop(TythonList* lst) {
+    if (lst->len == 0) {
+        fprintf(stderr, "IndexError: pop from empty list\n");
+        exit(1);
+    }
+    lst->len--;
+    return lst->data[lst->len];
+}
+
 void __tython_list_clear(TythonList* lst) {
     lst->len = 0;
 }

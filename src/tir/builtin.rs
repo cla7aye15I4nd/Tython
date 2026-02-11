@@ -83,7 +83,9 @@ define_builtins! {
     // list builtins (all List(...) map to ptr in LLVM; inner type is a sentinel)
     ListEmpty          => "__tython_list_empty",          params: [],                                                                                ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ListLen            => "__tython_list_len",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
+    ListGet            => "__tython_list_get",            params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: Some(ValueType::Int);
     ListAppend         => "__tython_list_append",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: None;
+    ListPop            => "__tython_list_pop",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
     ListClear          => "__tython_list_clear",          params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: None;
     PrintListInt       => "__tython_print_list_int",      params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: None;
     PrintListFloat     => "__tython_print_list_float",    params: [ValueType::List(Box::new(ValueType::Float))],                                     ret: None;

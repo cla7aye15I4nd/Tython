@@ -102,6 +102,7 @@ int64_t     __tython_list_len(TythonList* lst);
 int64_t     __tython_list_get(TythonList* lst, int64_t index);
 void        __tython_list_set(TythonList* lst, int64_t index, int64_t value);
 void        __tython_list_append(TythonList* lst, int64_t value);
+int64_t     __tython_list_pop(TythonList* lst);
 void        __tython_list_clear(TythonList* lst);
 
 void        __tython_print_list_int(TythonList* lst);
