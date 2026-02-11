@@ -1,5 +1,7 @@
 use assert_cmd::cargo::cargo_bin_cmd;
+use std::collections::HashMap;
 use tython::ast::Type;
+use tython::tir::lower::Lowering;
 use tython::tir::type_rules;
 use tython::tir::{ArithBinOp, BitwiseBinOp, TypedBinOp, UnaryOpKind};
 
@@ -178,6 +180,8 @@ fn unaryop_to_python(op: UnaryOpKind) -> &'static str {
 #[test]
 fn test_invalid_op_type_combinations() {
     let tmp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let mut lowering = Lowering::new();
+    let empty_imports: HashMap<String, Type> = HashMap::new();
     let mut failures = Vec::new();
     let mut tested = 0;
 
@@ -201,12 +205,9 @@ fn test_invalid_op_type_combinations() {
                 let file_path = tmp_dir.path().join(format!("binop_{}.py", tested));
                 std::fs::write(&file_path, &code).expect("Failed to write test file");
 
-                let output = cargo_bin_cmd!("tython")
-                    .arg(&file_path)
-                    .output()
-                    .unwrap_or_else(|e| panic!("Failed to run tython for '{}': {}", label, e));
+                let result = lowering.lower_module(&file_path, "test", &empty_imports);
 
-                if output.status.success() {
+                if result.is_ok() {
                     failures.push(format!(
                         "  '{}': expected type error but compiled successfully",
                         label
@@ -236,12 +237,9 @@ fn test_invalid_op_type_combinations() {
             let file_path = tmp_dir.path().join(format!("unaryop_{}.py", tested));
             std::fs::write(&file_path, &code).expect("Failed to write test file");
 
-            let output = cargo_bin_cmd!("tython")
-                .arg(&file_path)
-                .output()
-                .unwrap_or_else(|e| panic!("Failed to run tython for '{}': {}", label, e));
+            let result = lowering.lower_module(&file_path, "test", &empty_imports);
 
-            if output.status.success() {
+            if result.is_ok() {
                 failures.push(format!(
                     "  '{}': expected type error but compiled successfully",
                     label
