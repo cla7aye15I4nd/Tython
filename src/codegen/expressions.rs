@@ -1,4 +1,3 @@
-use inkwell::types::BasicType;
 use inkwell::values::BasicValueEnum;
 use inkwell::AddressSpace;
 use inkwell::IntPredicate;
@@ -533,42 +532,6 @@ impl<'ctx> Codegen<'ctx> {
                     ));
                     self.extract_call_value(call)
                 }
-            }
-
-            TirExprKind::FuncRef { mangled_name } => {
-                let (params, return_type) = expr.ty.unwrap_function();
-                let func = self.get_or_declare_function(
-                    mangled_name,
-                    params,
-                    return_type.as_ref().map(|b| *b.clone()),
-                );
-                func.as_global_value().as_pointer_value().into()
-            }
-
-            TirExprKind::IndirectCall { callee, args } => {
-                let callee_ptr = self.codegen_expr(callee).into_pointer_value();
-                let (param_types_vt, return_type_vt) = callee.ty.unwrap_function();
-
-                let llvm_params: Vec<inkwell::types::BasicMetadataTypeEnum> = param_types_vt
-                    .iter()
-                    .map(|t| self.get_llvm_type(t).into())
-                    .collect();
-
-                let rt = return_type_vt
-                    .as_ref()
-                    .expect("ICE: void IndirectCall in expr context");
-                let fn_type = self.get_llvm_type(rt).fn_type(&llvm_params, false);
-
-                let arg_metadata = self.codegen_call_args(args);
-
-                let call_site = emit!(self.build_indirect_call(
-                    fn_type,
-                    callee_ptr,
-                    &Self::to_meta_args(&arg_metadata),
-                    "indirect_call"
-                ));
-
-                self.extract_call_value(call_site)
             }
         }
     }

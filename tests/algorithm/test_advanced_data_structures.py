@@ -315,8 +315,8 @@ def test_digit_trie_bulk_operations() -> None:
         base: int = (p2 * 1000 + 507) % 1000000
         d6: list[int] = to_digits_6(base)
         pref3: list[int] = [d6[0], d6[1], d6[2]]
-        print('CHECK test_advanced_data_structures lhs expr:', 'trie.has_prefix(pref3)')
-        print('CHECK test_advanced_data_structures rhs expr:', 'has_prefix_in_values(inserted, pref3)')
+        print('CHECK test_advanced_data_structures lhs:', trie.has_prefix(pref3))
+        print('CHECK test_advanced_data_structures rhs:', has_prefix_in_values(inserted, pref3))
         assert trie.has_prefix(pref3) == has_prefix_in_values(inserted, pref3)
         p2 = p2 + 1
 

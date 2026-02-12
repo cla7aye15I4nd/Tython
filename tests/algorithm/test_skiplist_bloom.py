@@ -123,7 +123,7 @@ def test_skiplist_large_membership() -> None:
 
     k: int = 0
     while k < 20000:
-        print('CHECK test_skiplist_bloom lhs expr:', 'sl.contains(k)')
+        print('CHECK test_skiplist_bloom lhs:', sl.contains(k))
         print('CHECK test_skiplist_bloom rhs:', used[k])
         assert sl.contains(k) == used[k]
         k = k + 1

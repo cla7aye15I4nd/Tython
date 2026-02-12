@@ -2,7 +2,6 @@ def test_if_int_truthy() -> None:
     result: int = 0
     if 42:
         result = 1
-    print(result)
     print('CHECK test_truthiness lhs:', result)
     print('CHECK test_truthiness rhs:', 1)
     assert result == 1
@@ -69,7 +68,6 @@ def test_while_int_countdown() -> None:
     while x:
         count += 1
         x -= 1
-    print(count)
     print('CHECK test_truthiness lhs:', count)
     print('CHECK test_truthiness rhs:', 5)
     assert count == 5

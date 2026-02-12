@@ -1,6 +1,5 @@
 def test_int_plus_float() -> None:
     x: float = 1 + 2.5
-    print(x)
     print('CHECK test_mixed_type lhs:', x)
     print('CHECK test_mixed_type rhs:', 3.5)
     assert x == 3.5
@@ -8,7 +7,6 @@ def test_int_plus_float() -> None:
 
 def test_float_plus_int() -> None:
     x: float = 2.5 + 1
-    print(x)
     print('CHECK test_mixed_type lhs:', x)
     print('CHECK test_mixed_type rhs:', 3.5)
     assert x == 3.5
@@ -16,7 +14,6 @@ def test_float_plus_int() -> None:
 
 def test_int_mul_float() -> None:
     x: float = 3 * 2.0
-    print(x)
     print('CHECK test_mixed_type lhs:', x)
     print('CHECK test_mixed_type rhs:', 6.0)
     assert x == 6.0
@@ -24,7 +21,6 @@ def test_int_mul_float() -> None:
 
 def test_int_sub_float() -> None:
     x: float = 10 - 3.5
-    print(x)
     print('CHECK test_mixed_type lhs:', x)
     print('CHECK test_mixed_type rhs:', 6.5)
     assert x == 6.5

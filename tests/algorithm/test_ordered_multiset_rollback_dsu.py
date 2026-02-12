@@ -169,7 +169,7 @@ def test_ordered_multiset_queries() -> None:
     while j < 4001:
         total_naive = total_naive + naive[j]
         j = j + 1
-    print('CHECK test_ordered_multiset_rollback_dsu lhs expr:', 'ms.size()')
+    print('CHECK test_ordered_multiset_rollback_dsu lhs:', ms.size())
     print('CHECK test_ordered_multiset_rollback_dsu rhs:', total_naive)
     assert ms.size() == total_naive
 

@@ -1,6 +1,5 @@
 def test_and_both_truthy() -> None:
     x: int = 1 and 2
-    print(x)
     print('CHECK test_logical lhs:', x)
     print('CHECK test_logical rhs:', 2)
     assert x == 2
@@ -8,7 +7,6 @@ def test_and_both_truthy() -> None:
 
 def test_and_left_falsy() -> None:
     x: int = 0 and 2
-    print(x)
     print('CHECK test_logical lhs:', x)
     print('CHECK test_logical rhs:', 0)
     assert x == 0
@@ -16,7 +14,6 @@ def test_and_left_falsy() -> None:
 
 def test_or_left_truthy() -> None:
     x: int = 1 or 2
-    print(x)
     print('CHECK test_logical lhs:', x)
     print('CHECK test_logical rhs:', 1)
     assert x == 1
@@ -24,7 +21,6 @@ def test_or_left_truthy() -> None:
 
 def test_or_left_falsy() -> None:
     x: int = 0 or 2
-    print(x)
     print('CHECK test_logical lhs:', x)
     print('CHECK test_logical rhs:', 2)
     assert x == 2

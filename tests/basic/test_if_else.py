@@ -2,7 +2,6 @@ def test_if_true() -> int:
     result: int = 0
     if 1 == 1:
         result = 10
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 10)
     assert result == 10
@@ -13,7 +12,6 @@ def test_if_false() -> int:
     result: int = 5
     if 1 == 2:
         result = 10
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 5)
     assert result == 5
@@ -26,7 +24,6 @@ def test_if_else_true_branch() -> int:
         result = 100
     else:
         result = 200
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 100)
     assert result == 100
@@ -39,7 +36,6 @@ def test_if_else_false_branch() -> int:
         result = 100
     else:
         result = 200
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 200)
     assert result == 200
@@ -55,7 +51,6 @@ def test_if_elif_else_first() -> int:
         result = 20
     else:
         result = 30
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 10)
     assert result == 10
@@ -71,7 +66,6 @@ def test_if_elif_else_second() -> int:
         result = 20
     else:
         result = 30
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 20)
     assert result == 20
@@ -87,7 +81,6 @@ def test_if_elif_else_default() -> int:
         result = 20
     else:
         result = 30
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 30)
     assert result == 30
@@ -107,7 +100,6 @@ def test_if_multiple_elif() -> int:
         result = 40
     else:
         result = 50
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 40)
     assert result == 40
@@ -125,7 +117,6 @@ def test_nested_if() -> int:
             result = 2
     else:
         result = 3
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 1)
     assert result == 1
@@ -143,7 +134,6 @@ def test_nested_if_outer_false() -> int:
             result = 2
     else:
         result = 3
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 3)
     assert result == 3
@@ -158,7 +148,6 @@ def test_if_with_computation() -> int:
         result = a * b
     else:
         result = a - b
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 15)
     assert result == 15
@@ -169,7 +158,6 @@ def test_if_gt() -> int:
     result: int = 0
     if 10 > 5:
         result = 1
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 1)
     assert result == 1
@@ -180,7 +168,6 @@ def test_if_lt() -> int:
     result: int = 0
     if 3 < 8:
         result = 1
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 1)
     assert result == 1
@@ -191,7 +178,6 @@ def test_if_gte() -> int:
     result: int = 0
     if 5 >= 5:
         result = 1
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 1)
     assert result == 1
@@ -202,7 +188,6 @@ def test_if_lte() -> int:
     result: int = 0
     if 5 <= 5:
         result = 1
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 1)
     assert result == 1
@@ -213,7 +198,6 @@ def test_if_neq() -> int:
     result: int = 0
     if 5 != 3:
         result = 1
-    print(result)
     print('CHECK test_if_else lhs:', result)
     print('CHECK test_if_else rhs:', 1)
     assert result == 1

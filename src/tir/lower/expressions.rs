@@ -56,29 +56,6 @@ impl Lowering {
                     .cloned()
                     .ok_or_else(|| self.name_error(line, format!("undefined variable `{}`", id)))?;
 
-                // If it's a function type and a known function definition,
-                // produce a FuncRef (function pointer) expression.
-                if let Type::Function {
-                    ref params,
-                    ref return_type,
-                } = ty
-                {
-                    if let Some(mangled) = self.function_mangled_names.get(&id).cloned() {
-                        let vt_params: Vec<ValueType> =
-                            params.iter().map(Self::to_value_type).collect();
-                        let vt_ret = Self::to_opt_value_type(return_type);
-                        return Ok(TirExpr {
-                            kind: TirExprKind::FuncRef {
-                                mangled_name: mangled,
-                            },
-                            ty: ValueType::Function {
-                                params: vt_params,
-                                return_type: vt_ret.map(Box::new),
-                            },
-                        });
-                    }
-                }
-
                 let vty = Self::to_value_type(&ty);
                 Ok(TirExpr {
                     kind: TirExprKind::Var(id),

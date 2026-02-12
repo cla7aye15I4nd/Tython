@@ -1,6 +1,5 @@
 def test_pow_int_basic() -> None:
     x: int = 2 ** 10
-    print(x)
     print('CHECK test_pow lhs:', x)
     print('CHECK test_pow rhs:', 1024)
     assert x == 1024
@@ -8,7 +7,6 @@ def test_pow_int_basic() -> None:
 
 def test_pow_int_zero_exp() -> None:
     x: int = 5 ** 0
-    print(x)
     print('CHECK test_pow lhs:', x)
     print('CHECK test_pow rhs:', 1)
     assert x == 1
@@ -37,7 +35,6 @@ def test_pow_int_base_zero() -> None:
 
 def test_pow_int_cubed() -> None:
     x: int = 3 ** 3
-    print(x)
     print('CHECK test_pow lhs:', x)
     print('CHECK test_pow rhs:', 27)
     assert x == 27
@@ -45,7 +42,6 @@ def test_pow_int_cubed() -> None:
 
 def test_pow_float() -> None:
     x: float = 2.0 ** 3.0
-    print(x)
     print('CHECK test_pow lhs:', x)
     print('CHECK test_pow rhs:', 8.0)
     assert x == 8.0
@@ -53,7 +49,6 @@ def test_pow_float() -> None:
 
 def test_pow_float_fractional() -> None:
     x: float = 4.0 ** 0.5
-    print(x)
     print('CHECK test_pow lhs:', x)
     print('CHECK test_pow rhs:', 2.0)
     assert x == 2.0

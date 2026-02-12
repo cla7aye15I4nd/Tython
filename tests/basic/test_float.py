@@ -165,7 +165,6 @@ def smooth_step(edge0: float, edge1: float, x: float) -> float:
 def test_fsquare_of_sum() -> None:
     s: float = fadd(1.5, 2.5)
     result: int = int(fsquare(s))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 16)
     assert result == 16
@@ -174,7 +173,6 @@ def test_fsquare_of_sum() -> None:
 def test_fcube_nested() -> None:
     base: float = fsub(5.0, 2.0)
     result: int = int(fcube(base))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 27)
     assert result == 27
@@ -183,7 +181,6 @@ def test_fcube_nested() -> None:
 def test_fabs_of_expression() -> None:
     x: float = fsub(3.0, 10.0)
     result: int = int(fabs(x))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 7)
     assert result == 7
@@ -192,7 +189,6 @@ def test_fabs_of_expression() -> None:
 def test_fclamp_via_fmax_fmin() -> None:
     raw: float = fmul(fadd(8.0, 7.0), 12.0)
     result: int = int(fclamp(raw, 50.0, 150.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 150)
     assert result == 150
@@ -200,7 +196,6 @@ def test_fclamp_via_fmax_fmin() -> None:
 
 def test_weighted_avg4_balanced() -> None:
     result: int = int(weighted_avg4(10.0, 1.0, 20.0, 1.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 15)
     assert result == 15
@@ -210,7 +205,6 @@ def test_weighted_avg4_from_ops() -> None:
     a: float = fsquare(4.0)
     b: float = fcube(2.0)
     result: int = int(weighted_avg4(a, 3.0, b, 1.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 14)
     assert result == 14
@@ -220,7 +214,6 @@ def test_lerp_quarter() -> None:
     lo: float = fmul(5.0, 2.0)
     hi: float = fmul(lo, 5.0)
     result: int = int(lerp(lo, hi, 0.25))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 20)
     assert result == 20
@@ -233,7 +226,6 @@ def test_inverse_lerp_roundtrip() -> None:
     val: float = lerp(lo, hi, t)
     recovered_t: float = inverse_lerp(lo, hi, val)
     result: int = int(fmul(recovered_t, 100.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 50)
     assert result == 50
@@ -241,7 +233,6 @@ def test_inverse_lerp_roundtrip() -> None:
 
 def test_remap_basic() -> None:
     result: int = int(remap(50.0, 0.0, 100.0, 0.0, 10.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 5)
     assert result == 5
@@ -249,7 +240,6 @@ def test_remap_basic() -> None:
 
 def test_remap_with_clamp() -> None:
     result: int = int(remap(200.0, 0.0, 100.0, 0.0, 50.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 50)
     assert result == 50
@@ -260,7 +250,6 @@ def test_remap_from_computed_bounds() -> None:
     in_hi: float = fsquare(10.0)
     val: float = fsquare(6.0)
     result: int = int(remap(val, in_lo, in_hi, 0.0, 100.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 33)
     assert result == 33
@@ -269,7 +258,6 @@ def test_remap_from_computed_bounds() -> None:
 def test_distance_2d_basic() -> None:
     d: float = distance_2d(0.0, 0.0, 3.0, 4.0)
     result: int = int(d)
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 5)
     assert result == 5
@@ -282,7 +270,6 @@ def test_distance_2d_from_ops() -> None:
     y2: float = fadd(1.0, 6.0)
     d: float = distance_2d(x1, y1, x2, y2)
     result: int = int(d)
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 5)
     assert result == 5
@@ -291,7 +278,6 @@ def test_distance_2d_from_ops() -> None:
 def test_sum_float_range_with_step() -> None:
     s: float = sum_float_range(1, 20, 3)
     result: int = int(s)
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 70)
     assert result == 70
@@ -300,7 +286,6 @@ def test_sum_float_range_with_step() -> None:
 def test_sum_range_feeds_sqrt() -> None:
     s: float = sum_float_range(1, 8, 1)
     result: int = int(newton_sqrt(s, 15))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 6)
     assert result == 6
@@ -308,7 +293,6 @@ def test_sum_range_feeds_sqrt() -> None:
 
 def test_fpower_basic() -> None:
     result: int = int(fpower(2.0, 10))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 1024)
     assert result == 1024
@@ -317,7 +301,6 @@ def test_fpower_basic() -> None:
 def test_fpower_nested_args() -> None:
     base: float = fadd(1.0, fsub(5.0, 3.0))
     result: int = int(fpower(base, 4))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 81)
     assert result == 81
@@ -326,7 +309,6 @@ def test_fpower_nested_args() -> None:
 def test_newton_sqrt_of_computed() -> None:
     val: float = fadd(fsquare(5.0), fsquare(12.0))
     result: int = int(newton_sqrt(val, 15))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 13)
     assert result == 13
@@ -334,7 +316,6 @@ def test_newton_sqrt_of_computed() -> None:
 
 def test_bisect_sqrt_of_16() -> None:
     result: int = int(bisect_sqrt(16.0, 50))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 3)
     assert result == 3
@@ -343,7 +324,6 @@ def test_bisect_sqrt_of_16() -> None:
 def test_bisect_sqrt_of_2_approx() -> None:
     approx: float = bisect_sqrt(2.0, 50)
     check: int = int(fmul(approx, approx))
-    print(check)
     print('CHECK test_float lhs:', check)
     print('CHECK test_float rhs:', 1)
     assert check == 1
@@ -351,7 +331,6 @@ def test_bisect_sqrt_of_2_approx() -> None:
 
 def test_geometric_series_basic() -> None:
     result: int = int(geometric_series(1.0, 2.0, 10))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 1023)
     assert result == 1023
@@ -359,7 +338,6 @@ def test_geometric_series_basic() -> None:
 
 def test_geometric_series_half() -> None:
     result: int = int(fmul(geometric_series(1.0, 0.5, 20), 100.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 199)
     assert result == 199
@@ -368,7 +346,6 @@ def test_geometric_series_half() -> None:
 def test_taylor_exp_at_1() -> None:
     e_approx: float = taylor_exp_terms(1.0, 15)
     result: int = int(fmul(e_approx, 1000.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 2718)
     assert result == 2718
@@ -377,7 +354,6 @@ def test_taylor_exp_at_1() -> None:
 def test_taylor_exp_at_2() -> None:
     e2: float = taylor_exp_terms(2.0, 20)
     result: int = int(fmul(e2, 100.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 738)
     assert result == 738
@@ -386,7 +362,6 @@ def test_taylor_exp_at_2() -> None:
 def test_harmonic_10() -> None:
     h: float = harmonic(10)
     result: int = int(fmul(h, 100.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 292)
     assert result == 292
@@ -396,7 +371,6 @@ def test_harmonic_feeds_lerp() -> None:
     h5: float = harmonic(5)
     h10: float = harmonic(10)
     result: int = int(fmul(lerp(h5, h10, 0.5), 100.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 260)
     assert result == 260
@@ -409,7 +383,6 @@ def test_moving_average_chain() -> None:
     avg = moving_average_step(avg, 30.0, 0.5)
     avg = moving_average_step(avg, 40.0, 0.5)
     result: int = int(avg)
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 30)
     assert result == 30
@@ -422,7 +395,6 @@ def test_moving_average_loop() -> None:
         avg = moving_average_step(avg, float(i), 0.3)
         i = i + 1
     result: int = int(fmul(avg, 10.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 77)
     assert result == 77
@@ -431,8 +403,6 @@ def test_moving_average_loop() -> None:
 def test_smooth_step_edges() -> None:
     lo: int = int(fmul(smooth_step(0.0, 1.0, 0.0), 100.0))
     hi: int = int(fmul(smooth_step(0.0, 1.0, 1.0), 100.0))
-    print(lo)
-    print(hi)
     print('CHECK test_float lhs:', lo)
     print('CHECK test_float rhs:', 0)
     assert lo == 0
@@ -443,7 +413,6 @@ def test_smooth_step_edges() -> None:
 
 def test_smooth_step_mid() -> None:
     result: int = int(fmul(smooth_step(0.0, 1.0, 0.5), 100.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 50)
     assert result == 50
@@ -453,7 +422,6 @@ def test_smooth_step_from_remap() -> None:
     t: float = remap(75.0, 0.0, 100.0, 0.0, 1.0)
     s: float = smooth_step(0.0, 1.0, t)
     result: int = int(fmul(s, 1000.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 843)
     assert result == 843
@@ -465,7 +433,6 @@ def test_mega_float_pipeline() -> None:
     clamped: float = fclamp(geo, 0.0, 20.0)
     smoothed: float = smooth_step(0.0, 20.0, clamped)
     result: int = int(fmul(smoothed, 1000.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 806)
     assert result == 806
@@ -477,7 +444,6 @@ def test_convergent_float_branches() -> None:
     avg: float = weighted_avg4(left, 2.0, right, 3.0)
     d: float = distance_2d(0.0, 0.0, avg, avg)
     result: int = int(fmul(d, 10.0))
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 87)
     assert result == 87
@@ -490,7 +456,6 @@ def test_loop_sqrt_accumulate() -> None:
         total = fadd(total, newton_sqrt(float(i * i * i), 15))
         i = i + 1
     result: int = int(total)
-    print(result)
     print('CHECK test_float lhs:', result)
     print('CHECK test_float rhs:', 28)
     assert result == 28

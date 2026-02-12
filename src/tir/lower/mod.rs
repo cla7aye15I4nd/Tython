@@ -392,7 +392,7 @@ impl Lowering {
                         return Ok(Type::Class(s));
                     }
                     // If not a simple name, parse as a type expression
-                    // (e.g., "callable[[int, int], int]")
+                    // (e.g., "list[int]", "tuple[int, str]")
                     Python::attach(|py| {
                         let ast_module = PyModule::import(py, "ast").unwrap();
                         let parsed = ast_module.call_method1("parse", (s.as_str(),)).unwrap();
@@ -458,36 +458,6 @@ impl Lowering {
                             bail!("unsupported tuple element type in annotation");
                         }
                         Ok(Type::Tuple(element_types))
-                    }
-                    "callable" => {
-                        // callable[[int, int], int]
-                        // Python AST: Subscript(value=Name("callable"),
-                        //   slice=Tuple(elts=[List(elts=[param_types...]), return_type]))
-                        if ast_type_name!(slice_node) != "Tuple" {
-                            bail!("callable type annotation must have form callable[[params], return_type]");
-                        }
-                        let slice_elts = ast_get_list!(slice_node, "elts");
-                        if slice_elts.len() != 2 {
-                            bail!("callable type annotation must have exactly 2 elements: [params], return_type");
-                        }
-                        let params_node = slice_elts.get_item(0)?;
-                        let return_node = slice_elts.get_item(1)?;
-
-                        if ast_type_name!(params_node) != "List" {
-                            bail!("callable parameter types must be a list, e.g., callable[[int, int], int]");
-                        }
-                        let param_elts = ast_get_list!(params_node, "elts");
-                        let mut param_types = Vec::new();
-                        for elt in param_elts.iter() {
-                            param_types.push(self.convert_type_annotation(&elt)?);
-                        }
-
-                        let return_type = self.convert_type_annotation(&return_node)?;
-
-                        Ok(Type::Function {
-                            params: param_types,
-                            return_type: Box::new(return_type),
-                        })
                     }
                     _ => bail!("unsupported generic type `{}`", container_name),
                 }

@@ -6,7 +6,6 @@ def to_int(b: bool) -> int:
 
 def test_float_eq_true() -> None:
     result: int = to_int(3.14 == 3.14)
-    print(result)
     print('CHECK test_float_cmp lhs:', result)
     print('CHECK test_float_cmp rhs:', 1)
     assert result == 1
@@ -14,7 +13,6 @@ def test_float_eq_true() -> None:
 
 def test_float_eq_false() -> None:
     result: int = to_int(3.14 == 2.71)
-    print(result)
     print('CHECK test_float_cmp lhs:', result)
     print('CHECK test_float_cmp rhs:', 0)
     assert result == 0
@@ -115,7 +113,6 @@ def test_float_cmp_with_vars() -> None:
     a: float = 10.5
     b: float = 20.3
     result: int = to_int(a < b)
-    print(result)
     print('CHECK test_float_cmp lhs:', result)
     print('CHECK test_float_cmp rhs:', 1)
     assert result == 1

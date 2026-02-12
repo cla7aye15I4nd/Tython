@@ -1,6 +1,5 @@
 def test_abs_int_pos() -> None:
     x: int = abs(5)
-    print(x)
     print('CHECK test_builtins lhs:', x)
     print('CHECK test_builtins rhs:', 5)
     assert x == 5
@@ -8,7 +7,6 @@ def test_abs_int_pos() -> None:
 
 def test_abs_int_neg() -> None:
     x: int = abs(-5)
-    print(x)
     print('CHECK test_builtins lhs:', x)
     print('CHECK test_builtins rhs:', 5)
     assert x == 5
@@ -23,7 +21,6 @@ def test_abs_int_zero() -> None:
 
 def test_abs_float() -> None:
     x: float = abs(-3.5)
-    print(x)
     print('CHECK test_builtins lhs:', x)
     print('CHECK test_builtins rhs:', 3.5)
     assert x == 3.5
@@ -31,7 +28,6 @@ def test_abs_float() -> None:
 
 def test_min_int() -> None:
     x: int = min(3, 7)
-    print(x)
     print('CHECK test_builtins lhs:', x)
     print('CHECK test_builtins rhs:', 3)
     assert x == 3
@@ -60,7 +56,6 @@ def test_min_int_variadic() -> None:
 
 def test_max_int() -> None:
     x: int = max(3, 7)
-    print(x)
     print('CHECK test_builtins lhs:', x)
     print('CHECK test_builtins rhs:', 7)
     assert x == 7
@@ -82,7 +77,6 @@ def test_max_float_variadic() -> None:
 
 def test_pow_builtin_int() -> None:
     x: int = pow(2, 10)
-    print(x)
     print('CHECK test_builtins lhs:', x)
     print('CHECK test_builtins rhs:', 1024)
     assert x == 1024
@@ -97,7 +91,6 @@ def test_pow_builtin_float() -> None:
 
 def test_round_up() -> None:
     x: int = round(3.7)
-    print(x)
     print('CHECK test_builtins lhs:', x)
     print('CHECK test_builtins rhs:', 4)
     assert x == 4
@@ -105,21 +98,20 @@ def test_round_up() -> None:
 
 def test_round_down() -> None:
     x: int = round(3.2)
-    print(x)
     print('CHECK test_builtins lhs:', x)
     print('CHECK test_builtins rhs:', 3)
     assert x == 3
 
 
 def test_repr_primitives() -> None:
-    print('CHECK test_builtins lhs expr:', 'repr(42)')
-    print('CHECK test_builtins rhs:', '42')
+    print('CHECK test_builtins lhs:', repr(42))
+    print('CHECK test_builtins rhs:', "42")
     assert repr(42) == "42"
-    print('CHECK test_builtins lhs expr:', 'repr(2.5)')
-    print('CHECK test_builtins rhs:', '2.5')
+    print('CHECK test_builtins lhs:', repr(2.5))
+    print('CHECK test_builtins rhs:', "2.5")
     assert repr(2.5) == "2.5"
-    print('CHECK test_builtins lhs expr:', 'repr(True)')
-    print('CHECK test_builtins rhs:', 'True')
+    print('CHECK test_builtins lhs:', repr(True))
+    print('CHECK test_builtins rhs:', "True")
     assert repr(True) == "True"
     s: str = repr("hello")
     print('CHECK test_builtins assert expr:', 'len(s) > 0')

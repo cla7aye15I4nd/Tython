@@ -27,7 +27,7 @@ def test_no_return_annotation_and_nested_import() -> None:
     print('CHECK test_coverage_edges rhs:', 6)
     assert out == 6
     helper_no_return_annotation(1)
-    print('CHECK test_coverage_edges lhs expr:', 'helper_with_no_import()')
+    print('CHECK test_coverage_edges lhs:', helper_with_no_import())
     print('CHECK test_coverage_edges rhs:', 7)
     assert helper_with_no_import() == 7
     e: Edge = make_edge(3)

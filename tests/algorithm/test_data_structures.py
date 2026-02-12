@@ -110,7 +110,7 @@ def test_dsu_large_components_and_queries() -> None:
     print('CHECK test_data_structures lhs:', dsu.size[root0])
     print('CHECK test_data_structures rhs:', n)
     assert dsu.size[root0] == n
-    print('CHECK test_data_structures lhs expr:', 'dsu.component_size(17)')
+    print('CHECK test_data_structures lhs:', dsu.component_size(17))
     print('CHECK test_data_structures rhs:', n)
     assert dsu.component_size(17) == n
     print('CHECK test_data_structures assert expr:', 'not dsu.union(3, 4)')
@@ -118,7 +118,7 @@ def test_dsu_large_components_and_queries() -> None:
 
     x: int = 0
     while x < n:
-        print('CHECK test_data_structures lhs expr:', 'dsu.find(x)')
+        print('CHECK test_data_structures lhs:', dsu.find(x))
         print('CHECK test_data_structures rhs:', root0)
         assert dsu.find(x) == root0
         x = x + 1
@@ -164,7 +164,7 @@ def test_heap_priority_queue_large_and_interleaved() -> None:
         checksum = (checksum + popped * (produced + 1)) % 1000000007
         produced = produced + 1
 
-    print('CHECK test_data_structures lhs expr:', 'len(heap)')
+    print('CHECK test_data_structures lhs:', len(heap))
     print('CHECK test_data_structures rhs:', 0)
     assert len(heap) == 0
     print('CHECK test_data_structures lhs:', expected_value)

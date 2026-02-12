@@ -94,23 +94,23 @@ def test_large_prefix_and_range_queries() -> None:
     values: list[int] = build_int_signal(n)
     prefix: list[int] = build_prefix_sums(values)
 
-    print('CHECK test_list_algorithms lhs expr:', 'len(values)')
+    print('CHECK test_list_algorithms lhs:', len(values))
     print('CHECK test_list_algorithms rhs:', n)
     assert len(values) == n
-    print('CHECK test_list_algorithms lhs expr:', 'len(prefix)')
+    print('CHECK test_list_algorithms lhs:', len(prefix))
     print('CHECK test_list_algorithms rhs:', n)
     assert len(prefix) == n
 
-    print('CHECK test_list_algorithms lhs expr:', 'range_sum(prefix, 0, 7999)')
-    print('CHECK test_list_algorithms rhs expr:', 'direct_range_sum(values, 0, 7999)')
+    print('CHECK test_list_algorithms lhs:', range_sum(prefix, 0, 7999))
+    print('CHECK test_list_algorithms rhs:', direct_range_sum(values, 0, 7999))
     assert range_sum(prefix, 0, 7999) == direct_range_sum(values, 0, 7999)
-    print('CHECK test_list_algorithms lhs expr:', 'range_sum(prefix, 123, 3456)')
-    print('CHECK test_list_algorithms rhs expr:', 'direct_range_sum(values, 123, 3456)')
+    print('CHECK test_list_algorithms lhs:', range_sum(prefix, 123, 3456))
+    print('CHECK test_list_algorithms rhs:', direct_range_sum(values, 123, 3456))
     assert range_sum(prefix, 123, 3456) == direct_range_sum(values, 123, 3456)
-    print('CHECK test_list_algorithms lhs expr:', 'range_sum(prefix, 2000, 7000)')
-    print('CHECK test_list_algorithms rhs expr:', 'direct_range_sum(values, 2000, 7000)')
+    print('CHECK test_list_algorithms lhs:', range_sum(prefix, 2000, 7000))
+    print('CHECK test_list_algorithms rhs:', direct_range_sum(values, 2000, 7000))
     assert range_sum(prefix, 2000, 7000) == direct_range_sum(values, 2000, 7000)
-    print('CHECK test_list_algorithms lhs expr:', 'range_sum(prefix, 7999, 7999)')
+    print('CHECK test_list_algorithms lhs:', range_sum(prefix, 7999, 7999))
     print('CHECK test_list_algorithms rhs:', values[7999])
     assert range_sum(prefix, 7999, 7999) == values[7999]
 
@@ -122,7 +122,7 @@ def test_large_cumulative_mean() -> None:
     values: list[float] = build_float_signal(n)
     means: list[float] = cumulative_mean(values)
 
-    print('CHECK test_list_algorithms lhs expr:', 'len(means)')
+    print('CHECK test_list_algorithms lhs:', len(means))
     print('CHECK test_list_algorithms rhs:', n)
     assert len(means) == n
 
@@ -391,13 +391,13 @@ def test_fibonacci_matrix_exponentiation_large_n() -> None:
     print('CHECK test_list_algorithms rhs:', linear_val)
     assert fast_val == linear_val
 
-    print('CHECK test_list_algorithms lhs expr:', 'fib_matrix_mod(0, mod)')
+    print('CHECK test_list_algorithms lhs:', fib_matrix_mod(0, mod))
     print('CHECK test_list_algorithms rhs:', 0)
     assert fib_matrix_mod(0, mod) == 0
-    print('CHECK test_list_algorithms lhs expr:', 'fib_matrix_mod(1, mod)')
+    print('CHECK test_list_algorithms lhs:', fib_matrix_mod(1, mod))
     print('CHECK test_list_algorithms rhs:', 1)
     assert fib_matrix_mod(1, mod) == 1
-    print('CHECK test_list_algorithms lhs expr:', 'fib_matrix_mod(10, mod)')
+    print('CHECK test_list_algorithms lhs:', fib_matrix_mod(10, mod))
     print('CHECK test_list_algorithms rhs:', 55)
     assert fib_matrix_mod(10, mod) == 55
 

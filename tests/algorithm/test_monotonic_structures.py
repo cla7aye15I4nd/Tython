@@ -70,7 +70,7 @@ def test_sliding_window_minimum_large() -> None:
             mins.append(mq.get_min())
         j = j + 1
 
-    print('CHECK test_monotonic_structures lhs expr:', 'len(mins)')
+    print('CHECK test_monotonic_structures lhs:', len(mins))
     print('CHECK test_monotonic_structures rhs:', n - w + 1)
     assert len(mins) == n - w + 1
 
@@ -102,7 +102,7 @@ def test_next_greater_indices_large() -> None:
 
     ms: MonotonicStackNextGreater = MonotonicStackNextGreater()
     nxt: list[int] = ms.process(arr)
-    print('CHECK test_monotonic_structures lhs expr:', 'len(nxt)')
+    print('CHECK test_monotonic_structures lhs:', len(nxt))
     print('CHECK test_monotonic_structures rhs:', n)
     assert len(nxt) == n
 

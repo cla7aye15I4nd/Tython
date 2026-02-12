@@ -133,17 +133,17 @@ def test_binary_tree_bst_class_algorithms() -> None:
     print('CHECK test_tree_algorithms rhs:', [1, 3, 4, 6, 6, 7, 7, 8, 10, 13, 14, 14])
     assert inorder == [1, 3, 4, 6, 6, 7, 7, 8, 10, 13, 14, 14]
 
-    print('CHECK test_tree_algorithms lhs expr:', 'bst.height_bfs()')
+    print('CHECK test_tree_algorithms lhs:', bst.height_bfs())
     print('CHECK test_tree_algorithms rhs:', 5)
     assert bst.height_bfs() == 5
 
-    print('CHECK test_tree_algorithms lhs expr:', 'bst.lca(1, 7)')
+    print('CHECK test_tree_algorithms lhs:', bst.lca(1, 7))
     print('CHECK test_tree_algorithms rhs:', 3)
     assert bst.lca(1, 7) == 3
-    print('CHECK test_tree_algorithms lhs expr:', 'bst.lca(4, 14)')
+    print('CHECK test_tree_algorithms lhs:', bst.lca(4, 14))
     print('CHECK test_tree_algorithms rhs:', 8)
     assert bst.lca(4, 14) == 8
-    print('CHECK test_tree_algorithms lhs expr:', 'bst.lca(13, 14)')
+    print('CHECK test_tree_algorithms lhs:', bst.lca(13, 14))
     print('CHECK test_tree_algorithms rhs:', 14)
     assert bst.lca(13, 14) == 14
 

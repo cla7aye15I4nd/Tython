@@ -92,7 +92,7 @@ def test_extended_gcd_batch() -> None:
         print('CHECK test_math_algorithms rhs:', g)
         assert a * x + b * y == g
         print('CHECK test_math_algorithms lhs:', g)
-        print('CHECK test_math_algorithms rhs expr:', 'gcd_int(a, b)')
+        print('CHECK test_math_algorithms rhs:', gcd_int(a, b))
         assert g == gcd_int(a, b)
 
         checked = checked + 1
@@ -125,7 +125,7 @@ def test_pascal_row_mod_large() -> None:
     mod: int = 1000000007
     n: int = 800
     row: list[int] = pascal_row_mod(n, mod)
-    print('CHECK test_math_algorithms lhs expr:', 'len(row)')
+    print('CHECK test_math_algorithms lhs:', len(row))
     print('CHECK test_math_algorithms rhs:', n + 1)
     assert len(row) == n + 1
 
@@ -144,7 +144,7 @@ def test_pascal_row_mod_large() -> None:
         total = (total + row[i]) % mod
         i = i + 1
     print('CHECK test_math_algorithms lhs:', total)
-    print('CHECK test_math_algorithms rhs expr:', 'mod_pow(2, n, mod)')
+    print('CHECK test_math_algorithms rhs:', mod_pow(2, n, mod))
     assert total == mod_pow(2, n, mod)
 
     # Spot checks with known small combinations.

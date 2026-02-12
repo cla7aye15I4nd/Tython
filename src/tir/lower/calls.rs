@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use pyo3::prelude::*;
 
 use crate::ast::{ClassInfo, Type};
@@ -74,8 +74,8 @@ impl Lowering {
 
                 match &scope_type {
                     Type::Function {
-                        ref params,
-                        ref return_type,
+                        params: _,
+                        return_type: _,
                     } => {
                         let return_type_resolved =
                             self.check_call_args(line, &func_name, &scope_type, &tir_args)?;
@@ -98,31 +98,12 @@ impl Lowering {
                                 }))
                             }
                         } else {
-                            // Indirect call through a function pointer variable
-                            let vt_params: Vec<ValueType> =
-                                params.iter().map(Self::to_value_type).collect();
-                            let vt_ret = Self::to_opt_value_type(return_type);
-                            let callee = TirExpr {
-                                kind: TirExprKind::Var(func_name),
-                                ty: ValueType::Function {
-                                    params: vt_params,
-                                    return_type: vt_ret.clone().map(Box::new),
-                                },
-                            };
-                            if return_type_resolved == Type::Unit {
-                                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                                    target: CallTarget::Indirect(callee),
-                                    args: tir_args,
-                                })))
-                            } else {
-                                Ok(CallResult::Expr(TirExpr {
-                                    kind: TirExprKind::IndirectCall {
-                                        callee: Box::new(callee),
-                                        args: tir_args,
-                                    },
-                                    ty: Self::to_value_type(&return_type_resolved),
-                                }))
-                            }
+                            bail!(
+                                "{}:{}: `{}` is not callable (indirect calls through function pointers are not supported)",
+                                self.current_file,
+                                line,
+                                func_name
+                            )
                         }
                     }
                     Type::Module(mangled) => {

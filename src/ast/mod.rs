@@ -53,9 +53,6 @@ impl std::fmt::Display for Type {
                 }
                 write!(f, "]")
             }
-            Type::Unit => write!(f, "None"),
-            Type::Module(path) => write!(f, "module '{}'", path),
-            Type::Class(name) => write!(f, "{}", name),
             Type::Function {
                 params,
                 return_type,
@@ -69,6 +66,9 @@ impl std::fmt::Display for Type {
                 }
                 write!(f, ") -> {}", return_type)
             }
+            Type::Unit => write!(f, "None"),
+            Type::Module(path) => write!(f, "module '{}'", path),
+            Type::Class(name) => write!(f, "{}", name),
         }
     }
 }

@@ -128,7 +128,6 @@ impl ValueType {
                 | ValueType::List(_)
                 | ValueType::Tuple(_)
                 | ValueType::Class(_)
-                | ValueType::Function { .. }
         )
     }
 }
@@ -290,7 +289,6 @@ pub enum CastKind {
 pub enum CallTarget {
     Named(String),
     Builtin(builtin::BuiltinFn),
-    Indirect(TirExpr),
 }
 
 // ── Comparison / unary / logical ops ────────────────────────────────
@@ -541,13 +539,6 @@ pub enum TirExprKind {
     ListLiteral {
         element_type: ValueType,
         elements: Vec<TirExpr>,
-    },
-    FuncRef {
-        mangled_name: String,
-    },
-    IndirectCall {
-        callee: Box<TirExpr>,
-        args: Vec<TirExpr>,
     },
 }
 

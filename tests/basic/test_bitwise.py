@@ -1,6 +1,5 @@
 def test_bitand() -> None:
     x: int = 12 & 10
-    print(x)
     print('CHECK test_bitwise lhs:', x)
     print('CHECK test_bitwise rhs:', 8)
     assert x == 8
@@ -8,7 +7,6 @@ def test_bitand() -> None:
 
 def test_bitor() -> None:
     x: int = 12 | 10
-    print(x)
     print('CHECK test_bitwise lhs:', x)
     print('CHECK test_bitwise rhs:', 14)
     assert x == 14
@@ -16,7 +14,6 @@ def test_bitor() -> None:
 
 def test_bitxor() -> None:
     x: int = 12 ^ 10
-    print(x)
     print('CHECK test_bitwise lhs:', x)
     print('CHECK test_bitwise rhs:', 6)
     assert x == 6
@@ -24,7 +21,6 @@ def test_bitxor() -> None:
 
 def test_lshift() -> None:
     x: int = 1 << 4
-    print(x)
     print('CHECK test_bitwise lhs:', x)
     print('CHECK test_bitwise rhs:', 16)
     assert x == 16
@@ -32,7 +28,6 @@ def test_lshift() -> None:
 
 def test_rshift() -> None:
     x: int = 16 >> 2
-    print(x)
     print('CHECK test_bitwise lhs:', x)
     print('CHECK test_bitwise rhs:', 4)
     assert x == 4
@@ -40,7 +35,6 @@ def test_rshift() -> None:
 
 def test_rshift_negative() -> None:
     x: int = -8 >> 1
-    print(x)
     print('CHECK test_bitwise lhs:', x)
     print('CHECK test_bitwise rhs:', -4)
     assert x == -4

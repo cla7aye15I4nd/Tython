@@ -197,7 +197,7 @@ def test_stack_and_queue_stress() -> None:
         assert x == expected
         checksum_stack = (checksum_stack + x * (j + 1)) % 1000000007
         j = j - 1
-    print('CHECK test_linear_data_structures lhs expr:', 'len(st)')
+    print('CHECK test_linear_data_structures lhs:', len(st))
     print('CHECK test_linear_data_structures rhs:', 0)
     assert len(st) == 0
 
@@ -211,7 +211,7 @@ def test_stack_and_queue_stress() -> None:
         assert y == expected_q
         checksum_queue = (checksum_queue + y * (k + 1)) % 1000000007
         k = k + 1
-    print('CHECK test_linear_data_structures lhs expr:', 'len(q)')
+    print('CHECK test_linear_data_structures lhs:', len(q))
     print('CHECK test_linear_data_structures rhs:', 0)
     assert len(q) == 0
 
@@ -232,7 +232,7 @@ def test_deque_bidirectional_ops() -> None:
             dq.push_back(i)
         i = i + 1
 
-    print('CHECK test_linear_data_structures lhs expr:', 'len(dq)')
+    print('CHECK test_linear_data_structures lhs:', len(dq))
     print('CHECK test_linear_data_structures rhs:', 6000)
     assert len(dq) == 6000
 
@@ -291,14 +291,14 @@ def test_hash_set_large_unique_tracking() -> None:
             expected_unique = expected_unique + 1
         k = k + 1
 
-    print('CHECK test_linear_data_structures lhs expr:', 'len(hs)')
+    print('CHECK test_linear_data_structures lhs:', len(hs))
     print('CHECK test_linear_data_structures rhs:', expected_unique)
     assert len(hs) == expected_unique
 
     t: int = 0
     while t < universe:
         value: int = t - 2000
-        print('CHECK test_linear_data_structures lhs expr:', 'hs.contains(value)')
+        print('CHECK test_linear_data_structures lhs:', hs.contains(value))
         print('CHECK test_linear_data_structures rhs:', seen[t])
         assert hs.contains(value) == seen[t]
         t = t + 1

@@ -1,38 +1,34 @@
 def test_list_int_literal() -> None:
     xs: list[int] = [1, 2, 3]
-    print(xs)
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 3)
     assert len(xs) == 3
 
 
 def test_list_float_literal() -> None:
     xs: list[float] = [1.5, 2.5, 3.5]
-    print(xs)
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 3)
     assert len(xs) == 3
 
 
 def test_list_bool_literal() -> None:
     xs: list[bool] = [True, False, True]
-    print(xs)
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 3)
     assert len(xs) == 3
 
 
 def test_list_str_literal() -> None:
     xs: list[str] = ["hello", "world"]
-    print(xs)
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 2)
     assert len(xs) == 2
 
 
 def test_list_empty() -> None:
     xs: list[int] = []
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 0)
     assert len(xs) == 0
 
@@ -89,7 +85,7 @@ def test_list_set_negative() -> None:
 def test_list_append_int() -> None:
     xs: list[int] = [1, 2]
     xs.append(3)
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 3)
     assert len(xs) == 3
     print('CHECK test_list lhs:', xs[2])
@@ -100,7 +96,7 @@ def test_list_append_int() -> None:
 def test_list_append_float() -> None:
     xs: list[float] = [1.0, 2.0]
     xs.append(3.0)
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 3)
     assert len(xs) == 3
     print('CHECK test_list lhs:', xs[2])
@@ -111,7 +107,7 @@ def test_list_append_float() -> None:
 def test_list_append_bool() -> None:
     xs: list[bool] = [True]
     xs.append(False)
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 2)
     assert len(xs) == 2
     print('CHECK test_list lhs:', xs[1])
@@ -122,7 +118,7 @@ def test_list_append_bool() -> None:
 def test_list_clear() -> None:
     xs: list[int] = [1, 2, 3]
     xs.clear()
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 0)
     assert len(xs) == 0
 
@@ -133,7 +129,7 @@ def test_list_pop_int() -> None:
     print('CHECK test_list lhs:', v)
     print('CHECK test_list rhs:', 3)
     assert v == 3
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 2)
     assert len(xs) == 2
     print('CHECK test_list lhs:', xs[1])
@@ -147,7 +143,7 @@ def test_list_pop_float() -> None:
     print('CHECK test_list lhs:', v)
     print('CHECK test_list rhs:', 2.5)
     assert v == 2.5
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 1)
     assert len(xs) == 1
     print('CHECK test_list lhs:', xs[0])
@@ -161,7 +157,7 @@ def test_list_pop_bool() -> None:
     print('CHECK test_list lhs:', v)
     print('CHECK test_list rhs:', True)
     assert v == True
-    print('CHECK test_list lhs expr:', 'len(xs)')
+    print('CHECK test_list lhs:', len(xs))
     print('CHECK test_list rhs:', 2)
     assert len(xs) == 2
     print('CHECK test_list lhs:', xs[1])

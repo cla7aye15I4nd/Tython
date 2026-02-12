@@ -31,7 +31,7 @@ def test_bytearray_concat() -> None:
     a: bytearray = bytearray(b"hello")
     b: bytearray = bytearray(b" world")
     c: bytearray = a + b
-    print('CHECK test_bytearray_compare lhs expr:', 'len(c)')
+    print('CHECK test_bytearray_compare lhs:', len(c))
     print('CHECK test_bytearray_compare rhs:', 11)
     assert len(c) == 11
     print("ba_concat ok")
@@ -39,7 +39,7 @@ def test_bytearray_concat() -> None:
 def test_bytearray_repeat() -> None:
     a: bytearray = bytearray(b"ab")
     b: bytearray = a * 3
-    print('CHECK test_bytearray_compare lhs expr:', 'len(b)')
+    print('CHECK test_bytearray_compare lhs:', len(b))
     print('CHECK test_bytearray_compare rhs:', 6)
     assert len(b) == 6
     print("ba_repeat ok")

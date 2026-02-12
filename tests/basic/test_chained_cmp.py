@@ -1,6 +1,5 @@
 def test_chain_ascending_true() -> None:
     x: bool = 1 < 2 < 3
-    print(x)
     print('CHECK test_chained_cmp lhs:', x)
     print('CHECK test_chained_cmp rhs:', True)
     assert x == True
@@ -8,7 +7,6 @@ def test_chain_ascending_true() -> None:
 
 def test_chain_ascending_false() -> None:
     x: bool = 1 < 3 < 2
-    print(x)
     print('CHECK test_chained_cmp lhs:', x)
     print('CHECK test_chained_cmp rhs:', False)
     assert x == False
@@ -16,7 +14,6 @@ def test_chain_ascending_false() -> None:
 
 def test_chain_equal() -> None:
     x: bool = 1 <= 1 <= 1
-    print(x)
     print('CHECK test_chained_cmp lhs:', x)
     print('CHECK test_chained_cmp rhs:', True)
     assert x == True
@@ -24,7 +21,6 @@ def test_chain_equal() -> None:
 
 def test_chain_descending() -> None:
     x: bool = 3 > 2 > 1
-    print(x)
     print('CHECK test_chained_cmp lhs:', x)
     print('CHECK test_chained_cmp rhs:', True)
     assert x == True

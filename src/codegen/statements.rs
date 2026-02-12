@@ -41,26 +41,6 @@ impl<'ctx> Codegen<'ctx> {
                 CallTarget::Builtin(builtin_fn) => {
                     self.codegen_builtin_call(*builtin_fn, args, None);
                 }
-                CallTarget::Indirect(callee_expr) => {
-                    let callee_ptr = self.codegen_expr(callee_expr).into_pointer_value();
-                    let arg_metadata = self.codegen_call_args(args);
-
-                    let (param_types_vt, _) = callee_expr.ty.unwrap_function();
-
-                    let llvm_params: Vec<inkwell::types::BasicMetadataTypeEnum> = param_types_vt
-                        .iter()
-                        .map(|t| self.get_llvm_type(t).into())
-                        .collect();
-
-                    let fn_type = self.context.void_type().fn_type(&llvm_params, false);
-
-                    emit!(self.build_indirect_call(
-                        fn_type,
-                        callee_ptr,
-                        &Self::to_meta_args(&arg_metadata),
-                        "void_indirect_call",
-                    ));
-                }
             },
 
             TirStmt::SetField {

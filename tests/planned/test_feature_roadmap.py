@@ -147,42 +147,42 @@ def test_bytearray_methods_insert_remove_reverse() -> None:
     ba: bytearray = bytearray(b"ace")
     ba.insert(1, 98)  # b
     print('CHECK test_feature_roadmap lhs:', ba)
-    print('CHECK test_feature_roadmap rhs expr:', "bytearray(b'abce')")
+    print('CHECK test_feature_roadmap rhs:', bytearray(b'abce'))
     assert ba == bytearray(b"abce")
 
     ba.remove(99)  # c
     print('CHECK test_feature_roadmap lhs:', ba)
-    print('CHECK test_feature_roadmap rhs expr:', "bytearray(b'abe')")
+    print('CHECK test_feature_roadmap rhs:', bytearray(b'abe'))
     assert ba == bytearray(b"abe")
 
     ba.reverse()
     print('CHECK test_feature_roadmap lhs:', ba)
-    print('CHECK test_feature_roadmap rhs expr:', "bytearray(b'eba')")
+    print('CHECK test_feature_roadmap rhs:', bytearray(b'eba'))
     assert ba == bytearray(b"eba")
 
 
 def test_builtins_sum_sorted_all_any() -> None:
-    print('CHECK test_feature_roadmap lhs expr:', 'sum([1, 2, 3, 4])')
+    print('CHECK test_feature_roadmap lhs:', sum([1, 2, 3, 4]))
     print('CHECK test_feature_roadmap rhs:', 10)
     assert sum([1, 2, 3, 4]) == 10
-    print('CHECK test_feature_roadmap lhs expr:', 'sum([1, 2, 3], 10)')
+    print('CHECK test_feature_roadmap lhs:', sum([1, 2, 3], 10))
     print('CHECK test_feature_roadmap rhs:', 16)
     assert sum([1, 2, 3], 10) == 16
 
-    print('CHECK test_feature_roadmap lhs expr:', 'sorted([3, 1, 2])')
+    print('CHECK test_feature_roadmap lhs:', sorted([3, 1, 2]))
     print('CHECK test_feature_roadmap rhs:', [1, 2, 3])
     assert sorted([3, 1, 2]) == [1, 2, 3]
 
-    print('CHECK test_feature_roadmap lhs expr:', 'all([1, 1, 1])')
+    print('CHECK test_feature_roadmap lhs:', all([1, 1, 1]))
     print('CHECK test_feature_roadmap rhs:', True)
     assert all([1, 1, 1]) == True
-    print('CHECK test_feature_roadmap lhs expr:', 'all([1, 0, 1])')
+    print('CHECK test_feature_roadmap lhs:', all([1, 0, 1]))
     print('CHECK test_feature_roadmap rhs:', False)
     assert all([1, 0, 1]) == False
-    print('CHECK test_feature_roadmap lhs expr:', 'any([0, 0, 4])')
+    print('CHECK test_feature_roadmap lhs:', any([0, 0, 4]))
     print('CHECK test_feature_roadmap rhs:', True)
     assert any([0, 0, 4]) == True
-    print('CHECK test_feature_roadmap lhs expr:', 'any([0, 0, 0])')
+    print('CHECK test_feature_roadmap lhs:', any([0, 0, 0]))
     print('CHECK test_feature_roadmap rhs:', False)
     assert any([0, 0, 0]) == False
 
@@ -278,16 +278,16 @@ def test_complex_nested_control_flow_roadmap() -> None:
     payload.remove(99)  # c
     payload.reverse()
     print('CHECK test_feature_roadmap lhs:', payload)
-    print('CHECK test_feature_roadmap rhs expr:', "bytearray(b'dba')")
+    print('CHECK test_feature_roadmap rhs:', bytearray(b'dba'))
     assert payload == bytearray(b"dba")
 
-    print('CHECK test_feature_roadmap lhs expr:', 'sum(seen_small)')
+    print('CHECK test_feature_roadmap lhs:', sum(seen_small))
     print('CHECK test_feature_roadmap rhs:', 6)
     assert sum(seen_small) == 6
-    print('CHECK test_feature_roadmap lhs expr:', 'all([marker == 111, len(payload) == 3, 4 in transformed])')
+    print('CHECK test_feature_roadmap lhs:', all([marker == 111, len(payload) == 3, 4 in transformed]))
     print('CHECK test_feature_roadmap rhs:', True)
     assert all([marker == 111, len(payload) == 3, 4 in transformed]) == True
-    print('CHECK test_feature_roadmap lhs expr:', 'any([9 in transformed, 8 in transformed, 5 in transformed])')
+    print('CHECK test_feature_roadmap lhs:', any([9 in transformed, 8 in transformed, 5 in transformed]))
     print('CHECK test_feature_roadmap rhs:', True)
     assert any([9 in transformed, 8 in transformed, 5 in transformed]) == True
 

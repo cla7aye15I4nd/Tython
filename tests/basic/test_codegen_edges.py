@@ -16,15 +16,6 @@ class TinyIter:
         return self.current
 
 
-def sink(n: int) -> None:
-    _x: int = n + 1
-
-
-def test_indirect_void_call() -> None:
-    fn: "callable[[int], None]" = sink
-    fn(41)
-
-
 def test_for_range_else() -> None:
     total: int = 0
     for i in range(1, 4):
@@ -65,16 +56,16 @@ def classify_exception(flag: int) -> str:
 
 
 def test_except_chain_and_bare_except() -> None:
-    print('CHECK test_codegen_edges lhs expr:', 'classify_exception(0)')
+    print('CHECK test_codegen_edges lhs:', classify_exception(0))
     print('CHECK test_codegen_edges rhs:', 'value')
     assert classify_exception(0) == "value"
-    print('CHECK test_codegen_edges lhs expr:', 'classify_exception(1)')
+    print('CHECK test_codegen_edges lhs:', classify_exception(1))
     print('CHECK test_codegen_edges rhs:', 'type')
     assert classify_exception(1) == "type"
-    print('CHECK test_codegen_edges lhs expr:', 'classify_exception(2)')
+    print('CHECK test_codegen_edges lhs:', classify_exception(2))
     print('CHECK test_codegen_edges rhs:', 'other')
     assert classify_exception(2) == "other"
-    print('CHECK test_codegen_edges lhs expr:', 'classify_exception(3)')
+    print('CHECK test_codegen_edges lhs:', classify_exception(3))
     print('CHECK test_codegen_edges rhs:', 'ok')
     assert classify_exception(3) == "ok"
 
@@ -195,7 +186,6 @@ def test_for_iter_inside_if_personality() -> None:
 
 
 def run_tests() -> None:
-    test_indirect_void_call()
     test_for_range_else()
     test_try_finally_without_except()
     test_except_chain_and_bare_except()

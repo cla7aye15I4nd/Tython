@@ -1,6 +1,5 @@
 def test_float_to_int_trunc() -> None:
     x: int = int(3.7)
-    print(x)
     print('CHECK test_casting lhs:', x)
     print('CHECK test_casting rhs:', 3)
     assert x == 3
@@ -8,7 +7,6 @@ def test_float_to_int_trunc() -> None:
 
 def test_float_to_int_exact() -> None:
     x: int = int(5.0)
-    print(x)
     print('CHECK test_casting lhs:', x)
     print('CHECK test_casting rhs:', 5)
     assert x == 5
@@ -16,7 +14,6 @@ def test_float_to_int_exact() -> None:
 
 def test_float_to_int_zero() -> None:
     x: int = int(0.9)
-    print(x)
     print('CHECK test_casting lhs:', x)
     print('CHECK test_casting rhs:', 0)
     assert x == 0
@@ -24,7 +21,6 @@ def test_float_to_int_zero() -> None:
 
 def test_float_to_int_negative() -> None:
     x: int = int(-3.7)
-    print(x)
     print('CHECK test_casting lhs:', x)
     print('CHECK test_casting rhs:', -3)
     assert x == -3
@@ -33,7 +29,6 @@ def test_float_to_int_negative() -> None:
 def test_int_to_float() -> None:
     x: float = float(42)
     y: int = int(x)
-    print(y)
     print('CHECK test_casting lhs:', y)
     print('CHECK test_casting rhs:', 42)
     assert y == 42
@@ -71,7 +66,6 @@ def test_float_to_bool_negative() -> None:
 def test_bool_to_float_true() -> None:
     x: float = float(True)
     y: int = int(x)
-    print(y)
     print('CHECK test_casting lhs:', y)
     print('CHECK test_casting rhs:', 1)
     assert y == 1
@@ -80,7 +74,6 @@ def test_bool_to_float_true() -> None:
 def test_bool_to_float_false() -> None:
     x: float = float(False)
     y: int = int(x)
-    print(y)
     print('CHECK test_casting lhs:', y)
     print('CHECK test_casting rhs:', 0)
     assert y == 0

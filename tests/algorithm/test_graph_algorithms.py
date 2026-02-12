@@ -100,7 +100,7 @@ def test_topological_sort_large_dag() -> None:
         layer = layer + 1
 
     order: list[int] = topo_sort_kahn(n, head, to, nxt, indeg)
-    print('CHECK test_graph_algorithms lhs expr:', 'len(order)')
+    print('CHECK test_graph_algorithms lhs:', len(order))
     print('CHECK test_graph_algorithms rhs:', n)
     assert len(order) == n
 
