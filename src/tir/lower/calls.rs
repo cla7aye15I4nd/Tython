@@ -496,6 +496,25 @@ impl Lowering {
         expected_return_type: Option<ValueType>,
         caller_name: &str,
     ) -> Result<TirExpr> {
+        self.lower_class_magic_method_with_args(
+            line,
+            object,
+            method_names,
+            expected_return_type,
+            caller_name,
+            vec![],
+        )
+    }
+
+    pub(super) fn lower_class_magic_method_with_args(
+        &self,
+        line: usize,
+        object: TirExpr,
+        method_names: &[&str],
+        expected_return_type: Option<ValueType>,
+        caller_name: &str,
+        args: Vec<TirExpr>,
+    ) -> Result<TirExpr> {
         if method_names.is_empty() {
             return Err(self.syntax_error(
                 line,
@@ -540,16 +559,29 @@ impl Lowering {
                 }
             })?;
 
-        if !method.params.is_empty() {
+        if method.params.len() != args.len() {
             return Err(self.type_error(
                 line,
                 format!(
-                    "{}.{}() must take no arguments besides `self`, found {}",
+                    "{}.{}() expects {} argument{} besides `self`, got {}",
                     class_name,
                     method.name,
-                    method.params.len()
+                    method.params.len(),
+                    if method.params.len() == 1 { "" } else { "s" },
+                    args.len()
                 ),
             ));
+        }
+        for (i, (arg, expected)) in args.iter().zip(method.params.iter()).enumerate() {
+            if arg.ty.to_type() != *expected {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "argument {} type mismatch in {}.{}(): expected `{}`, got `{}`",
+                        i, class_name, method.name, expected, arg.ty
+                    ),
+                ));
+            }
         }
 
         let return_type = if let Some(ref expected) = expected_return_type {
@@ -564,13 +596,26 @@ impl Lowering {
             }
             expected.clone()
         } else {
+            if method.return_type == Type::Unit {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "{}.{}() must return a value, got `None`",
+                        class_name, method.name
+                    ),
+                ));
+            }
             Self::to_value_type(&method.return_type)
         };
+
+        let mut call_args = Vec::with_capacity(1 + args.len());
+        call_args.push(object);
+        call_args.extend(args);
 
         Ok(TirExpr {
             kind: TirExprKind::Call {
                 func: method.mangled_name.clone(),
-                args: vec![object],
+                args: call_args,
             },
             ty: return_type,
         })

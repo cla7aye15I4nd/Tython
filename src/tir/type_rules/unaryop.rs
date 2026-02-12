@@ -1,5 +1,39 @@
 use crate::ast::Type;
-use crate::tir::UnaryOpKind;
+use crate::tir::{UnaryOpKind, ValueType};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassUnaryOpMagicRule {
+    pub method_name: &'static str,
+    pub expected_return_type: Option<ValueType>,
+    /// If true, apply logical-not to the method result.
+    pub negate_result: bool,
+}
+
+pub fn lookup_class_unary_magic(op: UnaryOpKind) -> Option<ClassUnaryOpMagicRule> {
+    use UnaryOpKind::*;
+    Some(match op {
+        Neg => ClassUnaryOpMagicRule {
+            method_name: "__neg__",
+            expected_return_type: None,
+            negate_result: false,
+        },
+        Pos => ClassUnaryOpMagicRule {
+            method_name: "__pos__",
+            expected_return_type: None,
+            negate_result: false,
+        },
+        BitNot => ClassUnaryOpMagicRule {
+            method_name: "__invert__",
+            expected_return_type: None,
+            negate_result: false,
+        },
+        Not => ClassUnaryOpMagicRule {
+            method_name: "__bool__",
+            expected_return_type: Some(ValueType::Bool),
+            negate_result: true,
+        },
+    })
+}
 
 /// Result of looking up a valid (UnaryOpKind, operand_type) combination.
 #[derive(Debug, Clone, PartialEq, Eq)]

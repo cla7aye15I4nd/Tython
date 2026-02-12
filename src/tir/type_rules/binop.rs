@@ -1,6 +1,69 @@
 use crate::ast::Type;
 use crate::tir::{ArithBinOp, FloatArithOp, IntArithOp, RawBinOp, TypedBinOp};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClassBinOpMagicRule {
+    pub left_method: &'static str,
+    pub right_method: &'static str,
+}
+
+pub fn lookup_class_binop_magic(op: RawBinOp) -> Option<ClassBinOpMagicRule> {
+    use crate::tir::BitwiseBinOp::*;
+    use ArithBinOp::*;
+    use RawBinOp::*;
+
+    Some(match op {
+        Arith(Add) => ClassBinOpMagicRule {
+            left_method: "__add__",
+            right_method: "__radd__",
+        },
+        Arith(Sub) => ClassBinOpMagicRule {
+            left_method: "__sub__",
+            right_method: "__rsub__",
+        },
+        Arith(Mul) => ClassBinOpMagicRule {
+            left_method: "__mul__",
+            right_method: "__rmul__",
+        },
+        Arith(Div) => ClassBinOpMagicRule {
+            left_method: "__truediv__",
+            right_method: "__rtruediv__",
+        },
+        Arith(FloorDiv) => ClassBinOpMagicRule {
+            left_method: "__floordiv__",
+            right_method: "__rfloordiv__",
+        },
+        Arith(Mod) => ClassBinOpMagicRule {
+            left_method: "__mod__",
+            right_method: "__rmod__",
+        },
+        Arith(Pow) => ClassBinOpMagicRule {
+            left_method: "__pow__",
+            right_method: "__rpow__",
+        },
+        Bitwise(BitAnd) => ClassBinOpMagicRule {
+            left_method: "__and__",
+            right_method: "__rand__",
+        },
+        Bitwise(BitOr) => ClassBinOpMagicRule {
+            left_method: "__or__",
+            right_method: "__ror__",
+        },
+        Bitwise(BitXor) => ClassBinOpMagicRule {
+            left_method: "__xor__",
+            right_method: "__rxor__",
+        },
+        Bitwise(LShift) => ClassBinOpMagicRule {
+            left_method: "__lshift__",
+            right_method: "__rlshift__",
+        },
+        Bitwise(RShift) => ClassBinOpMagicRule {
+            left_method: "__rshift__",
+            right_method: "__rrshift__",
+        },
+    })
+}
+
 /// Describes what coercion to apply to an operand before the operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Coercion {

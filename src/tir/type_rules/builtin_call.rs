@@ -165,6 +165,9 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
         ("str" | "repr", [ty]) => lookup_builtin_dunder(ty, "__str__"),
 
         ("bytes", [ValueType::Bytes]) => Some(BuiltinCallRule::Identity),
+        ("bytes", [ValueType::Class(_)]) => {
+            Some(class_magic(&["__bytes__"], Some(ValueType::Bytes)))
+        }
         ("bytes", [ValueType::Int]) => {
             Some(external_call(BuiltinFn::BytesFromInt, ValueType::Bytes))
         }
@@ -184,14 +187,19 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
         )),
 
         ("int", [ValueType::Int]) => Some(BuiltinCallRule::Identity),
+        ("int", [ValueType::Class(_)]) => Some(class_magic(&["__int__"], Some(ValueType::Int))),
         ("int", [ValueType::Float | ValueType::Bool]) => Some(BuiltinCallRule::PrimitiveCast {
             target_type: ValueType::Int,
         }),
         ("float", [ValueType::Float]) => Some(BuiltinCallRule::Identity),
+        ("float", [ValueType::Class(_)]) => {
+            Some(class_magic(&["__float__"], Some(ValueType::Float)))
+        }
         ("float", [ValueType::Int | ValueType::Bool]) => Some(BuiltinCallRule::PrimitiveCast {
             target_type: ValueType::Float,
         }),
         ("bool", [ValueType::Bool]) => Some(BuiltinCallRule::Identity),
+        ("bool", [ValueType::Class(_)]) => Some(class_magic(&["__bool__"], Some(ValueType::Bool))),
         ("bool", [ValueType::Int | ValueType::Float]) => Some(BuiltinCallRule::PrimitiveCast {
             target_type: ValueType::Bool,
         }),
@@ -203,6 +211,7 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
         ("len", [ValueType::Class(_)]) => Some(class_magic(&["__len__"], Some(ValueType::Int))),
         ("len", [ty]) => lookup_builtin_dunder(ty, "__len__"),
 
+        ("abs", [ValueType::Class(_)]) => Some(class_magic(&["__abs__"], None)),
         ("abs", _) => numeric_unary_builtin(arg_types, BuiltinFn::AbsInt, BuiltinFn::AbsFloat),
         ("min", _) => numeric_variadic_builtin(arg_types, BuiltinFn::MinInt, BuiltinFn::MinFloat),
         ("max", _) => numeric_variadic_builtin(arg_types, BuiltinFn::MaxInt, BuiltinFn::MaxFloat),
@@ -212,6 +221,7 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
         }
         ("pow", [ValueType::Float, ValueType::Float]) => Some(BuiltinCallRule::PowFloat),
 
+        ("round", [ValueType::Class(_)]) => Some(class_magic(&["__round__"], None)),
         ("round", [ValueType::Float]) => Some(external_call(BuiltinFn::RoundFloat, ValueType::Int)),
 
         ("sum", _) => sum_builtin(arg_types),

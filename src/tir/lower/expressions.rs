@@ -122,6 +122,29 @@ impl Lowering {
 
                 let op = Self::convert_unaryop(&op_type);
 
+                if matches!(operand.ty, ValueType::Class(_)) {
+                    let magic = type_rules::lookup_class_unary_magic(op)
+                        .expect("ICE: missing class unary magic mapping");
+                    let mut expr = self.lower_class_magic_method_with_args(
+                        line,
+                        operand,
+                        &[magic.method_name],
+                        magic.expected_return_type,
+                        "unary operator",
+                        vec![],
+                    )?;
+                    if magic.negate_result {
+                        expr = TirExpr {
+                            kind: TirExprKind::UnaryOp {
+                                op: crate::tir::UnaryOpKind::Not,
+                                operand: Box::new(expr),
+                            },
+                            ty: ValueType::Bool,
+                        };
+                    }
+                    return Ok(expr);
+                }
+
                 let rule =
                     type_rules::lookup_unaryop(op, &operand.ty.to_type()).ok_or_else(|| {
                         self.type_error(
@@ -956,6 +979,12 @@ impl Lowering {
         left: TirExpr,
         right: TirExpr,
     ) -> Result<TirExpr> {
+        if let Some(class_expr) =
+            self.try_lower_class_binop_magic(line, raw_op, left.clone(), right.clone())?
+        {
+            return Ok(class_expr);
+        }
+
         let left_ast = left.ty.to_type();
         let right_ast = right.ty.to_type();
         let rule = type_rules::lookup_binop(raw_op, &left_ast, &right_ast).ok_or_else(|| {
@@ -1020,6 +1049,65 @@ impl Lowering {
             }
             _ => None,
         }
+    }
+
+    fn try_lower_class_binop_magic(
+        &self,
+        line: usize,
+        raw_op: RawBinOp,
+        left: TirExpr,
+        right: TirExpr,
+    ) -> Result<Option<TirExpr>> {
+        let magic = type_rules::lookup_class_binop_magic(raw_op)
+            .expect("ICE: missing class binop magic mapping");
+
+        let mut found_class_side = false;
+
+        if let ValueType::Class(class_name) = &left.ty {
+            found_class_side = true;
+            let class_info = self.lookup_class(line, class_name)?;
+            if class_info.methods.contains_key(magic.left_method) {
+                return self
+                    .lower_class_magic_method_with_args(
+                        line,
+                        left,
+                        &[magic.left_method],
+                        None,
+                        "binary operator",
+                        vec![right],
+                    )
+                    .map(Some);
+            }
+        }
+
+        if let ValueType::Class(class_name) = &right.ty {
+            found_class_side = true;
+            let class_info = self.lookup_class(line, class_name)?;
+            if class_info.methods.contains_key(magic.right_method) {
+                return self
+                    .lower_class_magic_method_with_args(
+                        line,
+                        right,
+                        &[magic.right_method],
+                        None,
+                        "binary operator",
+                        vec![left],
+                    )
+                    .map(Some);
+            }
+        }
+
+        if found_class_side {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "operator `{}` requires class magic methods `{}` or `{}` for operand types `{}` and `{}`",
+                    raw_op, magic.left_method, magic.right_method, left.ty, right.ty
+                ),
+            ));
+        }
+
+        Ok(None)
     }
 
     fn apply_coercion(expr: TirExpr, coercion: type_rules::Coercion) -> TirExpr {
