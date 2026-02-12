@@ -144,6 +144,31 @@ fn test_broken_symlink_entry_point() {
     );
 }
 
+#[test]
+fn test_module_with_no_top_level_statements_compiles() {
+    let tmp = tempfile::tempdir().expect("Failed to create temp dir");
+    let code = r#"
+def helper(x: int) -> int:
+    return x + 1
+
+def main() -> None:
+    y: int = helper(1)
+"#;
+    std::fs::write(tmp.path().join("main.py"), code).expect("Failed to write main.py");
+
+    let output = cargo_bin_cmd!("tython")
+        .arg("main.py")
+        .current_dir(tmp.path())
+        .output()
+        .expect("Failed to run tython");
+
+    assert!(
+        output.status.success(),
+        "Expected module with no top-level statements to compile and run, but failed\n  stderr: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+}
+
 const ALL_BINOPS: &[RawBinOp] = &[
     RawBinOp::Arith(ArithBinOp::Add),
     RawBinOp::Arith(ArithBinOp::Sub),

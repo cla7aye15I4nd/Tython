@@ -164,7 +164,10 @@ impl Lowering {
         for stmt_node in body_list.iter() {
             let node_type = ast_type_name!(stmt_node);
             if node_type == "Import" || node_type == "ImportFrom" {
-                continue;
+                return Err(self.syntax_error(
+                    Self::get_line(&stmt_node),
+                    "imports are only allowed at module top-level",
+                ));
             }
             tir_body.extend(self.lower_stmt(&stmt_node)?);
         }

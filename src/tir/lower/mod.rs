@@ -267,10 +267,10 @@ impl Lowering {
             }
         }
 
-        if !module_level_stmts.is_empty() {
-            let main_func = self.build_synthetic_main(module_level_stmts);
-            functions.insert(main_func.name.clone(), main_func);
-        }
+        // Always synthesize a module main so codegen can reliably build the
+        // C entry wrapper, even when a module has only definitions/imports.
+        let main_func = self.build_synthetic_main(module_level_stmts);
+        functions.insert(main_func.name.clone(), main_func);
 
         // Drain classes/functions discovered inside function/method bodies
         for ci in self.deferred_classes.drain(..) {

@@ -75,6 +75,50 @@ fn numeric_unary_builtin(
     }
 }
 
+#[inline]
+fn external_call(func: BuiltinFn, return_type: ValueType) -> BuiltinCallRule {
+    BuiltinCallRule::ExternalCall { func, return_type }
+}
+
+#[inline]
+fn fold_external_call(func: BuiltinFn, return_type: ValueType) -> BuiltinCallRule {
+    BuiltinCallRule::FoldExternalCall { func, return_type }
+}
+
+#[inline]
+fn class_magic(
+    method_names: &'static [&'static str],
+    return_type: Option<ValueType>,
+) -> BuiltinCallRule {
+    BuiltinCallRule::ClassMagic {
+        method_names,
+        return_type,
+    }
+}
+
+fn sum_builtin(arg_types: &[&ValueType]) -> Option<BuiltinCallRule> {
+    match arg_types {
+        [ValueType::List(inner)] => match inner.as_ref() {
+            ValueType::Int | ValueType::Bool => {
+                Some(external_call(BuiltinFn::SumInt, ValueType::Int))
+            }
+            ValueType::Float => Some(external_call(BuiltinFn::SumFloat, ValueType::Float)),
+            _ => None,
+        },
+        [ValueType::List(inner), ValueType::Int] => match inner.as_ref() {
+            ValueType::Int | ValueType::Bool => {
+                Some(external_call(BuiltinFn::SumIntStart, ValueType::Int))
+            }
+            _ => None,
+        },
+        [ValueType::List(inner), ValueType::Float] => match inner.as_ref() {
+            ValueType::Float => Some(external_call(BuiltinFn::SumFloatStart, ValueType::Float)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Resolve a variadic numeric builtin (like min/max) that has int and float variants.
 fn numeric_variadic_builtin(
     arg_types: &[&ValueType],
@@ -86,17 +130,11 @@ fn numeric_variadic_builtin(
     }
 
     if arg_types.iter().all(|ty| **ty == ValueType::Int) {
-        return Some(BuiltinCallRule::FoldExternalCall {
-            func: int_fn,
-            return_type: ValueType::Int,
-        });
+        return Some(fold_external_call(int_fn, ValueType::Int));
     }
 
     if arg_types.iter().all(|ty| **ty == ValueType::Float) {
-        return Some(BuiltinCallRule::FoldExternalCall {
-            func: float_fn,
-            return_type: ValueType::Float,
-        });
+        return Some(fold_external_call(float_fn, ValueType::Float));
     }
 
     None
@@ -107,56 +145,35 @@ fn numeric_variadic_builtin(
 pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<BuiltinCallRule> {
     match (name, arg_types) {
         // Conversions/constructors
-        ("str", [ValueType::Str]) => Some(BuiltinCallRule::Identity),
-        ("str", [ValueType::Int]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::StrFromInt,
-            return_type: ValueType::Str,
-        }),
-        ("str", [ValueType::Float]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::StrFromFloat,
-            return_type: ValueType::Str,
-        }),
-        ("str", [ValueType::Bool]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::StrFromBool,
-            return_type: ValueType::Str,
-        }),
-        ("repr", [ValueType::Int]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::StrFromInt,
-            return_type: ValueType::Str,
-        }),
-        ("repr", [ValueType::Float]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::StrFromFloat,
-            return_type: ValueType::Str,
-        }),
-        ("repr", [ValueType::Bool]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::StrFromBool,
-            return_type: ValueType::Str,
-        }),
-        ("repr", [ValueType::Str]) => Some(BuiltinCallRule::Identity),
+        ("str" | "repr", [ValueType::Str]) => Some(BuiltinCallRule::Identity),
+        ("str" | "repr", [ValueType::Int]) => {
+            Some(external_call(BuiltinFn::StrFromInt, ValueType::Str))
+        }
+        ("str" | "repr", [ValueType::Float]) => {
+            Some(external_call(BuiltinFn::StrFromFloat, ValueType::Str))
+        }
+        ("str" | "repr", [ValueType::Bool]) => {
+            Some(external_call(BuiltinFn::StrFromBool, ValueType::Str))
+        }
 
         ("bytes", [ValueType::Bytes]) => Some(BuiltinCallRule::Identity),
-        ("bytes", [ValueType::Int]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::BytesFromInt,
-            return_type: ValueType::Bytes,
-        }),
-        ("bytes", [ValueType::Str]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::BytesFromStr,
-            return_type: ValueType::Bytes,
-        }),
+        ("bytes", [ValueType::Int]) => {
+            Some(external_call(BuiltinFn::BytesFromInt, ValueType::Bytes))
+        }
 
-        ("bytearray", []) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::ByteArrayEmpty,
-            return_type: ValueType::ByteArray,
-        }),
+        ("bytearray", []) => Some(external_call(
+            BuiltinFn::ByteArrayEmpty,
+            ValueType::ByteArray,
+        )),
         ("bytearray", [ValueType::ByteArray]) => Some(BuiltinCallRule::Identity),
-        ("bytearray", [ValueType::Int]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::ByteArrayFromInt,
-            return_type: ValueType::ByteArray,
-        }),
-        ("bytearray", [ValueType::Bytes]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::ByteArrayFromBytes,
-            return_type: ValueType::ByteArray,
-        }),
+        ("bytearray", [ValueType::Int]) => Some(external_call(
+            BuiltinFn::ByteArrayFromInt,
+            ValueType::ByteArray,
+        )),
+        ("bytearray", [ValueType::Bytes]) => Some(external_call(
+            BuiltinFn::ByteArrayFromBytes,
+            ValueType::ByteArray,
+        )),
 
         ("int", [ValueType::Int]) => Some(BuiltinCallRule::Identity),
         ("int", [ValueType::Float | ValueType::Bool]) => Some(BuiltinCallRule::PrimitiveCast {
@@ -172,22 +189,12 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
         }),
 
         // Built-in functions
-        ("len", [ValueType::Str]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::StrLen,
-            return_type: ValueType::Int,
-        }),
-        ("len", [ValueType::Bytes]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::BytesLen,
-            return_type: ValueType::Int,
-        }),
-        ("len", [ValueType::ByteArray]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::ByteArrayLen,
-            return_type: ValueType::Int,
-        }),
-        ("len", [ValueType::List(_)]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::ListLen,
-            return_type: ValueType::Int,
-        }),
+        ("len", [ValueType::Str]) => Some(external_call(BuiltinFn::StrLen, ValueType::Int)),
+        ("len", [ValueType::Bytes]) => Some(external_call(BuiltinFn::BytesLen, ValueType::Int)),
+        ("len", [ValueType::ByteArray]) => {
+            Some(external_call(BuiltinFn::ByteArrayLen, ValueType::Int))
+        }
+        ("len", [ValueType::List(_)]) => Some(external_call(BuiltinFn::ListLen, ValueType::Int)),
         ("len", [ValueType::Tuple(elements)]) => {
             Some(BuiltinCallRule::ConstInt(elements.len() as i64))
         }
@@ -196,75 +203,28 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
         ("min", _) => numeric_variadic_builtin(arg_types, BuiltinFn::MinInt, BuiltinFn::MinFloat),
         ("max", _) => numeric_variadic_builtin(arg_types, BuiltinFn::MaxInt, BuiltinFn::MaxFloat),
 
-        ("pow", [ValueType::Int, ValueType::Int]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::PowInt,
-            return_type: ValueType::Int,
-        }),
+        ("pow", [ValueType::Int, ValueType::Int]) => {
+            Some(external_call(BuiltinFn::PowInt, ValueType::Int))
+        }
         ("pow", [ValueType::Float, ValueType::Float]) => Some(BuiltinCallRule::PowFloat),
 
-        ("round", [ValueType::Float]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::RoundFloat,
-            return_type: ValueType::Int,
-        }),
+        ("round", [ValueType::Float]) => Some(external_call(BuiltinFn::RoundFloat, ValueType::Int)),
 
-        ("sum", [ValueType::List(inner)]) => match inner.as_ref() {
-            ValueType::Int | ValueType::Bool => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::SumInt,
-                return_type: ValueType::Int,
-            }),
-            ValueType::Float => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::SumFloat,
-                return_type: ValueType::Float,
-            }),
-            _ => None,
-        },
-        ("sum", [ValueType::List(inner), ValueType::Int]) => match inner.as_ref() {
-            ValueType::Int | ValueType::Bool => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::SumIntStart,
-                return_type: ValueType::Int,
-            }),
-            _ => None,
-        },
-        ("sum", [ValueType::List(inner), ValueType::Float]) => match inner.as_ref() {
-            ValueType::Float => Some(BuiltinCallRule::ExternalCall {
-                func: BuiltinFn::SumFloatStart,
-                return_type: ValueType::Float,
-            }),
-            _ => None,
-        },
+        ("sum", _) => sum_builtin(arg_types),
 
-        ("all", [ValueType::List(_)]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::AllList,
-            return_type: ValueType::Bool,
-        }),
+        ("all", [ValueType::List(_)]) => Some(external_call(BuiltinFn::AllList, ValueType::Bool)),
 
-        ("any", [ValueType::List(_)]) => Some(BuiltinCallRule::ExternalCall {
-            func: BuiltinFn::AnyList,
-            return_type: ValueType::Bool,
-        }),
+        ("any", [ValueType::List(_)]) => Some(external_call(BuiltinFn::AnyList, ValueType::Bool)),
 
         // Class dunder-method dispatch: when a builtin is called on a user-defined class,
         // resolve to the corresponding magic method(s).
-        ("str", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
-            method_names: &["__str__", "__repr__"],
-            return_type: Some(ValueType::Str),
-        }),
-        ("repr", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
-            method_names: &["__repr__"],
-            return_type: Some(ValueType::Str),
-        }),
-        ("len", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
-            method_names: &["__len__"],
-            return_type: Some(ValueType::Int),
-        }),
-        ("iter", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
-            method_names: &["__iter__"],
-            return_type: None,
-        }),
-        ("next", [ValueType::Class(_)]) => Some(BuiltinCallRule::ClassMagic {
-            method_names: &["__next__"],
-            return_type: None,
-        }),
+        ("str", [ValueType::Class(_)]) => {
+            Some(class_magic(&["__str__", "__repr__"], Some(ValueType::Str)))
+        }
+        ("repr", [ValueType::Class(_)]) => Some(class_magic(&["__repr__"], Some(ValueType::Str))),
+        ("len", [ValueType::Class(_)]) => Some(class_magic(&["__len__"], Some(ValueType::Int))),
+        ("iter", [ValueType::Class(_)]) => Some(class_magic(&["__iter__"], None)),
+        ("next", [ValueType::Class(_)]) => Some(class_magic(&["__next__"], None)),
 
         _ => None,
     }
