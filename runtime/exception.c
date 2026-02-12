@@ -10,7 +10,7 @@ extern void  __cxa_end_catch(void);
    All Tython exceptions use this single typeinfo; dispatch is by type_tag field. */
 extern void* _ZTIPv;
 
-void __tython_raise(int64_t type_tag, void* message) {
+void TYTHON_FN(raise)(int64_t type_tag, void* message) {
     TythonException* exc =
         (TythonException*)__cxa_allocate_exception(sizeof(TythonException));
     exc->type_tag = type_tag;
@@ -19,17 +19,17 @@ void __tython_raise(int64_t type_tag, void* message) {
     __builtin_unreachable();
 }
 
-int64_t __tython_caught_type_tag(void* caught_ptr) {
+int64_t TYTHON_FN(caught_type_tag)(void* caught_ptr) {
     TythonException* exc = (TythonException*)caught_ptr;
     return exc->type_tag;
 }
 
-void* __tython_caught_message(void* caught_ptr) {
+void* TYTHON_FN(caught_message)(void* caught_ptr) {
     TythonException* exc = (TythonException*)caught_ptr;
     return (void*)exc->message;
 }
 
-int64_t __tython_caught_matches(void* caught_ptr, int64_t type_tag) {
+int64_t TYTHON_FN(caught_matches)(void* caught_ptr, int64_t type_tag) {
     TythonException* exc = (TythonException*)caught_ptr;
     if (type_tag == TYTHON_EXC_EXCEPTION) {
         /* Exception is the base class — matches all non-zero tags */
@@ -58,7 +58,7 @@ int64_t __tython_caught_matches(void* caught_ptr, int64_t type_tag) {
     return 0;
 }
 
-void __tython_print_unhandled(int64_t type_tag, void* message) {
+void TYTHON_FN(print_unhandled)(int64_t type_tag, void* message) {
     const char* name = "Exception";
     switch (type_tag) {
         case TYTHON_EXC_STOP_ITERATION:  name = "StopIteration"; break;

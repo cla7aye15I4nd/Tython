@@ -1,42 +1,42 @@
 #include "tython.h"
 
-TythonStr* __tython_str_new(const char* data, int64_t len) {
-    TythonStr* s = (TythonStr*)__tython_malloc(sizeof(TythonStr));
+TythonStr* TYTHON_FN(str_new)(const char* data, int64_t len) {
+    TythonStr* s = (TythonStr*)TYTHON_FN(malloc)(sizeof(TythonStr));
     s->len = len;
-    s->data = (char*)__tython_malloc(len);
+    s->data = (char*)TYTHON_FN(malloc)(len);
     memcpy(s->data, data, (size_t)len);
     return s;
 }
 
-TythonStr* __tython_str_concat(TythonStr* a, TythonStr* b) {
+TythonStr* TYTHON_FN(str_concat)(TythonStr* a, TythonStr* b) {
     int64_t new_len = a->len + b->len;
-    TythonStr* s = (TythonStr*)__tython_malloc(sizeof(TythonStr));
+    TythonStr* s = (TythonStr*)TYTHON_FN(malloc)(sizeof(TythonStr));
     s->len = new_len;
-    s->data = (char*)__tython_malloc(new_len);
+    s->data = (char*)TYTHON_FN(malloc)(new_len);
     memcpy(s->data, a->data, (size_t)a->len);
     memcpy(s->data + a->len, b->data, (size_t)b->len);
     return s;
 }
 
-TythonStr* __tython_str_repeat(TythonStr* s, int64_t n) {
+TythonStr* TYTHON_FN(str_repeat)(TythonStr* s, int64_t n) {
     if (n <= 0) {
-        return __tython_str_new("", 0);
+        return TYTHON_FN(str_new)("", 0);
     }
     int64_t new_len = s->len * n;
-    TythonStr* r = (TythonStr*)__tython_malloc(sizeof(TythonStr));
+    TythonStr* r = (TythonStr*)TYTHON_FN(malloc)(sizeof(TythonStr));
     r->len = new_len;
-    r->data = (char*)__tython_malloc(new_len);
+    r->data = (char*)TYTHON_FN(malloc)(new_len);
     for (int64_t i = 0; i < n; i++) {
         memcpy(r->data + i * s->len, s->data, (size_t)s->len);
     }
     return r;
 }
 
-int64_t __tython_str_len(TythonStr* s) {
+int64_t TYTHON_FN(str_len)(TythonStr* s) {
     return s->len;
 }
 
-int64_t __tython_str_cmp(TythonStr* a, TythonStr* b) {
+int64_t TYTHON_FN(str_cmp)(TythonStr* a, TythonStr* b) {
     int64_t min_len = a->len < b->len ? a->len : b->len;
     int c = memcmp(a->data, b->data, (size_t)min_len);
     if (c != 0) return c < 0 ? -1 : 1;
@@ -45,22 +45,22 @@ int64_t __tython_str_cmp(TythonStr* a, TythonStr* b) {
     return 0;
 }
 
-int64_t __tython_str_eq(TythonStr* a, TythonStr* b) {
+int64_t TYTHON_FN(str_eq)(TythonStr* a, TythonStr* b) {
     if (a->len != b->len) return 0;
     return memcmp(a->data, b->data, (size_t)a->len) == 0 ? 1 : 0;
 }
 
-void __tython_print_str(TythonStr* s) {
+void TYTHON_FN(print_str)(TythonStr* s) {
     fwrite(s->data, 1, (size_t)s->len, stdout);
 }
 
-TythonStr* __tython_str_from_int(int64_t v) {
+TythonStr* TYTHON_FN(str_from_int)(int64_t v) {
     char buf[32];
     int n = snprintf(buf, sizeof(buf), "%lld", v);
-    return __tython_str_new(buf, n);
+    return TYTHON_FN(str_new)(buf, n);
 }
 
-TythonStr* __tython_str_from_float(double v) {
+TythonStr* TYTHON_FN(str_from_float)(double v) {
     char buf[64];
     snprintf(buf, sizeof(buf), "%.12g", v);
     /* Match Python: ensure ".0" for whole floats */
@@ -78,18 +78,18 @@ TythonStr* __tython_str_from_float(double v) {
         buf[len + 1] = '0';
         buf[len + 2] = '\0';
     }
-    return __tython_str_new(buf, (int64_t)strlen(buf));
+    return TYTHON_FN(str_new)(buf, (int64_t)strlen(buf));
 }
 
-TythonStr* __tython_str_from_bool(int64_t v) {
+TythonStr* TYTHON_FN(str_from_bool)(int64_t v) {
     if (v) {
-        return __tython_str_new("True", 4);
+        return TYTHON_FN(str_new)("True", 4);
     } else {
-        return __tython_str_new("False", 5);
+        return TYTHON_FN(str_new)("False", 5);
     }
 }
 
-int64_t __tython_str_contains(TythonStr* haystack, TythonStr* needle) {
+int64_t TYTHON_FN(str_contains)(TythonStr* haystack, TythonStr* needle) {
     if (needle->len == 0) return 1;
     if (needle->len > haystack->len) return 0;
     for (int64_t i = 0; i <= haystack->len - needle->len; i++) {

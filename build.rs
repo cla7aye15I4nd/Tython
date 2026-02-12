@@ -3,12 +3,26 @@ use std::path::Path;
 use std::process::Command;
 
 const RUNTIME_SOURCES: &[&str] = &[
-    "runtime/builtins.c",
-    "runtime/str.c",
-    "runtime/bytes.c",
-    "runtime/bytearray.c",
-    "runtime/list.c",
+    "runtime/builtins/print.c",
+    "runtime/builtins/math.c",
+    "runtime/builtins/core.c",
+    "runtime/str/str.c",
+    "runtime/bytes/bytes.c",
+    "runtime/bytearray/bytearray.c",
+    "runtime/list/list.c",
     "runtime/exception.c",
+];
+const RUNTIME_HEADERS: &[&str] = &[
+    "runtime/tython.h",
+    "runtime/builtins/builtins.h",
+    "runtime/builtins/common.h",
+    "runtime/builtins/print.h",
+    "runtime/builtins/math.h",
+    "runtime/builtins/core.h",
+    "runtime/str/str.h",
+    "runtime/bytes/bytes.h",
+    "runtime/bytearray/bytearray.h",
+    "runtime/list/list.h",
 ];
 
 fn main() {
@@ -54,5 +68,7 @@ fn main() {
     for src in RUNTIME_SOURCES {
         println!("cargo:rerun-if-changed={}", src);
     }
-    println!("cargo:rerun-if-changed=runtime/tython.h");
+    for header in RUNTIME_HEADERS {
+        println!("cargo:rerun-if-changed={}", header);
+    }
 }
