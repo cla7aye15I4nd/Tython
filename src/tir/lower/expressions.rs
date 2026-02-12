@@ -143,7 +143,7 @@ impl Lowering {
                 let op_type = ast_type_name!(op_node);
                 let operand = self.lower_expr(&ast_getattr!(node, "operand"))?;
 
-                let op = Self::convert_unaryop(&op_type)?;
+                let op = Self::convert_unaryop(&op_type);
 
                 let rule =
                     type_rules::lookup_unaryop(op, &operand.ty.to_type()).ok_or_else(|| {

@@ -81,6 +81,26 @@ def test_round_down() -> None:
     assert x == 3
 
 
+def test_repr_primitives() -> None:
+    assert repr(42) == "42"
+    assert repr(2.5) == "2.5"
+    assert repr(True) == "True"
+    s: str = repr("hello")
+    assert len(s) > 0
+
+
+def test_sum_float_list() -> None:
+    xs: list[float] = [1.5, 2.0, -0.5]
+    total: float = sum(xs)
+    assert total == 3.0
+
+
+def test_sum_float_list_with_start() -> None:
+    xs: list[float] = [1.5, 2.0]
+    total: float = sum(xs, 0.5)
+    assert total == 4.0
+
+
 def test_print_variadic() -> None:
     print("vals", 1, 2, 3, True)
 
@@ -103,6 +123,13 @@ def test_sorted_float_list() -> None:
     assert src[3] == 2.75
 
 
+def test_print_list_bytes_and_bytearray() -> None:
+    lb: list[bytes] = [b"a", b"bc"]
+    lba: list[bytearray] = [bytearray(b"x"), bytearray(b"yz")]
+    print(lb)
+    print(lba)
+
+
 def run_tests() -> None:
     test_abs_int_pos()
     test_abs_int_neg()
@@ -119,6 +146,10 @@ def run_tests() -> None:
     test_pow_builtin_float()
     test_round_up()
     test_round_down()
+    test_repr_primitives()
+    test_sum_float_list()
+    test_sum_float_list_with_start()
     test_print_variadic()
     test_print_empty()
     test_sorted_float_list()
+    test_print_list_bytes_and_bytearray()

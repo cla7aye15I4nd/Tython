@@ -36,6 +36,13 @@ import basic.test_exception_iter_stress as test_exception_iter_stress
 import basic.test_callable as test_callable
 import basic.test_codegen_edges as test_codegen_edges
 import basic.test_nested_function as test_nested_function
+import basic.test_containment as test_containment
+import basic.test_identity as test_identity
+import basic.test_augmented_fields as test_augmented_fields
+import basic.test_list_eq_complex as test_list_eq_complex
+import basic.test_print_complex as test_print_complex
+import basic.test_subscript_aug as test_subscript_aug
+import basic.test_bytearray_compare as test_bytearray_compare
 
 
 def run_all_tests() -> None:
@@ -77,3 +84,10 @@ def run_all_tests() -> None:
     test_callable.run_tests()
     test_codegen_edges.run_tests()
     test_nested_function.run_tests()
+    test_containment.run_tests()
+    test_identity.run_tests()
+    test_augmented_fields.run_tests()
+    test_list_eq_complex.run_tests()
+    test_print_complex.run_tests()
+    test_subscript_aug.run_tests()
+    test_bytearray_compare.run_tests()

@@ -132,6 +132,7 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
             func: BuiltinFn::StrFromBool,
             return_type: ValueType::Str,
         }),
+        ("repr", [ValueType::Str]) => Some(BuiltinCallRule::Identity),
 
         ("bytes", [ValueType::Bytes]) => Some(BuiltinCallRule::Identity),
         ("bytes", [ValueType::Int]) => Some(BuiltinCallRule::ExternalCall {
@@ -285,7 +286,7 @@ pub fn builtin_call_error_message(name: &str, arg_types: &[&ValueType], provided
                 format!("repr() expects exactly 1 argument, got {}", provided)
             } else {
                 format!(
-                    "repr() requires a class with `__repr__() -> str` or a numeric/bool value, got `{}`",
+                    "repr() requires a class with `__repr__() -> str` or a str/numeric/bool value, got `{}`",
                     arg_types[0]
                 )
             }

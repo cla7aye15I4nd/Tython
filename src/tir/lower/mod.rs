@@ -532,13 +532,13 @@ impl Lowering {
         }
     }
 
-    fn convert_unaryop(op_type: &str) -> Result<UnaryOpKind> {
+    fn convert_unaryop(op_type: &str) -> UnaryOpKind {
         match op_type {
-            "USub" => Ok(UnaryOpKind::Neg),
-            "UAdd" => Ok(UnaryOpKind::Pos),
-            "Not" => Ok(UnaryOpKind::Not),
-            "Invert" => Ok(UnaryOpKind::BitNot),
-            _ => bail!("unsupported unary operator: `{}`", op_type),
+            "USub" => UnaryOpKind::Neg,
+            "UAdd" => UnaryOpKind::Pos,
+            "Not" => UnaryOpKind::Not,
+            "Invert" => UnaryOpKind::BitNot,
+            _ => unreachable!("Python add new unary operator"),
         }
     }
 }
