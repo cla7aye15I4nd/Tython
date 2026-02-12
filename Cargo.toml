@@ -37,3 +37,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "tython"
 path = "src/main.rs"
+
+[[bin]]
+name = "cargo-cmin"
+path = "src/bin/cargo-cmin.rs"
