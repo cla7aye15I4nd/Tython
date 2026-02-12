@@ -115,6 +115,8 @@ define_builtins! {
     ListReverse        => "__tython_list_reverse",        params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListSortInt        => "__tython_list_sort_int",       params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListSortFloat      => "__tython_list_sort_float",     params: [ValueType::List(Box::new(ValueType::Float))], ret: None;
+    SortedInt          => "__tython_sorted_int",          params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    SortedFloat        => "__tython_sorted_float",        params: [ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::List(Box::new(ValueType::Float)));
     ListExtend         => "__tython_list_extend",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListCopy           => "__tython_list_copy",           params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
 

@@ -3,8 +3,8 @@ use pyo3::prelude::*;
 
 use crate::ast::{ClassInfo, Type};
 use crate::tir::{
-    builtin, type_rules, CallResult, CallTarget, FloatArithOp, TirExpr, TirExprKind, TirStmt,
-    TypedBinOp, ValueType,
+    type_rules, CallResult, CallTarget, FloatArithOp, TirExpr, TirExprKind, TirStmt, TypedBinOp,
+    ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -27,64 +27,6 @@ impl Lowering {
 
                 if func_name == "print" {
                     return Err(self.syntax_error(line, "print() can only be used as a statement"));
-                }
-
-                // sorted(list) → copy + sort + return copy
-                if func_name == "sorted" {
-                    if tir_args.len() != 1 {
-                        return Err(self.type_error(
-                            line,
-                            format!("sorted() expects 1 argument, got {}", tir_args.len()),
-                        ));
-                    }
-                    let list_arg = tir_args.remove(0);
-                    let inner = match &list_arg.ty {
-                        ValueType::List(inner) => inner.clone(),
-                        other => {
-                            return Err(self.type_error(
-                                line,
-                                format!("sorted() requires a list, got `{}`", other),
-                            ));
-                        }
-                    };
-                    let sort_fn = match inner.as_ref() {
-                        ValueType::Int | ValueType::Bool => builtin::BuiltinFn::ListSortInt,
-                        ValueType::Float => builtin::BuiltinFn::ListSortFloat,
-                        _ => {
-                            return Err(self.type_error(
-                                line,
-                                format!("sorted() not supported for list[{}]", inner),
-                            ));
-                        }
-                    };
-                    let list_ty = ValueType::List(inner);
-                    let tmp_name = self.fresh_internal("sorted");
-                    // copy
-                    let copy_expr = TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::ListCopy,
-                            args: vec![list_arg],
-                        },
-                        ty: list_ty.clone(),
-                    };
-                    self.pre_stmts.push(TirStmt::Let {
-                        name: tmp_name.clone(),
-                        ty: list_ty.clone(),
-                        value: copy_expr,
-                    });
-                    // sort in-place
-                    self.pre_stmts.push(TirStmt::VoidCall {
-                        target: CallTarget::Builtin(sort_fn),
-                        args: vec![TirExpr {
-                            kind: TirExprKind::Var(tmp_name.clone()),
-                            ty: list_ty.clone(),
-                        }],
-                    });
-                    // return the sorted copy
-                    return Ok(CallResult::Expr(TirExpr {
-                        kind: TirExprKind::Var(tmp_name),
-                        ty: list_ty,
-                    }));
                 }
 
                 if type_rules::is_builtin_call(&func_name) {

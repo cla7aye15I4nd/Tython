@@ -125,6 +125,8 @@ int64_t     __tython_list_count(TythonList* lst, int64_t value);
 void        __tython_list_reverse(TythonList* lst);
 void        __tython_list_sort_int(TythonList* lst);
 void        __tython_list_sort_float(TythonList* lst);
+TythonList* __tython_sorted_int(TythonList* lst);
+TythonList* __tython_sorted_float(TythonList* lst);
 void        __tython_list_extend(TythonList* lst, TythonList* other);
 TythonList* __tython_list_copy(TythonList* lst);
 int64_t     __tython_sum_int(TythonList* lst);

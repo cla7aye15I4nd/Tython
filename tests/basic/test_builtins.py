@@ -123,6 +123,20 @@ def test_sorted_float_list() -> None:
     assert src[3] == 2.75
 
 
+def test_sorted_bool_list() -> None:
+    src: list[bool] = [True, False, True, False]
+    ordered: list[bool] = sorted(src)
+    assert ordered[0] == False
+    assert ordered[1] == False
+    assert ordered[2] == True
+    assert ordered[3] == True
+    # sorted() should return a new list, leaving source unchanged
+    assert src[0] == True
+    assert src[1] == False
+    assert src[2] == True
+    assert src[3] == False
+
+
 def test_print_list_bytes_and_bytearray() -> None:
     lb: list[bytes] = [b"a", b"bc"]
     lba: list[bytearray] = [bytearray(b"x"), bytearray(b"yz")]
@@ -152,4 +166,5 @@ def run_tests() -> None:
     test_print_variadic()
     test_print_empty()
     test_sorted_float_list()
+    test_sorted_bool_list()
     test_print_list_bytes_and_bytearray()

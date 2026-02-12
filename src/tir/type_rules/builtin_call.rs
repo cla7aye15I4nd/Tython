@@ -216,6 +216,22 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
 
         ("any", [ValueType::List(_)]) => Some(external_call(BuiltinFn::AnyList, ValueType::Bool)),
 
+        ("sorted", [ValueType::List(inner)]) => match inner.as_ref() {
+            ValueType::Int => Some(external_call(
+                BuiltinFn::SortedInt,
+                ValueType::List(Box::new(ValueType::Int)),
+            )),
+            ValueType::Bool => Some(external_call(
+                BuiltinFn::SortedInt,
+                ValueType::List(Box::new(ValueType::Bool)),
+            )),
+            ValueType::Float => Some(external_call(
+                BuiltinFn::SortedFloat,
+                ValueType::List(Box::new(ValueType::Float)),
+            )),
+            _ => None,
+        },
+
         // Class dunder-method dispatch: when a builtin is called on a user-defined class,
         // resolve to the corresponding magic method(s).
         ("str", [ValueType::Class(_)]) => {

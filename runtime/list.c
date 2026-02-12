@@ -157,6 +157,18 @@ void __tython_list_sort_float(TythonList* lst) {
     qsort(lst->data, (size_t)lst->len, sizeof(int64_t), cmp_float_asc);
 }
 
+TythonList* __tython_sorted_int(TythonList* lst) {
+    TythonList* out = __tython_list_copy(lst);
+    __tython_list_sort_int(out);
+    return out;
+}
+
+TythonList* __tython_sorted_float(TythonList* lst) {
+    TythonList* out = __tython_list_copy(lst);
+    __tython_list_sort_float(out);
+    return out;
+}
+
 void __tython_list_extend(TythonList* lst, TythonList* other) {
     int64_t new_len = lst->len + other->len;
     if (new_len > lst->capacity) {
