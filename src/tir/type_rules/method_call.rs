@@ -120,6 +120,77 @@ pub fn lookup_list_method(inner: &ValueType, name: &str) -> Option<Result<Method
     }
 }
 
+pub fn lookup_dict_method(
+    key: &ValueType,
+    value: &ValueType,
+    name: &str,
+) -> Option<Result<MethodCallRule, String>> {
+    match name {
+        "clear" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Void(BuiltinFn::DictClear),
+        })),
+        "get" => Some(Ok(MethodCallRule {
+            params: vec![key.clone()],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::DictGet,
+                return_type: value.clone(),
+            },
+        })),
+        "pop" => Some(Ok(MethodCallRule {
+            params: vec![key.clone()],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::DictPop,
+                return_type: value.clone(),
+            },
+        })),
+        "copy" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::DictCopy,
+                return_type: ValueType::Dict(Box::new(key.clone()), Box::new(value.clone())),
+            },
+        })),
+        _ => None,
+    }
+}
+
+pub fn lookup_set_method(inner: &ValueType, name: &str) -> Option<Result<MethodCallRule, String>> {
+    match name {
+        "add" => Some(Ok(MethodCallRule {
+            params: vec![inner.clone()],
+            result: MethodCallResult::Void(BuiltinFn::SetAdd),
+        })),
+        "remove" => Some(Ok(MethodCallRule {
+            params: vec![inner.clone()],
+            result: MethodCallResult::Void(BuiltinFn::SetRemove),
+        })),
+        "discard" => Some(Ok(MethodCallRule {
+            params: vec![inner.clone()],
+            result: MethodCallResult::Void(BuiltinFn::SetDiscard),
+        })),
+        "pop" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::SetPop,
+                return_type: inner.clone(),
+            },
+        })),
+        "clear" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Void(BuiltinFn::SetClear),
+        })),
+        "copy" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::SetCopy,
+                return_type: ValueType::Set(Box::new(inner.clone())),
+            },
+        })),
+        _ => None,
+    }
+}
+
 /// Look up a method on `bytearray`.
 ///
 /// Returns:

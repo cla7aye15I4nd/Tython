@@ -7,6 +7,74 @@ use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 use super::Lowering;
 
 impl Lowering {
+    pub(super) fn lower_defaults_for_params(
+        &mut self,
+        args_node: &Bound<PyAny>,
+        line: usize,
+        fn_name: &str,
+    ) -> Result<Vec<Option<TirExpr>>> {
+        let py_args = ast_get_list!(args_node, "args");
+        let defaults = ast_get_list!(args_node, "defaults");
+        let kwonlyargs = ast_get_list!(args_node, "kwonlyargs");
+        if !kwonlyargs.is_empty() {
+            return Err(self.syntax_error(
+                line,
+                format!(
+                    "function `{}`: keyword-only parameters are not supported",
+                    fn_name
+                ),
+            ));
+        }
+
+        let posonlyargs = ast_get_list!(args_node, "posonlyargs");
+        if !posonlyargs.is_empty() {
+            return Err(self.syntax_error(
+                line,
+                format!(
+                    "function `{}`: positional-only parameters are not supported",
+                    fn_name
+                ),
+            ));
+        }
+
+        if !ast_getattr!(args_node, "vararg").is_none() {
+            return Err(self.syntax_error(
+                line,
+                format!("function `{}`: `*args` is not supported", fn_name),
+            ));
+        }
+        if !ast_getattr!(args_node, "kwarg").is_none() {
+            return Err(self.syntax_error(
+                line,
+                format!("function `{}`: `**kwargs` is not supported", fn_name),
+            ));
+        }
+
+        let n_params = py_args.len();
+        let n_defaults = defaults.len();
+        if n_defaults > n_params {
+            return Err(self.syntax_error(
+                line,
+                format!(
+                    "function `{}`: invalid defaults ({} defaults for {} parameters)",
+                    fn_name, n_defaults, n_params
+                ),
+            ));
+        }
+
+        let mut out = vec![None; n_params];
+        let start = n_params - n_defaults;
+        for i in 0..n_defaults {
+            let idx = start + i;
+            let def_node = defaults.get_item(i)?;
+            let default_expr = self.lower_expr(&def_node)?;
+            self.ensure_supported_default_expr(line, &default_expr)?;
+            out[idx] = Some(default_expr);
+        }
+
+        Ok(out)
+    }
+
     pub(super) fn collect_function_signature(&mut self, node: &Bound<PyAny>) -> Result<()> {
         let name = ast_get_string!(node, "name");
         let line = Self::get_line(node);
@@ -48,13 +116,17 @@ impl Lowering {
 
         let args_node = ast_getattr!(node, "args");
         let py_args = ast_get_list!(&args_node, "args");
+        let default_values =
+            self.lower_defaults_for_params(&args_node, Self::get_line(node), &name)?;
         let mut params = Vec::new();
+        let mut param_names = Vec::new();
         for arg in py_args.iter() {
             let param_name = ast_get_string!(arg, "arg");
             let annotation = ast_getattr!(arg, "annotation");
             let ty = self.convert_type_annotation(&annotation)?;
             let vty = Self::to_value_type(&ty);
             params.push(FunctionParam::new(param_name, vty));
+            param_names.push(ast_get_string!(arg, "arg"));
         }
 
         let return_type_ast = self.convert_return_type(node)?;
@@ -83,6 +155,8 @@ impl Lowering {
         self.pop_scope();
         self.current_return_type = None;
         self.current_function_name = None;
+
+        self.register_function_signature(mangled_name.clone(), param_names, default_values);
 
         Ok(TirFunction {
             name: mangled_name,

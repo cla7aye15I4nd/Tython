@@ -6,8 +6,8 @@
 
 use super::builtin_call::BuiltinCallRule;
 use super::method_call::{
-    lookup_bytearray_method, lookup_bytes_method, lookup_list_method, lookup_str_method,
-    MethodCallRule,
+    lookup_bytearray_method, lookup_bytes_method, lookup_dict_method, lookup_list_method,
+    lookup_set_method, lookup_str_method, MethodCallRule,
 };
 use crate::tir::builtin::BuiltinFn;
 use crate::tir::ValueType;
@@ -24,6 +24,8 @@ pub fn lookup_builtin_method(
 ) -> Option<Result<MethodCallRule, String>> {
     match ty {
         ValueType::List(inner) => lookup_list_method(inner, method_name),
+        ValueType::Dict(key, value) => lookup_dict_method(key, value, method_name),
+        ValueType::Set(inner) => lookup_set_method(inner, method_name),
         ValueType::ByteArray => lookup_bytearray_method(method_name),
         ValueType::Str => lookup_str_method(method_name),
         ValueType::Bytes => lookup_bytes_method(method_name),
@@ -53,6 +55,14 @@ pub fn lookup_builtin_dunder(ty: &ValueType, dunder: &str) -> Option<BuiltinCall
             }),
             ValueType::List(_) => Some(BuiltinCallRule::ExternalCall {
                 func: BuiltinFn::ListLen,
+                return_type: ValueType::Int,
+            }),
+            ValueType::Dict(_, _) => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::DictLen,
+                return_type: ValueType::Int,
+            }),
+            ValueType::Set(_) => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::SetLen,
                 return_type: ValueType::Int,
             }),
             _ => None,
@@ -90,6 +100,8 @@ pub fn lookup_builtin_dunder(ty: &ValueType, dunder: &str) -> Option<BuiltinCall
 pub fn builtin_type_display_name(ty: &ValueType) -> String {
     match ty {
         ValueType::List(inner) => format!("list[{}]", inner),
+        ValueType::Dict(key, value) => format!("dict[{}, {}]", key, value),
+        ValueType::Set(inner) => format!("set[{}]", inner),
         _ => ty.to_string(),
     }
 }

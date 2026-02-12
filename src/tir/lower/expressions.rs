@@ -5,7 +5,7 @@ use crate::tir::{
     builtin, type_rules, ArithBinOp, CallResult, CallTarget, CastKind, CmpOp, LogicalOp,
     OrderedCmpOp, RawBinOp, TirExpr, TirExprKind, TirStmt, Type, ValueType,
 };
-use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
+use crate::{ast_get_int, ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 use super::Lowering;
 
@@ -302,8 +302,143 @@ impl Lowering {
                     ty: ValueType::Tuple(element_types),
                 })
             }
+            "Dict" => {
+                let keys_list = ast_get_list!(node, "keys");
+                let values_list = ast_get_list!(node, "values");
+                if keys_list.is_empty() {
+                    return Err(self
+                        .syntax_error(line, "empty dict literal `{}` requires a type annotation"));
+                }
+
+                let mut keys = Vec::with_capacity(keys_list.len());
+                let mut values = Vec::with_capacity(values_list.len());
+                for i in 0..keys_list.len() {
+                    let key_node = keys_list.get_item(i)?;
+                    if key_node.is_none() {
+                        return Err(
+                            self.syntax_error(line, "dict unpacking (`**other`) is not supported")
+                        );
+                    }
+                    keys.push(self.lower_expr(&key_node)?);
+                    values.push(self.lower_expr(&values_list.get_item(i)?)?);
+                }
+
+                let key_ty = keys[0].ty.clone();
+                let value_ty = values[0].ty.clone();
+                for (i, key) in keys.iter().enumerate().skip(1) {
+                    if key.ty != key_ty {
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "dict literal key {} has type `{}`, expected `{}`",
+                                i, key.ty, key_ty
+                            ),
+                        ));
+                    }
+                }
+                for (i, value) in values.iter().enumerate().skip(1) {
+                    if value.ty != value_ty {
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "dict literal value {} has type `{}`, expected `{}`",
+                                i, value.ty, value_ty
+                            ),
+                        ));
+                    }
+                }
+
+                let dict_ty = ValueType::Dict(Box::new(key_ty.clone()), Box::new(value_ty.clone()));
+                let dict_var = self.fresh_internal("dict_lit");
+                self.pre_stmts.push(TirStmt::Let {
+                    name: dict_var.clone(),
+                    ty: dict_ty.clone(),
+                    value: TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::DictEmpty,
+                            args: vec![],
+                        },
+                        ty: dict_ty.clone(),
+                    },
+                });
+                for i in 0..keys.len() {
+                    self.pre_stmts.push(TirStmt::VoidCall {
+                        target: CallTarget::Builtin(builtin::BuiltinFn::DictSet),
+                        args: vec![
+                            TirExpr {
+                                kind: TirExprKind::Var(dict_var.clone()),
+                                ty: dict_ty.clone(),
+                            },
+                            keys[i].clone(),
+                            values[i].clone(),
+                        ],
+                    });
+                }
+                Ok(TirExpr {
+                    kind: TirExprKind::Var(dict_var),
+                    ty: dict_ty,
+                })
+            }
+            "Set" => {
+                let elts_list = ast_get_list!(node, "elts");
+                if elts_list.is_empty() {
+                    return Err(
+                        self.syntax_error(line, "empty set literal is not valid; use set()")
+                    );
+                }
+                let mut elements = Vec::with_capacity(elts_list.len());
+                for elt in elts_list.iter() {
+                    elements.push(self.lower_expr(&elt)?);
+                }
+                let elem_ty = elements[0].ty.clone();
+                for (i, elt) in elements.iter().enumerate().skip(1) {
+                    if elt.ty != elem_ty {
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "set literal element {} has type `{}`, expected `{}`",
+                                i, elt.ty, elem_ty
+                            ),
+                        ));
+                    }
+                }
+
+                let set_ty = ValueType::Set(Box::new(elem_ty));
+                let set_var = self.fresh_internal("set_lit");
+                self.pre_stmts.push(TirStmt::Let {
+                    name: set_var.clone(),
+                    ty: set_ty.clone(),
+                    value: TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::SetEmpty,
+                            args: vec![],
+                        },
+                        ty: set_ty.clone(),
+                    },
+                });
+                for elt in elements {
+                    self.pre_stmts.push(TirStmt::VoidCall {
+                        target: CallTarget::Builtin(builtin::BuiltinFn::SetAdd),
+                        args: vec![
+                            TirExpr {
+                                kind: TirExprKind::Var(set_var.clone()),
+                                ty: set_ty.clone(),
+                            },
+                            elt,
+                        ],
+                    });
+                }
+                Ok(TirExpr {
+                    kind: TirExprKind::Var(set_var),
+                    ty: set_ty,
+                })
+            }
 
             "ListComp" => self.lower_list_comprehension(node, line),
+
+            "JoinedStr" => self.lower_joined_str(node, line),
+
+            "FormattedValue" => self.lower_formatted_value(node, line),
 
             "Subscript" => {
                 let value_node = ast_getattr!(node, "value");
@@ -326,6 +461,25 @@ impl Lowering {
                                 args: vec![obj_expr, index_expr],
                             },
                             ty: elem_ty,
+                        })
+                    }
+                    ValueType::Dict(key_ty, value_ty) => {
+                        let index_expr = self.lower_expr(&slice_node)?;
+                        if index_expr.ty != *key_ty {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "dict key index must be `{}`, got `{}`",
+                                    key_ty, index_expr.ty
+                                ),
+                            ));
+                        }
+                        Ok(TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::DictGet,
+                                args: vec![obj_expr, index_expr],
+                            },
+                            ty: (*value_ty).clone(),
                         })
                     }
                     ValueType::Tuple(elements) => {
@@ -393,6 +547,121 @@ impl Lowering {
             _ => Err(self.syntax_error(
                 line,
                 format!("unsupported expression type: `{}`", node_type),
+            )),
+        }
+    }
+
+    fn lower_joined_str(&mut self, node: &Bound<PyAny>, line: usize) -> Result<TirExpr> {
+        let values = ast_get_list!(node, "values");
+        let mut result = TirExpr {
+            kind: TirExprKind::StrLiteral(String::new()),
+            ty: ValueType::Str,
+        };
+
+        for part in values.iter() {
+            let part_expr = match ast_type_name!(part).as_str() {
+                "Constant" => {
+                    let value = ast_getattr!(part, "value");
+                    let s = value.extract::<String>().map_err(|_| {
+                        self.syntax_error(line, "f-string constants must be string literals")
+                    })?;
+                    TirExpr {
+                        kind: TirExprKind::StrLiteral(s),
+                        ty: ValueType::Str,
+                    }
+                }
+                "FormattedValue" => self.lower_formatted_value(&part, line)?,
+                other => {
+                    return Err(self
+                        .syntax_error(line, format!("unsupported f-string segment `{}`", other)))
+                }
+            };
+
+            result = TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::StrConcat,
+                    args: vec![result, part_expr],
+                },
+                ty: ValueType::Str,
+            };
+        }
+
+        Ok(result)
+    }
+
+    fn lower_formatted_value(&mut self, node: &Bound<PyAny>, line: usize) -> Result<TirExpr> {
+        let value_expr = self.lower_expr(&ast_getattr!(node, "value"))?;
+        let conversion = ast_get_int!(node, "conversion", i64);
+
+        // Parse and evaluate format spec for compatibility, but ignore formatting details for now.
+        let format_spec = ast_getattr!(node, "format_spec");
+        if !format_spec.is_none() {
+            let spec_expr = match ast_type_name!(format_spec).as_str() {
+                "JoinedStr" => self.lower_joined_str(&format_spec, line)?,
+                "Constant" => self.lower_expr(&format_spec)?,
+                other => {
+                    return Err(self.syntax_error(
+                        line,
+                        format!("unsupported f-string format spec `{}`", other),
+                    ))
+                }
+            };
+            if spec_expr.ty != ValueType::Str {
+                return Err(self.type_error(
+                    line,
+                    format!("f-string format spec must be `str`, got `{}`", spec_expr.ty),
+                ));
+            }
+            let tmp = self.fresh_internal("fstr_spec");
+            self.pre_stmts.push(TirStmt::Let {
+                name: tmp,
+                ty: ValueType::Str,
+                value: spec_expr,
+            });
+        }
+
+        match conversion {
+            -1 | 115 => self.lower_fstring_convert(line, "str", value_expr),
+            114 | 97 => self.lower_fstring_convert(line, "repr", value_expr),
+            other => Err(self.syntax_error(
+                line,
+                format!("unsupported f-string conversion code `{}`", other),
+            )),
+        }
+    }
+
+    fn lower_fstring_convert(&mut self, line: usize, name: &str, arg: TirExpr) -> Result<TirExpr> {
+        let arg_types: Vec<&ValueType> = vec![&arg.ty];
+        let rule = type_rules::lookup_builtin_call(name, &arg_types).ok_or_else(|| {
+            self.type_error(
+                line,
+                format!(
+                    "f-string conversion `{}` is not defined for type `{}`",
+                    name, arg.ty
+                ),
+            )
+        })?;
+
+        if let type_rules::BuiltinCallRule::ClassMagic {
+            method_names,
+            return_type,
+        } = rule
+        {
+            return self.lower_class_magic_method(line, arg, method_names, return_type, name);
+        }
+
+        if matches!(rule, type_rules::BuiltinCallRule::StrAuto) {
+            return Ok(self.lower_str_auto(arg));
+        }
+        if matches!(rule, type_rules::BuiltinCallRule::ReprAuto) {
+            return Ok(self.lower_repr_str_expr(arg));
+        }
+
+        match Self::lower_builtin_rule(rule, vec![arg]) {
+            CallResult::Expr(expr) => Ok(expr),
+            CallResult::VoidStmt(_) => Err(self.type_error(
+                line,
+                format!("f-string conversion `{}` produced no value", name),
             )),
         }
     }
@@ -544,6 +813,9 @@ impl Lowering {
                 self.lower_print_list_stmts(line, arg, inner_ty, stmts)
             }
             ValueType::Function { .. } => {
+                Err(self.type_error(line, format!("cannot print value of type `{}`", arg.ty)))
+            }
+            ValueType::Dict(_, _) | ValueType::Set(_) => {
                 Err(self.type_error(line, format!("cannot print value of type `{}`", arg.ty)))
             }
         }
@@ -1153,6 +1425,42 @@ impl Lowering {
                     },
                     ty: ValueType::Bool,
                 },
+                ValueType::Dict(key_ty, _value_ty) => {
+                    if left.ty != **key_ty {
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "`in <dict>` requires key type `{}`, got `{}`",
+                                key_ty, left.ty
+                            ),
+                        ));
+                    }
+                    TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::DictContains,
+                            args: vec![right, left],
+                        },
+                        ty: ValueType::Bool,
+                    }
+                }
+                ValueType::Set(elem_ty) => {
+                    if left.ty != **elem_ty {
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "`in <set>` requires element type `{}`, got `{}`",
+                                elem_ty, left.ty
+                            ),
+                        ));
+                    }
+                    TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::SetContains,
+                            args: vec![right, left],
+                        },
+                        ty: ValueType::Bool,
+                    }
+                }
                 ValueType::Str => {
                     if left.ty != ValueType::Str {
                         return Err(self.type_error(
@@ -1239,6 +1547,84 @@ impl Lowering {
                 );
             }
             let eq_expr = self.generate_list_eq(left, right);
+            if cmp_op == CmpOp::NotEq {
+                return Ok(TirExpr {
+                    kind: TirExprKind::Compare {
+                        op: OrderedCmpOp::Eq,
+                        left: Box::new(eq_expr),
+                        right: Box::new(TirExpr {
+                            kind: TirExprKind::IntLiteral(0),
+                            ty: ValueType::Int,
+                        }),
+                    },
+                    ty: ValueType::Bool,
+                });
+            }
+            return Ok(eq_expr);
+        }
+
+        // Dict equality
+        if matches!(&left.ty, ValueType::Dict(_, _)) && matches!(&right.ty, ValueType::Dict(_, _)) {
+            if left.ty != right.ty {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "comparison operands must have compatible types: `{}` vs `{}`",
+                        left.ty, right.ty
+                    ),
+                ));
+            }
+            if cmp_op != CmpOp::Eq && cmp_op != CmpOp::NotEq {
+                return Err(
+                    self.type_error(line, "only `==` and `!=` are supported for dict comparison")
+                );
+            }
+            let eq_expr = TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::DictEq,
+                    args: vec![left, right],
+                },
+                ty: ValueType::Bool,
+            };
+            if cmp_op == CmpOp::NotEq {
+                return Ok(TirExpr {
+                    kind: TirExprKind::Compare {
+                        op: OrderedCmpOp::Eq,
+                        left: Box::new(eq_expr),
+                        right: Box::new(TirExpr {
+                            kind: TirExprKind::IntLiteral(0),
+                            ty: ValueType::Int,
+                        }),
+                    },
+                    ty: ValueType::Bool,
+                });
+            }
+            return Ok(eq_expr);
+        }
+
+        // Set equality
+        if matches!(&left.ty, ValueType::Set(_)) && matches!(&right.ty, ValueType::Set(_)) {
+            if left.ty != right.ty {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "comparison operands must have compatible types: `{}` vs `{}`",
+                        left.ty, right.ty
+                    ),
+                ));
+            }
+            if cmp_op != CmpOp::Eq && cmp_op != CmpOp::NotEq {
+                return Err(
+                    self.type_error(line, "only `==` and `!=` are supported for set comparison")
+                );
+            }
+            let eq_expr = TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::SetEq,
+                    args: vec![left, right],
+                },
+                ty: ValueType::Bool,
+            };
             if cmp_op == CmpOp::NotEq {
                 return Ok(TirExpr {
                     kind: TirExprKind::Compare {

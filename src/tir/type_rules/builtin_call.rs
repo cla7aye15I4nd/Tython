@@ -59,6 +59,8 @@ pub fn is_builtin_call(name: &str) -> bool {
             | "all"
             | "any"
             | "sorted"
+            | "dict"
+            | "set"
             | "iter"
             | "next"
     )
@@ -186,6 +188,15 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
             ValueType::ByteArray,
         )),
 
+        ("dict", []) => Some(external_call(
+            BuiltinFn::DictEmpty,
+            ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)),
+        )),
+        ("set", []) => Some(external_call(
+            BuiltinFn::SetEmpty,
+            ValueType::Set(Box::new(ValueType::Int)),
+        )),
+
         ("int", [ValueType::Int]) => Some(BuiltinCallRule::Identity),
         ("int", [ValueType::Class(_)]) => Some(class_magic(&["__int__"], Some(ValueType::Int))),
         ("int", [ValueType::Float | ValueType::Bool]) => Some(BuiltinCallRule::PrimitiveCast {
@@ -278,12 +289,15 @@ pub fn builtin_call_error_message(name: &str, arg_types: &[&ValueType], provided
                 format!("bytearray() cannot convert `{}`", arg_types[0])
             }
         }
+        "dict" | "set" => {
+            format!("{}() expects no arguments, got {}", name, provided)
+        }
         "len" => {
             if provided != 1 {
                 format!("len() expects exactly 1 argument, got {}", provided)
             } else {
                 format!(
-                    "len() requires a `str`, `bytes`, `bytearray`, `list`, `tuple`, or a class with `__len__() -> int`, got `{}`",
+                    "len() requires a `str`, `bytes`, `bytearray`, `list`, `dict`, `set`, `tuple`, or a class with `__len__() -> int`, got `{}`",
                     arg_types[0]
                 )
             }

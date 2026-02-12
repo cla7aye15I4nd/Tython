@@ -1,0 +1,64 @@
+def add3(a: int, b: int = 10, c: int = 100) -> int:
+    return a + b + c
+
+
+def test_defaults_and_keywords_top_level() -> None:
+    print('CHECK test_function_call_args lhs:', add3(1))
+    print('CHECK test_function_call_args rhs:', 111)
+    assert add3(1) == 111
+
+    print('CHECK test_function_call_args lhs:', add3(1, c=5))
+    print('CHECK test_function_call_args rhs:', 16)
+    assert add3(1, c=5) == 16
+
+    print('CHECK test_function_call_args lhs:', add3(a=2, b=3, c=4))
+    print('CHECK test_function_call_args rhs:', 9)
+    assert add3(a=2, b=3, c=4) == 9
+
+
+def test_defaults_and_keywords_nested() -> None:
+    def mix(a: int, b: int = 7) -> int:
+        return a * 10 + b
+
+    print('CHECK test_function_call_args lhs:', mix(3))
+    print('CHECK test_function_call_args rhs:', 37)
+    assert mix(3) == 37
+
+    print('CHECK test_function_call_args lhs:', mix(a=4, b=2))
+    print('CHECK test_function_call_args rhs:', 42)
+    assert mix(a=4, b=2) == 42
+
+
+def test_nested_keyword_reorder() -> None:
+    def compute(a: int, b: int = 5, c: int = 9) -> int:
+        return a + b * c
+
+    print('CHECK test_function_call_args lhs:', compute(c=2, a=4, b=3))
+    print('CHECK test_function_call_args rhs:', 10)
+    assert compute(c=2, a=4, b=3) == 10
+
+
+def test_nested_multi_level_with_defaults() -> None:
+    def level1(a: int, b: int = 1) -> int:
+        def level2(c: int, d: int = 2) -> int:
+            def level3(e: int, f: int = 3) -> int:
+                return e + f
+
+            return level3(e=c, f=d)
+
+        return level2(c=a, d=b)
+
+    print('CHECK test_function_call_args lhs:', level1(7))
+    print('CHECK test_function_call_args rhs:', 8)
+    assert level1(7) == 8
+
+    print('CHECK test_function_call_args lhs:', level1(a=6, b=4))
+    print('CHECK test_function_call_args rhs:', 10)
+    assert level1(a=6, b=4) == 10
+
+
+def run_tests() -> None:
+    test_defaults_and_keywords_top_level()
+    test_defaults_and_keywords_nested()
+    test_nested_keyword_reorder()
+    test_nested_multi_level_with_defaults()

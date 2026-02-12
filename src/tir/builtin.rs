@@ -123,6 +123,29 @@ define_builtins! {
     ListExtend         => "__tython_list_extend",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListCopy           => "__tython_list_copy",           params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
 
+    // dict builtins (all Dict(...) map to ptr in LLVM; key/value types are sentinels)
+    DictEmpty          => "__tython_dict_empty",          params: [], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
+    DictLen            => "__tython_dict_len",            params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Int);
+    DictContains       => "__tython_dict_contains",       params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    DictGet            => "__tython_dict_get",            params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
+    DictSet            => "__tython_dict_set",            params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: None;
+    DictClear          => "__tython_dict_clear",          params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: None;
+    DictPop            => "__tython_dict_pop",            params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
+    DictEq             => "__tython_dict_eq",             params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
+    DictCopy           => "__tython_dict_copy",           params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
+
+    // set builtins (all Set(...) map to ptr in LLVM; element type is a sentinel)
+    SetEmpty           => "__tython_set_empty",           params: [], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+    SetLen             => "__tython_set_len",             params: [ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
+    SetContains        => "__tython_set_contains",        params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    SetAdd             => "__tython_set_add",             params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetRemove          => "__tython_set_remove",          params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetDiscard         => "__tython_set_discard",         params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetPop             => "__tython_set_pop",             params: [ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
+    SetClear           => "__tython_set_clear",           params: [ValueType::Set(Box::new(ValueType::Int))], ret: None;
+    SetEq              => "__tython_set_eq",              params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
+    SetCopy            => "__tython_set_copy",            params: [ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+
     // aggregate builtins
     SumInt             => "__tython_sum_int",             params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
     SumFloat           => "__tython_sum_float",           params: [ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::Float);

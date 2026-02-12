@@ -9,6 +9,8 @@ pub enum Type {
     Bytes,
     ByteArray,
     List(Box<Type>),
+    Dict(Box<Type>, Box<Type>),
+    Set(Box<Type>),
     Tuple(Vec<Type>),
     Function {
         params: Vec<Type>,
@@ -28,6 +30,8 @@ impl Type {
                 | Type::Bytes
                 | Type::ByteArray
                 | Type::List(_)
+                | Type::Dict(_, _)
+                | Type::Set(_)
                 | Type::Tuple(_)
         )
     }
@@ -43,6 +47,8 @@ impl std::fmt::Display for Type {
             Type::Bytes => write!(f, "bytes"),
             Type::ByteArray => write!(f, "bytearray"),
             Type::List(inner) => write!(f, "list[{}]", inner),
+            Type::Dict(key, value) => write!(f, "dict[{}, {}]", key, value),
+            Type::Set(inner) => write!(f, "set[{}]", inner),
             Type::Tuple(elements) => {
                 write!(f, "tuple[")?;
                 for (i, elt) in elements.iter().enumerate() {

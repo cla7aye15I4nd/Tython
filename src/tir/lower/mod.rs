@@ -18,6 +18,12 @@ mod expressions;
 mod functions;
 mod statements;
 
+#[derive(Clone)]
+struct FunctionSignature {
+    param_names: Vec<String>,
+    default_values: Vec<Option<crate::tir::TirExpr>>,
+}
+
 macro_rules! define_error_helpers {
     ($($name:ident => $category:ident),* $(,)?) => {
         $(
@@ -58,6 +64,10 @@ pub struct Lowering {
     // Maps local function names to their mangled names, used to distinguish
     // direct calls (to known functions) from indirect calls (through variables).
     function_mangled_names: HashMap<String, String>,
+
+    // Global map of lowered function signatures, keyed by mangled name.
+    // Used for keyword/default argument binding at call sites.
+    function_signatures: HashMap<String, FunctionSignature>,
 }
 
 impl Default for Lowering {
@@ -83,6 +93,7 @@ impl Lowering {
             internal_tmp_counter: 0,
             pre_stmts: Vec::new(),
             function_mangled_names: HashMap::new(),
+            function_signatures: HashMap::new(),
             in_try_finally_depth: 0,
         }
     }
@@ -203,6 +214,7 @@ impl Lowering {
         self.current_file = canonical_path.display().to_string();
         self.current_function_name = None;
         self.internal_tmp_counter = 0;
+        self.function_mangled_names.clear();
 
         self.push_scope();
 
@@ -306,6 +318,50 @@ impl Lowering {
 
     fn mangle_name(&self, name: &str) -> String {
         format!("{}${}", self.current_module_name, name)
+    }
+
+    fn register_function_signature(
+        &mut self,
+        mangled_name: String,
+        param_names: Vec<String>,
+        default_values: Vec<Option<crate::tir::TirExpr>>,
+    ) {
+        self.function_signatures.insert(
+            mangled_name,
+            FunctionSignature {
+                param_names,
+                default_values,
+            },
+        );
+    }
+
+    fn ensure_supported_default_expr(&self, line: usize, expr: &crate::tir::TirExpr) -> Result<()> {
+        use crate::tir::TirExprKind;
+
+        match &expr.kind {
+            TirExprKind::IntLiteral(_)
+            | TirExprKind::FloatLiteral(_)
+            | TirExprKind::StrLiteral(_)
+            | TirExprKind::BytesLiteral(_) => Ok(()),
+            TirExprKind::UnaryOp { operand, .. } => {
+                self.ensure_supported_default_expr(line, operand)
+            }
+            TirExprKind::BinOp { left, right, .. } => {
+                self.ensure_supported_default_expr(line, left)?;
+                self.ensure_supported_default_expr(line, right)
+            }
+            TirExprKind::Cast { arg, .. } => self.ensure_supported_default_expr(line, arg),
+            TirExprKind::TupleLiteral { elements, .. } => {
+                for elt in elements {
+                    self.ensure_supported_default_expr(line, elt)?;
+                }
+                Ok(())
+            }
+            _ => Err(self.syntax_error(
+                line,
+                "unsupported default argument expression (only constant expressions are supported)",
+            )),
+        }
     }
 
     /// Try to resolve an AST node as a dotted class/module path to a qualified class name.
@@ -438,10 +494,37 @@ impl Lowering {
                             | Type::ByteArray
                             | Type::Class(_)
                             | Type::List(_)
+                            | Type::Dict(_, _)
+                            | Type::Set(_)
                             | Type::Tuple(_) => {}
                             _ => bail!("unsupported list element type `{}`", inner_ty),
                         }
                         Ok(Type::List(Box::new(inner_ty)))
+                    }
+                    "dict" => {
+                        if ast_type_name!(slice_node) != "Tuple" {
+                            bail!("dict annotation must be `dict[key_type, value_type]`");
+                        }
+                        let elts = ast_get_list!(slice_node, "elts");
+                        if elts.len() != 2 {
+                            bail!("dict annotation must have exactly two type arguments");
+                        }
+                        let key_ty = self.convert_type_annotation(&elts.get_item(0)?)?;
+                        let value_ty = self.convert_type_annotation(&elts.get_item(1)?)?;
+                        if ValueType::from_type(&key_ty).is_none() {
+                            bail!("unsupported dict key type `{}`", key_ty);
+                        }
+                        if ValueType::from_type(&value_ty).is_none() {
+                            bail!("unsupported dict value type `{}`", value_ty);
+                        }
+                        Ok(Type::Dict(Box::new(key_ty), Box::new(value_ty)))
+                    }
+                    "set" => {
+                        let inner_ty = self.convert_type_annotation(&slice_node)?;
+                        if ValueType::from_type(&inner_ty).is_none() {
+                            bail!("unsupported set element type `{}`", inner_ty);
+                        }
+                        Ok(Type::Set(Box::new(inner_ty)))
                     }
                     "tuple" => {
                         let element_types = if ast_type_name!(slice_node) == "Tuple" {

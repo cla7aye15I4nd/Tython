@@ -10,6 +10,8 @@ const RUNTIME_SOURCES: &[&str] = &[
     "runtime/bytes/bytes.cpp",
     "runtime/bytearray/bytearray.cpp",
     "runtime/list/list.cpp",
+    "runtime/dict/dict.cpp",
+    "runtime/set/set.cpp",
     "runtime/exception.cpp",
 ];
 const RUNTIME_HEADERS: &[&str] = &[
@@ -23,6 +25,8 @@ const RUNTIME_HEADERS: &[&str] = &[
     "runtime/bytes/bytes.h",
     "runtime/bytearray/bytearray.h",
     "runtime/list/list.h",
+    "runtime/dict/dict.h",
+    "runtime/set/set.h",
     "runtime/internal/vec.h",
     "runtime/internal/buf.h",
 ];

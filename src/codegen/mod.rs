@@ -212,6 +212,8 @@ impl<'ctx> Codegen<'ctx> {
             | ValueType::Bytes
             | ValueType::ByteArray
             | ValueType::List(_)
+            | ValueType::Dict(_, _)
+            | ValueType::Set(_)
             | ValueType::Tuple(_)
             | ValueType::Class(_)
             | ValueType::Function { .. } => self.context.ptr_type(AddressSpace::default()).into(),
@@ -272,6 +274,18 @@ impl<'ctx> Codegen<'ctx> {
                     )+
                     ValueType::List(_) => {
                         let func = self.get_builtin(BuiltinFn::ListLen);
+                        let call = emit!(self.build_call(func, &[value.into()], "len_truth"));
+                        let len_val = self.extract_call_value(call).into_int_value();
+                        self.build_int_truthiness_check(len_val, label)
+                    }
+                    ValueType::Dict(_, _) => {
+                        let func = self.get_builtin(BuiltinFn::DictLen);
+                        let call = emit!(self.build_call(func, &[value.into()], "len_truth"));
+                        let len_val = self.extract_call_value(call).into_int_value();
+                        self.build_int_truthiness_check(len_val, label)
+                    }
+                    ValueType::Set(_) => {
+                        let func = self.get_builtin(BuiltinFn::SetLen);
                         let call = emit!(self.build_call(func, &[value.into()], "len_truth"));
                         let len_val = self.extract_call_value(call).into_int_value();
                         self.build_int_truthiness_check(len_val, label)
@@ -455,8 +469,9 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Codegen a call to a builtin (runtime) function.
     ///
-    /// Handles the list-element bitcasting convention automatically:
+    /// Handles container-element bitcasting conventions automatically:
     /// - `ListPop`/`ListGet` return an i64 slot that is bitcast to the element type.
+    /// - `DictGet`/`DictPop`/`SetPop` return an i64 slot that is bitcast.
     /// - `ListAppend`/`ListRemove`/`ListInsert`/`ListContains`/`ListIndex`/`ListCount`
     ///   take an element as the **last** argument which is bitcast *to* i64.
     fn codegen_builtin_call(
@@ -468,7 +483,14 @@ impl<'ctx> Codegen<'ctx> {
         let function = self.get_builtin(func);
 
         // List ops returning an element stored as i64 — bitcast result
-        if matches!(func, BuiltinFn::ListPop | BuiltinFn::ListGet) {
+        if matches!(
+            func,
+            BuiltinFn::ListPop
+                | BuiltinFn::ListGet
+                | BuiltinFn::DictGet
+                | BuiltinFn::DictPop
+                | BuiltinFn::SetPop
+        ) {
             let arg_values = self.codegen_call_args(args);
             let call =
                 emit!(self.build_call(function, &Self::to_meta_args(&arg_values), "builtin_call"));
@@ -491,6 +513,60 @@ impl<'ctx> Codegen<'ctx> {
             for (i, arg) in args.iter().enumerate() {
                 let val = self.codegen_expr(arg);
                 if i == last {
+                    call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
+                } else {
+                    call_args.push(val.into());
+                }
+            }
+            let call = emit!(self.build_call(function, &call_args, "builtin_call"));
+            return result_ty.map(|_| self.extract_call_value(call));
+        }
+
+        // Dict ops with key in position 1; set/get/pop bitcast that key.
+        if matches!(
+            func,
+            BuiltinFn::DictContains | BuiltinFn::DictGet | BuiltinFn::DictPop
+        ) {
+            let mut call_args: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
+            for (i, arg) in args.iter().enumerate() {
+                let val = self.codegen_expr(arg);
+                if i == 1 {
+                    call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
+                } else {
+                    call_args.push(val.into());
+                }
+            }
+            let call = emit!(self.build_call(function, &call_args, "builtin_call"));
+            return result_ty.map(|_| self.extract_call_value(call));
+        }
+
+        // DictSet bitcasts key (arg1) and value (arg2).
+        if matches!(func, BuiltinFn::DictSet) {
+            let mut call_args: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
+            for (i, arg) in args.iter().enumerate() {
+                let val = self.codegen_expr(arg);
+                if i == 1 || i == 2 {
+                    call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
+                } else {
+                    call_args.push(val.into());
+                }
+            }
+            emit!(self.build_call(function, &call_args, "builtin_call"));
+            return None;
+        }
+
+        // Set ops with element arg in position 1.
+        if matches!(
+            func,
+            BuiltinFn::SetContains
+                | BuiltinFn::SetAdd
+                | BuiltinFn::SetRemove
+                | BuiltinFn::SetDiscard
+        ) {
+            let mut call_args: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
+            for (i, arg) in args.iter().enumerate() {
+                let val = self.codegen_expr(arg);
+                if i == 1 {
                     call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
                 } else {
                     call_args.push(val.into());

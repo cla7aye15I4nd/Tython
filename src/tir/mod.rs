@@ -17,6 +17,8 @@ pub enum ValueType {
     Bytes,
     ByteArray,
     List(Box<ValueType>),
+    Dict(Box<ValueType>, Box<ValueType>),
+    Set(Box<ValueType>),
     Tuple(Vec<ValueType>),
     Class(String),
     Function {
@@ -35,6 +37,11 @@ impl ValueType {
             Type::Bytes => Some(ValueType::Bytes),
             Type::ByteArray => Some(ValueType::ByteArray),
             Type::List(inner) => Some(ValueType::List(Box::new(ValueType::from_type(inner)?))),
+            Type::Dict(key, value) => Some(ValueType::Dict(
+                Box::new(ValueType::from_type(key)?),
+                Box::new(ValueType::from_type(value)?),
+            )),
+            Type::Set(inner) => Some(ValueType::Set(Box::new(ValueType::from_type(inner)?))),
             Type::Tuple(elements) => Some(ValueType::Tuple(
                 elements
                     .iter()
@@ -72,6 +79,10 @@ impl ValueType {
             ValueType::Bytes => Type::Bytes,
             ValueType::ByteArray => Type::ByteArray,
             ValueType::List(inner) => Type::List(Box::new(inner.to_type())),
+            ValueType::Dict(key, value) => {
+                Type::Dict(Box::new(key.to_type()), Box::new(value.to_type()))
+            }
+            ValueType::Set(inner) => Type::Set(Box::new(inner.to_type())),
             ValueType::Tuple(elements) => {
                 Type::Tuple(elements.iter().map(ValueType::to_type).collect())
             }
@@ -126,6 +137,8 @@ impl ValueType {
                 | ValueType::Bytes
                 | ValueType::ByteArray
                 | ValueType::List(_)
+                | ValueType::Dict(_, _)
+                | ValueType::Set(_)
                 | ValueType::Tuple(_)
                 | ValueType::Class(_)
         )
@@ -142,6 +155,8 @@ impl std::fmt::Display for ValueType {
             ValueType::Bytes => write!(f, "bytes"),
             ValueType::ByteArray => write!(f, "bytearray"),
             ValueType::List(inner) => write!(f, "list[{}]", inner),
+            ValueType::Dict(key, value) => write!(f, "dict[{}, {}]", key, value),
+            ValueType::Set(inner) => write!(f, "set[{}]", inner),
             ValueType::Tuple(elements) => {
                 write!(f, "tuple[")?;
                 for (i, elt) in elements.iter().enumerate() {

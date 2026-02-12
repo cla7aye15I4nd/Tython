@@ -12,6 +12,8 @@
 #include "bytes/bytes.h"
 #include "bytearray/bytearray.h"
 #include "list/list.h"
+#include "dict/dict.h"
+#include "set/set.h"
 
 /* ── exception handling ───────────────────────────────────────────── */
 

@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use pyo3::prelude::*;
 
 use crate::ast::{ClassInfo, Type};
@@ -11,13 +11,147 @@ use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 use super::Lowering;
 
 impl Lowering {
+    fn bind_user_function_args(
+        &self,
+        line: usize,
+        func_display_name: &str,
+        signature_key: &str,
+        func_type: &Type,
+        positional_args: Vec<TirExpr>,
+        keyword_args: Vec<(String, TirExpr)>,
+    ) -> Result<Vec<TirExpr>> {
+        let (params, _) = match func_type {
+            Type::Function {
+                params,
+                return_type,
+            } => (params, return_type),
+            _ => return Err(self.type_error(line, "cannot call non-function type")),
+        };
+
+        let param_count = params.len();
+        if positional_args.len() > param_count {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "function `{}` expects at most {} argument{}, got {}",
+                    func_display_name,
+                    param_count,
+                    if param_count == 1 { "" } else { "s" },
+                    positional_args.len()
+                ),
+            ));
+        }
+
+        let sig = self.function_signatures.get(signature_key);
+        if sig.is_none() {
+            if keyword_args.is_empty() && positional_args.len() == param_count {
+                return Ok(positional_args);
+            }
+            return Err(self.syntax_error(
+                line,
+                format!(
+                    "function `{}` is missing signature metadata for keyword/default argument binding",
+                    func_display_name
+                ),
+            ));
+        }
+        let sig = sig.expect("checked is_some above");
+
+        if sig.param_names.len() != param_count || sig.default_values.len() != param_count {
+            return Err(self.syntax_error(
+                line,
+                format!(
+                    "function `{}` has inconsistent signature metadata",
+                    func_display_name
+                ),
+            ));
+        }
+
+        let mut bound: Vec<Option<TirExpr>> = vec![None; param_count];
+        let positional_count = positional_args.len();
+        for (i, arg) in positional_args.into_iter().enumerate() {
+            bound[i] = Some(arg);
+        }
+
+        for (kw_name, kw_value) in keyword_args {
+            let Some(idx) = sig.param_names.iter().position(|p| p == &kw_name) else {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "function `{}` got an unexpected keyword argument `{}`",
+                        func_display_name, kw_name
+                    ),
+                ));
+            };
+            if idx < positional_count || bound[idx].is_some() {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "function `{}` got multiple values for argument `{}`",
+                        func_display_name, kw_name
+                    ),
+                ));
+            }
+            bound[idx] = Some(kw_value);
+        }
+
+        for (i, slot) in bound.iter_mut().enumerate() {
+            if slot.is_none() {
+                *slot = sig.default_values[i].clone();
+            }
+        }
+
+        let missing: Vec<String> = bound
+            .iter()
+            .enumerate()
+            .filter_map(|(i, arg)| {
+                if arg.is_none() {
+                    Some(format!("`{}`", sig.param_names[i]))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !missing.is_empty() {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "function `{}` missing required argument{}: {}",
+                    func_display_name,
+                    if missing.len() == 1 { "" } else { "s" },
+                    missing.join(", ")
+                ),
+            ));
+        }
+
+        Ok(bound
+            .into_iter()
+            .map(|arg| arg.expect("checked missing arguments above"))
+            .collect())
+    }
+
     pub(super) fn lower_call(&mut self, node: &Bound<PyAny>, line: usize) -> Result<CallResult> {
         let func_node = ast_getattr!(node, "func");
         let args_list = ast_get_list!(node, "args");
+        let keywords_list = ast_get_list!(node, "keywords");
 
-        let mut tir_args = Vec::new();
+        let mut positional_args = Vec::new();
         for arg in args_list.iter() {
-            tir_args.push(self.lower_expr(&arg)?);
+            positional_args.push(self.lower_expr(&arg)?);
+        }
+
+        let mut keyword_args: Vec<(String, TirExpr)> = Vec::new();
+        for kw in keywords_list.iter() {
+            let kw_name_node = ast_getattr!(kw, "arg");
+            if kw_name_node.is_none() {
+                return Err(self.syntax_error(
+                    line,
+                    "dictionary unpacking in calls (`**kwargs`) is not supported",
+                ));
+            }
+            let kw_name = kw_name_node.extract::<String>()?;
+            let kw_value = self.lower_expr(&ast_getattr!(kw, "value"))?;
+            keyword_args.push((kw_name, kw_value));
         }
 
         let func_node_type = ast_type_name!(func_node);
@@ -30,7 +164,14 @@ impl Lowering {
                 }
 
                 if type_rules::is_builtin_call(&func_name) {
-                    let arg_types: Vec<&ValueType> = tir_args.iter().map(|a| &a.ty).collect();
+                    if !keyword_args.is_empty() {
+                        return Err(self.syntax_error(
+                            line,
+                            format!("builtin `{}` does not support keyword arguments", func_name),
+                        ));
+                    }
+                    let arg_types: Vec<&ValueType> =
+                        positional_args.iter().map(|a| &a.ty).collect();
                     let rule = type_rules::lookup_builtin_call(&func_name, &arg_types).ok_or_else(
                         || {
                             self.type_error(
@@ -38,7 +179,7 @@ impl Lowering {
                                 type_rules::builtin_call_error_message(
                                     &func_name,
                                     &arg_types,
-                                    tir_args.len(),
+                                    positional_args.len(),
                                 ),
                             )
                         },
@@ -48,7 +189,7 @@ impl Lowering {
                         return_type,
                     } = rule
                     {
-                        let arg = tir_args.remove(0);
+                        let arg = positional_args.remove(0);
                         return Ok(CallResult::Expr(self.lower_class_magic_method(
                             line,
                             arg,
@@ -58,14 +199,14 @@ impl Lowering {
                         )?));
                     }
                     if matches!(rule, type_rules::BuiltinCallRule::StrAuto) {
-                        let arg = tir_args.remove(0);
+                        let arg = positional_args.remove(0);
                         return Ok(CallResult::Expr(self.lower_str_auto(arg)));
                     }
                     if matches!(rule, type_rules::BuiltinCallRule::ReprAuto) {
-                        let arg = tir_args.remove(0);
+                        let arg = positional_args.remove(0);
                         return Ok(CallResult::Expr(self.lower_repr_str_expr(arg)));
                     }
-                    return Ok(Self::lower_builtin_rule(rule, tir_args));
+                    return Ok(Self::lower_builtin_rule(rule, positional_args));
                 }
 
                 let scope_type = self.lookup(&func_name).cloned().ok_or_else(|| {
@@ -77,43 +218,56 @@ impl Lowering {
                         params: _,
                         return_type: _,
                     } => {
-                        let return_type_resolved =
-                            self.check_call_args(line, &func_name, &scope_type, &tir_args)?;
-
-                        if let Some(mangled) = self.function_mangled_names.get(&func_name).cloned()
-                        {
-                            // Direct call to a known function definition
-                            if return_type_resolved == Type::Unit {
-                                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                                    target: CallTarget::Named(mangled),
-                                    args: tir_args,
-                                })))
-                            } else {
-                                Ok(CallResult::Expr(TirExpr {
-                                    kind: TirExprKind::Call {
-                                        func: mangled,
-                                        args: tir_args,
-                                    },
-                                    ty: Self::to_value_type(&return_type_resolved),
-                                }))
-                            }
-                        } else {
-                            bail!(
-                                "{}:{}: `{}` is not callable (indirect calls through function pointers are not supported)",
-                                self.current_file,
+                        let mangled = self.function_mangled_names.get(&func_name).cloned().ok_or_else(|| {
+                            self.type_error(
                                 line,
-                                func_name
+                                format!(
+                                    "`{}` is not callable (indirect calls through function pointers are not supported)",
+                                    func_name
+                                ),
                             )
+                        })?;
+                        let bound_args = self.bind_user_function_args(
+                            line,
+                            &func_name,
+                            &mangled,
+                            &scope_type,
+                            positional_args,
+                            keyword_args,
+                        )?;
+                        let return_type_resolved =
+                            self.check_call_args(line, &func_name, &scope_type, &bound_args)?;
+
+                        // Direct call to a known function definition
+                        if return_type_resolved == Type::Unit {
+                            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                                target: CallTarget::Named(mangled),
+                                args: bound_args,
+                            })))
+                        } else {
+                            Ok(CallResult::Expr(TirExpr {
+                                kind: TirExprKind::Call {
+                                    func: mangled,
+                                    args: bound_args,
+                                },
+                                ty: Self::to_value_type(&return_type_resolved),
+                            }))
                         }
                     }
                     Type::Module(mangled) => {
                         // Check if this is an imported class constructor
                         if let Some(class_info) = self.class_registry.get(mangled).cloned() {
+                            if !keyword_args.is_empty() {
+                                return Err(self.syntax_error(
+                                    line,
+                                    "constructor keyword arguments are not supported",
+                                ));
+                            }
                             return self.lower_constructor_call(
                                 line,
                                 mangled,
                                 &class_info,
-                                tir_args,
+                                positional_args,
                             );
                         }
 
@@ -130,18 +284,26 @@ impl Lowering {
                                 )
                             })?
                             .clone();
+                        let bound_args = self.bind_user_function_args(
+                            line,
+                            &func_name,
+                            mangled,
+                            &func_type,
+                            positional_args,
+                            keyword_args,
+                        )?;
                         let return_type =
-                            self.check_call_args(line, &func_name, &func_type, &tir_args)?;
+                            self.check_call_args(line, &func_name, &func_type, &bound_args)?;
                         if return_type == Type::Unit {
                             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::Named(mangled.clone()),
-                                args: tir_args,
+                                args: bound_args,
                             })))
                         } else {
                             Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::Call {
                                     func: mangled.clone(),
-                                    args: tir_args,
+                                    args: bound_args,
                                 },
                                 ty: Self::to_value_type(&return_type),
                             }))
@@ -149,6 +311,12 @@ impl Lowering {
                     }
                     Type::Class(name) => {
                         // Constructor call
+                        if !keyword_args.is_empty() {
+                            return Err(self.syntax_error(
+                                line,
+                                "constructor keyword arguments are not supported",
+                            ));
+                        }
                         let class_info = self
                             .class_registry
                             .get(name)
@@ -156,7 +324,7 @@ impl Lowering {
                                 self.name_error(line, format!("unknown class `{}`", name))
                             })?
                             .clone();
-                        self.lower_constructor_call(line, name, &class_info, tir_args)
+                        self.lower_constructor_call(line, name, &class_info, positional_args)
                     }
                     _ => Err(self.type_error(line, format!("`{}` is not callable", func_name))),
                 }
@@ -175,11 +343,17 @@ impl Lowering {
 
                         // Check for class constructor first
                         if let Some(class_info) = self.class_registry.get(&resolved).cloned() {
+                            if !keyword_args.is_empty() {
+                                return Err(self.syntax_error(
+                                    line,
+                                    "constructor keyword arguments are not supported",
+                                ));
+                            }
                             return self.lower_constructor_call(
                                 line,
                                 &resolved,
                                 &class_info,
-                                tir_args,
+                                positional_args,
                             );
                         }
 
@@ -191,21 +365,29 @@ impl Lowering {
                             })?
                             .clone();
 
+                        let bound_args = self.bind_user_function_args(
+                            line,
+                            &attr,
+                            &resolved,
+                            &func_type,
+                            positional_args,
+                            keyword_args,
+                        )?;
                         let return_type = {
                             let label = attr.to_string();
-                            self.check_call_args(line, &label, &func_type, &tir_args)?
+                            self.check_call_args(line, &label, &func_type, &bound_args)?
                         };
 
                         return if return_type == Type::Unit {
                             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::Named(resolved),
-                                args: tir_args,
+                                args: bound_args,
                             })))
                         } else {
                             Ok(CallResult::Expr(TirExpr {
                                 kind: TirExprKind::Call {
                                     func: resolved,
-                                    args: tir_args,
+                                    args: bound_args,
                                 },
                                 ty: Self::to_value_type(&return_type),
                             }))
@@ -217,11 +399,17 @@ impl Lowering {
                 // (e.g., Outer.Inner(...), Deep.Mid.Leaf(...))
                 if let Some(qualified) = self.try_resolve_class_path(&func_node) {
                     if let Some(class_info) = self.class_registry.get(&qualified).cloned() {
+                        if !keyword_args.is_empty() {
+                            return Err(self.syntax_error(
+                                line,
+                                "constructor keyword arguments are not supported",
+                            ));
+                        }
                         return self.lower_constructor_call(
                             line,
                             &qualified,
                             &class_info,
-                            tir_args,
+                            positional_args,
                         );
                     }
                 }
@@ -248,7 +436,11 @@ impl Lowering {
                             )
                         })?;
 
-                        if tir_args.len() != method.params.len() {
+                        if !keyword_args.is_empty() {
+                            return Err(self
+                                .syntax_error(line, "method keyword arguments are not supported"));
+                        }
+                        if positional_args.len() != method.params.len() {
                             return Err(self.type_error(
                                 line,
                                 format!(
@@ -257,12 +449,12 @@ impl Lowering {
                                     attr,
                                     method.params.len(),
                                     if method.params.len() == 1 { "" } else { "s" },
-                                    tir_args.len()
+                                    positional_args.len()
                                 ),
                             ));
                         }
                         for (i, (arg, expected)) in
-                            tir_args.iter().zip(method.params.iter()).enumerate()
+                            positional_args.iter().zip(method.params.iter()).enumerate()
                         {
                             if arg.ty.to_type() != *expected {
                                 return Err(self.type_error(
@@ -280,7 +472,7 @@ impl Lowering {
 
                         // Prepend self (obj_expr) to args — method is just a Call
                         let mut all_args = vec![obj_expr];
-                        all_args.extend(tir_args);
+                        all_args.extend(positional_args);
 
                         if *return_type == Type::Unit {
                             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
@@ -301,7 +493,12 @@ impl Lowering {
                         let type_name = type_rules::builtin_type_display_name(ty);
                         let lookup = type_rules::lookup_builtin_method(ty, &attr);
                         self.lower_builtin_method_call(
-                            line, obj_expr, tir_args, &attr, &type_name, lookup,
+                            line,
+                            obj_expr,
+                            positional_args,
+                            &attr,
+                            &type_name,
+                            lookup,
                         )
                     }
                 }
@@ -316,7 +513,7 @@ impl Lowering {
 
     // ── call argument checking ─────────────────────────────────────────
 
-    fn lower_builtin_rule(
+    pub(super) fn lower_builtin_rule(
         rule: type_rules::BuiltinCallRule,
         mut tir_args: Vec<TirExpr>,
     ) -> CallResult {

@@ -113,8 +113,10 @@ impl Lowering {
         // Parse parameters
         let args_node = ast_getattr!(node, "args");
         let py_args = ast_get_list!(&args_node, "args");
+        let default_values = self.lower_defaults_for_params(&args_node, line, &name)?;
         let mut param_types = Vec::new();
         let mut params = Vec::new();
+        let mut param_names = Vec::new();
         for arg in py_args.iter() {
             let param_name = ast_get_string!(arg, "arg");
             let annotation = ast_getattr!(arg, "annotation");
@@ -130,6 +132,7 @@ impl Lowering {
             let ty = self.convert_type_annotation(&annotation)?;
             let vty = Self::to_value_type(&ty);
             param_types.push(ty);
+            param_names.push(param_name.clone());
             params.push(FunctionParam::new(param_name, vty));
         }
 
@@ -180,11 +183,12 @@ impl Lowering {
 
         // Push the nested function to deferred_functions (lifted to module level)
         self.deferred_functions.push(crate::tir::TirFunction {
-            name: mangled_name,
+            name: mangled_name.clone(),
             params,
             return_type,
             body: tir_body,
         });
+        self.register_function_signature(mangled_name, param_names, default_values);
 
         // The nested function def produces no statements at the call site
         Ok(vec![])
@@ -229,6 +233,78 @@ impl Lowering {
                         kind: TirExprKind::ListLiteral {
                             element_type: inner_ty,
                             elements: vec![],
+                        },
+                        ty: vty,
+                    },
+                }]);
+            }
+        }
+
+        // Handle empty dict literal `{}` with type annotation
+        if ast_type_name!(value_node) == "Dict" {
+            let keys = ast_get_list!(value_node, "keys");
+            if keys.is_empty() {
+                let dict_ty = annotated_ty.ok_or_else(|| {
+                    self.syntax_error(line, "empty dict literal `{}` requires a type annotation")
+                })?;
+                let (key_ty, value_ty) = match &dict_ty {
+                    Type::Dict(key, value) => {
+                        (Self::to_value_type(key), Self::to_value_type(value))
+                    }
+                    _ => {
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "type mismatch: expected `dict[..., ...]`, got `{}`",
+                                dict_ty
+                            ),
+                        ))
+                    }
+                };
+                let vty = ValueType::Dict(Box::new(key_ty), Box::new(value_ty));
+                self.declare(target.clone(), dict_ty);
+                return Ok(vec![TirStmt::Let {
+                    name: target,
+                    ty: vty.clone(),
+                    value: TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::DictEmpty,
+                            args: vec![],
+                        },
+                        ty: vty,
+                    },
+                }]);
+            }
+        }
+
+        // Handle empty set constructor set() with type annotation
+        if ast_type_name!(value_node) == "Call" {
+            let func_node_inner = ast_getattr!(value_node, "func");
+            if ast_type_name!(func_node_inner) == "Name"
+                && ast_get_string!(func_node_inner, "id") == "set"
+                && ast_get_list!(value_node, "args").is_empty()
+            {
+                let set_ty = annotated_ty.ok_or_else(|| {
+                    self.syntax_error(line, "set() requires a type annotation in this context")
+                })?;
+                let inner_ty = match &set_ty {
+                    Type::Set(inner) => Self::to_value_type(inner),
+                    _ => {
+                        return Err(self.type_error(
+                            line,
+                            format!("type mismatch: expected `set[...]`, got `{}`", set_ty),
+                        ))
+                    }
+                };
+                let vty = ValueType::Set(Box::new(inner_ty));
+                self.declare(target.clone(), set_ty);
+                return Ok(vec![TirStmt::Let {
+                    name: target,
+                    ty: vty.clone(),
+                    value: TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::SetEmpty,
+                            args: vec![],
                         },
                         ty: vty,
                     },
@@ -1100,7 +1176,7 @@ impl Lowering {
 
         let value_node = ast_getattr!(assign_node, "value");
 
-        // Handle empty list literal `[]` using the field's type annotation
+        // Handle empty list/dict literals using the field's type annotation
         let tir_value = if ast_type_name!(value_node) == "List" {
             let elts = ast_get_list!(value_node, "elts");
             if elts.is_empty() {
@@ -1121,6 +1197,34 @@ impl Lowering {
                     kind: TirExprKind::ListLiteral {
                         element_type: inner_ty,
                         elements: vec![],
+                    },
+                    ty: vty,
+                }
+            } else {
+                self.lower_expr(&value_node)?
+            }
+        } else if ast_type_name!(value_node) == "Dict" {
+            let keys = ast_get_list!(value_node, "keys");
+            if keys.is_empty() {
+                let (key_ty, value_ty) = match &field.ty {
+                    Type::Dict(key, value) => {
+                        (Self::to_value_type(key), Self::to_value_type(value))
+                    }
+                    _ => {
+                        return Err(self.type_error(
+                            line,
+                            format!(
+                                "cannot assign empty dict `{{}}` to field `{}.{}` of type `{}`",
+                                class_name, field_name, field.ty
+                            ),
+                        ))
+                    }
+                };
+                let vty = ValueType::Dict(Box::new(key_ty), Box::new(value_ty));
+                TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::DictEmpty,
+                        args: vec![],
                     },
                     ty: vty,
                 }
@@ -1188,6 +1292,29 @@ impl Lowering {
                     value: tir_value,
                 }])
             }
+            ValueType::Dict(key_ty, value_ty) => {
+                let key_expr = self.lower_expr(&slice_node)?;
+                if key_expr.ty != **key_ty {
+                    return Err(self.type_error(
+                        line,
+                        format!("dict key index must be `{}`, got `{}`", key_ty, key_expr.ty),
+                    ));
+                }
+                let tir_value = self.lower_expr(&value_node)?;
+                if tir_value.ty != **value_ty {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "cannot assign `{}` to value of `dict[{}, {}]`",
+                            tir_value.ty, key_ty, value_ty
+                        ),
+                    ));
+                }
+                Ok(vec![TirStmt::VoidCall {
+                    target: CallTarget::Builtin(builtin::BuiltinFn::DictSet),
+                    args: vec![list_expr, key_expr, tir_value],
+                }])
+            }
             ValueType::Tuple(_) => {
                 Err(self.type_error(line, "tuple does not support index assignment".to_string()))
             }
@@ -1245,6 +1372,42 @@ impl Lowering {
                     list: list_expr,
                     index: index_expr,
                     value: binop_expr,
+                }])
+            }
+            ValueType::Dict(key_ty, value_ty) => {
+                let key_expr = self.lower_expr(&slice_node)?;
+                if key_expr.ty != **key_ty {
+                    return Err(self.type_error(
+                        line,
+                        format!("dict key index must be `{}`, got `{}`", key_ty, key_expr.ty),
+                    ));
+                }
+
+                let current_val = TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::DictGet,
+                        args: vec![list_expr.clone(), key_expr.clone()],
+                    },
+                    ty: (**value_ty).clone(),
+                };
+
+                let op = Self::convert_binop(&ast_getattr!(aug_node, "op"))?;
+                let rhs = self.lower_expr(&ast_getattr!(aug_node, "value"))?;
+                let binop_expr = self.resolve_binop(line, op, current_val, rhs)?;
+
+                if binop_expr.ty != **value_ty {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "augmented assignment would change dict value type from `{}` to `{}`",
+                            value_ty, binop_expr.ty
+                        ),
+                    ));
+                }
+
+                Ok(vec![TirStmt::VoidCall {
+                    target: CallTarget::Builtin(builtin::BuiltinFn::DictSet),
+                    args: vec![list_expr, key_expr, binop_expr],
                 }])
             }
             ValueType::Tuple(_) => {
