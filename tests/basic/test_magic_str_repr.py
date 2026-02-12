@@ -48,8 +48,41 @@ def test_str_falls_back_to_repr() -> None:
     assert repr(x) == "OnlyRepr#7"
 
 
+def test_print_tuple_and_list_of_class() -> None:
+    a: OnlyRepr = OnlyRepr(3)
+    b: OnlyRepr = OnlyRepr(4)
+    pair: tuple[OnlyRepr, OnlyRepr] = (a, b)
+    single: tuple[OnlyRepr] = (a,)
+    items: list[OnlyRepr] = [a, b]
+    nested: tuple[list[OnlyRepr], OnlyRepr] = (items, b)
+
+    print(pair)
+    print(single)
+    print(items)
+    print(nested)
+
+
+def test_print_recursive_nested_values() -> None:
+    a: OnlyRepr = OnlyRepr(1)
+    b: OnlyRepr = OnlyRepr(2)
+    c: OnlyRepr = OnlyRepr(3)
+
+    nested_lists: list[list[OnlyRepr]] = [[a, b], [c]]
+    tuple_items: list[tuple[OnlyRepr, OnlyRepr]] = [(a, b), (b, c)]
+    deep_tuple: tuple[list[list[OnlyRepr]], list[tuple[OnlyRepr, OnlyRepr]]] = (
+        nested_lists,
+        tuple_items,
+    )
+
+    print(nested_lists)
+    print(tuple_items)
+    print(deep_tuple)
+
+
 def run_tests() -> None:
     test_str_uses_dunder_str()
     test_repr_uses_dunder_repr()
     test_print_uses_str()
     test_str_falls_back_to_repr()
+    test_print_tuple_and_list_of_class()
+    test_print_recursive_nested_values()

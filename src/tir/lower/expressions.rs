@@ -430,13 +430,6 @@ impl Lowering {
             tir_args.push(self.lower_expr(&arg)?);
         }
 
-        if tir_args.is_empty() {
-            return Ok(vec![TirStmt::VoidCall {
-                target: CallTarget::Builtin(builtin::BuiltinFn::PrintNewline),
-                args: vec![],
-            }]);
-        }
-
         let mut stmts = Vec::new();
         for (i, arg) in tir_args.into_iter().enumerate() {
             if i > 0 {
@@ -445,31 +438,7 @@ impl Lowering {
                     args: vec![],
                 });
             }
-            let print_arg = if matches!(arg.ty, ValueType::Class(_)) {
-                let rule = type_rules::lookup_builtin_call("str", &[&arg.ty])
-                    .expect("ICE: missing builtin rule for str() on class");
-                match rule {
-                    type_rules::BuiltinCallRule::ClassMagic {
-                        method_names,
-                        return_type,
-                    } => {
-                        self.lower_class_magic_method(line, arg, method_names, return_type, "str")?
-                    }
-                    _ => unreachable!("ICE: str() on class should resolve to ClassMagic"),
-                }
-            } else {
-                arg
-            };
-            let print_fn = builtin::resolve_print(&print_arg.ty).ok_or_else(|| {
-                self.type_error(
-                    line,
-                    format!("cannot print value of type `{}`", print_arg.ty),
-                )
-            })?;
-            stmts.push(TirStmt::VoidCall {
-                target: CallTarget::Builtin(print_fn),
-                args: vec![print_arg],
-            });
+            self.lower_print_value_stmts(line, arg, &mut stmts)?;
         }
         stmts.push(TirStmt::VoidCall {
             target: CallTarget::Builtin(builtin::BuiltinFn::PrintNewline),
@@ -477,6 +446,170 @@ impl Lowering {
         });
 
         Ok(stmts)
+    }
+
+    fn push_print_str_literal(stmts: &mut Vec<TirStmt>, s: impl Into<String>) {
+        stmts.push(TirStmt::VoidCall {
+            target: CallTarget::Builtin(builtin::BuiltinFn::PrintStr),
+            args: vec![TirExpr {
+                kind: TirExprKind::StrLiteral(s.into()),
+                ty: ValueType::Str,
+            }],
+        });
+    }
+
+    fn lower_print_class_as_str(&self, line: usize, object: TirExpr) -> Result<TirExpr> {
+        let rule = type_rules::lookup_builtin_call("str", &[&object.ty])
+            .expect("ICE: missing builtin rule for str() on class");
+        match rule {
+            type_rules::BuiltinCallRule::ClassMagic {
+                method_names,
+                return_type,
+            } => self.lower_class_magic_method(line, object, method_names, return_type, "str"),
+            _ => unreachable!("ICE: str() on class should resolve to ClassMagic"),
+        }
+    }
+
+    fn lower_print_value_stmts(
+        &mut self,
+        line: usize,
+        arg: TirExpr,
+        stmts: &mut Vec<TirStmt>,
+    ) -> Result<()> {
+        macro_rules! push_direct_print {
+            ($fn_name:expr, $value:expr) => {{
+                stmts.push(TirStmt::VoidCall {
+                    target: CallTarget::Builtin($fn_name),
+                    args: vec![$value],
+                });
+                Ok(())
+            }};
+        }
+
+        match &arg.ty {
+            ValueType::Tuple(element_types) => {
+                let tuple_var = self.fresh_internal("print_tuple");
+                let tuple_ty = arg.ty.clone();
+                let tuple_element_types = element_types.clone();
+
+                stmts.push(TirStmt::Let {
+                    name: tuple_var.clone(),
+                    ty: tuple_ty.clone(),
+                    value: arg,
+                });
+
+                Self::push_print_str_literal(stmts, "(");
+
+                for (i, element_ty) in tuple_element_types.iter().enumerate() {
+                    if i > 0 {
+                        Self::push_print_str_literal(stmts, ", ");
+                    }
+
+                    let element_expr = TirExpr {
+                        kind: TirExprKind::TupleGet {
+                            tuple: Box::new(TirExpr {
+                                kind: TirExprKind::Var(tuple_var.clone()),
+                                ty: tuple_ty.clone(),
+                            }),
+                            index: i,
+                            element_types: tuple_element_types.clone(),
+                        },
+                        ty: element_ty.clone(),
+                    };
+
+                    self.lower_print_value_stmts(line, element_expr, stmts)?;
+                }
+
+                if tuple_element_types.len() == 1 {
+                    Self::push_print_str_literal(stmts, ",");
+                }
+                Self::push_print_str_literal(stmts, ")");
+                Ok(())
+            }
+            ValueType::Class(_) => {
+                let print_arg = self.lower_print_class_as_str(line, arg)?;
+                self.lower_print_value_stmts(line, print_arg, stmts)
+            }
+            ValueType::Float => push_direct_print!(builtin::BuiltinFn::PrintFloat, arg),
+            ValueType::Bool => push_direct_print!(builtin::BuiltinFn::PrintBool, arg),
+            ValueType::Int => push_direct_print!(builtin::BuiltinFn::PrintInt, arg),
+            ValueType::Str => push_direct_print!(builtin::BuiltinFn::PrintStr, arg),
+            ValueType::Bytes => push_direct_print!(builtin::BuiltinFn::PrintBytes, arg),
+            ValueType::ByteArray => push_direct_print!(builtin::BuiltinFn::PrintByteArray, arg),
+            ValueType::List(inner) => match inner.as_ref() {
+                ValueType::Int => push_direct_print!(builtin::BuiltinFn::PrintListInt, arg),
+                ValueType::Float => push_direct_print!(builtin::BuiltinFn::PrintListFloat, arg),
+                ValueType::Bool => push_direct_print!(builtin::BuiltinFn::PrintListBool, arg),
+                ValueType::Str => push_direct_print!(builtin::BuiltinFn::PrintListStr, arg),
+                ValueType::Bytes => push_direct_print!(builtin::BuiltinFn::PrintListBytes, arg),
+                ValueType::ByteArray => {
+                    push_direct_print!(builtin::BuiltinFn::PrintListByteArray, arg)
+                }
+                _ => {
+                    let list_var = self.fresh_internal("print_list");
+                    let idx_var = self.fresh_internal("print_idx");
+                    let len_var = self.fresh_internal("print_len");
+                    let loop_var = self.fresh_internal("print_elem");
+                    let list_ty = arg.ty.clone();
+                    let loop_var_ty = inner.as_ref().clone();
+
+                    stmts.push(TirStmt::Let {
+                        name: list_var.clone(),
+                        ty: list_ty,
+                        value: arg,
+                    });
+                    Self::push_print_str_literal(stmts, "[");
+
+                    let mut body = Vec::new();
+                    let idx_gt_zero = TirExpr {
+                        kind: TirExprKind::Compare {
+                            op: OrderedCmpOp::Gt,
+                            left: Box::new(TirExpr {
+                                kind: TirExprKind::Var(idx_var.clone()),
+                                ty: ValueType::Int,
+                            }),
+                            right: Box::new(TirExpr {
+                                kind: TirExprKind::IntLiteral(0),
+                                ty: ValueType::Int,
+                            }),
+                        },
+                        ty: ValueType::Bool,
+                    };
+                    body.push(TirStmt::If {
+                        condition: idx_gt_zero,
+                        then_body: vec![TirStmt::VoidCall {
+                            target: CallTarget::Builtin(builtin::BuiltinFn::PrintStr),
+                            args: vec![TirExpr {
+                                kind: TirExprKind::StrLiteral(", ".to_string()),
+                                ty: ValueType::Str,
+                            }],
+                        }],
+                        else_body: vec![],
+                    });
+
+                    let elem_expr = TirExpr {
+                        kind: TirExprKind::Var(loop_var.clone()),
+                        ty: loop_var_ty.clone(),
+                    };
+                    self.lower_print_value_stmts(line, elem_expr, &mut body)?;
+
+                    stmts.push(TirStmt::ForList {
+                        loop_var,
+                        loop_var_ty,
+                        list_var,
+                        index_var: idx_var,
+                        len_var,
+                        body,
+                        else_body: vec![],
+                    });
+                    Self::push_print_str_literal(stmts, "]");
+                    Ok(())
+                }
+            },
+            ValueType::Function { .. } => {
+                Err(self.type_error(line, format!("cannot print value of type `{}`", arg.ty)))
+            }
+        }
     }
 
     // ── binary ops ───────────────────────────────────────────────────────

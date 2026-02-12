@@ -126,26 +126,3 @@ define_builtins! {
     AllList            => "__tython_all_list",            params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
     AnyList            => "__tython_any_list",            params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
 }
-
-pub fn resolve_print(arg_ty: &ValueType) -> Option<BuiltinFn> {
-    match arg_ty {
-        ValueType::Float => Some(BuiltinFn::PrintFloat),
-        ValueType::Bool => Some(BuiltinFn::PrintBool),
-        ValueType::Int => Some(BuiltinFn::PrintInt),
-        ValueType::Str => Some(BuiltinFn::PrintStr),
-        ValueType::Bytes => Some(BuiltinFn::PrintBytes),
-        ValueType::ByteArray => Some(BuiltinFn::PrintByteArray),
-        ValueType::List(inner) => match inner.as_ref() {
-            ValueType::Int => Some(BuiltinFn::PrintListInt),
-            ValueType::Float => Some(BuiltinFn::PrintListFloat),
-            ValueType::Bool => Some(BuiltinFn::PrintListBool),
-            ValueType::Str => Some(BuiltinFn::PrintListStr),
-            ValueType::Bytes => Some(BuiltinFn::PrintListBytes),
-            ValueType::ByteArray => Some(BuiltinFn::PrintListByteArray),
-            _ => None,
-        },
-        ValueType::Tuple(_) => None,
-        ValueType::Class(_) => None,
-        ValueType::Function { .. } => None,
-    }
-}
