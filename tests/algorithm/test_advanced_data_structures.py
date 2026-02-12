@@ -224,6 +224,8 @@ def test_lru_cache_heavy_sequence() -> None:
                 rk = nk
                 rv = nv
 
+            print('CHECK test_advanced_data_structures lhs:', got)
+            print('CHECK test_advanced_data_structures rhs:', expected)
             assert got == expected
             checksum = (checksum + (got + 1000) * (op + 1)) % 1000000007
         else:
@@ -267,8 +269,12 @@ def test_lru_cache_heavy_sequence() -> None:
         got2: int = cache.get(x)
         idx3: int = lru_ref_find(rk, x)
         if idx3 == -1:
+            print('CHECK test_advanced_data_structures lhs:', got2)
+            print('CHECK test_advanced_data_structures rhs:', -1)
             assert got2 == -1
         else:
+            print('CHECK test_advanced_data_structures lhs:', got2)
+            print('CHECK test_advanced_data_structures rhs:', rv[idx3])
             assert got2 == rv[idx3]
         x = x + 1
 
@@ -297,6 +303,8 @@ def test_digit_trie_bulk_operations() -> None:
     while q < 4000:
         probe: int = (q * 73129 + 77) % 1000000
         got: bool = trie.contains(to_digits_6(probe))
+        print('CHECK test_advanced_data_structures lhs:', got)
+        print('CHECK test_advanced_data_structures rhs:', present[probe])
         assert got == present[probe]
         if got:
             checks = checks + 1
@@ -307,6 +315,8 @@ def test_digit_trie_bulk_operations() -> None:
         base: int = (p2 * 1000 + 507) % 1000000
         d6: list[int] = to_digits_6(base)
         pref3: list[int] = [d6[0], d6[1], d6[2]]
+        print('CHECK test_advanced_data_structures lhs expr:', 'trie.has_prefix(pref3)')
+        print('CHECK test_advanced_data_structures rhs expr:', 'has_prefix_in_values(inserted, pref3)')
         assert trie.has_prefix(pref3) == has_prefix_in_values(inserted, pref3)
         p2 = p2 + 1
 
@@ -339,6 +349,7 @@ def test_order_statistic_fenwick_kth() -> None:
         step = step + 1
 
     total: int = fw.prefix_sum(n)
+    print('CHECK test_advanced_data_structures assert expr:', 'total > 0')
     assert total > 0
 
     q: int = 1
@@ -355,6 +366,8 @@ def test_order_statistic_fenwick_kth() -> None:
                 break
             naive_idx = naive_idx + 1
 
+        print('CHECK test_advanced_data_structures lhs:', idx1)
+        print('CHECK test_advanced_data_structures rhs:', naive_idx)
         assert idx1 == naive_idx
         checksum2 = (checksum2 + idx1 * q) % 1000000007
         q = q + 1

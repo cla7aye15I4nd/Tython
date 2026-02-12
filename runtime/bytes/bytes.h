@@ -23,7 +23,10 @@ int64_t TYTHON_FN(bytes_eq)(TythonBytes* a, TythonBytes* b);
 void TYTHON_FN(print_bytes)(TythonBytes* b);
 TythonBytes* TYTHON_FN(bytes_from_int)(int64_t n);
 TythonBytes* TYTHON_FN(bytes_from_str)(TythonStr* s);
+TythonStr* TYTHON_FN(str_from_bytes)(TythonBytes* b);
 void print_bytes_repr(const uint8_t* data, int64_t len);
+int64_t bytes_repr_body_len(const uint8_t* data, int64_t len);
+char* bytes_repr_body_write(char* out, const uint8_t* data, int64_t len);
 
 #ifdef __cplusplus
 }

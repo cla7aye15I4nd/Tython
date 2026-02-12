@@ -37,8 +37,12 @@ def test_gcd_chain() -> None:
     total: int = 0
     for item in xs:
         g: int = gcd(item[0], item[1])
+        print('CHECK test_algorithm lhs:', g)
+        print('CHECK test_algorithm rhs:', item[2])
         assert g == item[2]
         total = total + g
+    print('CHECK test_algorithm lhs:', total)
+    print('CHECK test_algorithm rhs:', 263)
     assert total == 263
 
 
@@ -63,11 +67,15 @@ def test_prime_marking_nested_loops() -> None:
         p = p + 1
 
     primes: list[int] = [x for x in range(2, n + 1) if is_prime[x]]
+    print('CHECK test_algorithm lhs:', primes)
+    print('CHECK test_algorithm rhs:', [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37])
     assert primes == [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
 
     s: int = 0
     for v in primes:
         s = s + v
+    print('CHECK test_algorithm lhs:', s)
+    print('CHECK test_algorithm rhs:', 197)
     assert s == 197
 
 
@@ -96,7 +104,11 @@ def test_lis_quadratic_dp() -> None:
     for v in dp:
         if v > best:
             best = v
+    print('CHECK test_algorithm lhs:', best)
+    print('CHECK test_algorithm rhs:', 4)
     assert best == 4
+    print('CHECK test_algorithm lhs:', dp)
+    print('CHECK test_algorithm rhs:', [1, 1, 1, 2, 2, 3, 4, 4])
     assert dp == [1, 1, 1, 2, 2, 3, 4, 4]
 
 
@@ -123,7 +135,11 @@ def test_knapsack_01_one_dimensional_dp() -> None:
             c = c - 1
         i = i + 1
 
+    print('CHECK test_algorithm lhs:', dp)
+    print('CHECK test_algorithm rhs:', [0, 10, 15, 25, 30, 37])
     assert dp == [0, 10, 15, 25, 30, 37]
+    print('CHECK test_algorithm lhs:', dp[cap])
+    print('CHECK test_algorithm rhs:', 37)
     assert dp[cap] == 37
 
 

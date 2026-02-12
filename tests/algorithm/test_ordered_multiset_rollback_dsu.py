@@ -169,6 +169,8 @@ def test_ordered_multiset_queries() -> None:
     while j < 4001:
         total_naive = total_naive + naive[j]
         j = j + 1
+    print('CHECK test_ordered_multiset_rollback_dsu lhs expr:', 'ms.size()')
+    print('CHECK test_ordered_multiset_rollback_dsu rhs:', total_naive)
     assert ms.size() == total_naive
 
     if total_naive > 0:
@@ -182,6 +184,8 @@ def test_ordered_multiset_queries() -> None:
             if run >= k:
                 break
             idx = idx + 1
+        print('CHECK test_ordered_multiset_rollback_dsu lhs:', kth_val)
+        print('CHECK test_ordered_multiset_rollback_dsu rhs:', idx - 2000)
         assert kth_val == idx - 2000
     print(total_naive)
 
@@ -195,9 +199,13 @@ def test_rollback_dsu_offline_style() -> None:
     while i < n:
         dsu.union(i - 1, i)
         i = i + 1
+    print('CHECK test_ordered_multiset_rollback_dsu lhs:', dsu.comps)
+    print('CHECK test_ordered_multiset_rollback_dsu rhs:', 1)
     assert dsu.comps == 1
 
     dsu.rollback(base_snap)
+    print('CHECK test_ordered_multiset_rollback_dsu lhs:', dsu.comps)
+    print('CHECK test_ordered_multiset_rollback_dsu rhs:', n)
     assert dsu.comps == n
 
     s1: int = dsu.snapshot()
@@ -206,6 +214,7 @@ def test_rollback_dsu_offline_style() -> None:
         dsu.union(j, j + 2)
         j = j + 3
     mid_comps: int = dsu.comps
+    print('CHECK test_ordered_multiset_rollback_dsu assert expr:', 'mid_comps < n')
     assert mid_comps < n
 
     s2: int = dsu.snapshot()
@@ -213,11 +222,16 @@ def test_rollback_dsu_offline_style() -> None:
     while k + 1 < n:
         dsu.union(k, k + 1)
         k = k + 2
+    print('CHECK test_ordered_multiset_rollback_dsu assert expr:', 'dsu.comps <= mid_comps')
     assert dsu.comps <= mid_comps
 
     dsu.rollback(s2)
+    print('CHECK test_ordered_multiset_rollback_dsu lhs:', dsu.comps)
+    print('CHECK test_ordered_multiset_rollback_dsu rhs:', mid_comps)
     assert dsu.comps == mid_comps
     dsu.rollback(s1)
+    print('CHECK test_ordered_multiset_rollback_dsu lhs:', dsu.comps)
+    print('CHECK test_ordered_multiset_rollback_dsu rhs:', n)
     assert dsu.comps == n
     print(mid_comps)
 

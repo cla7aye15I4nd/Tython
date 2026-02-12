@@ -1,6 +1,8 @@
 def test_precedence_mul_before_add(x: int) -> None:
     result: int = 2 + 3 * 4
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 14)
     assert result == 14
     print("X", x)
 
@@ -8,42 +10,56 @@ def test_precedence_mul_before_add(x: int) -> None:
 def test_precedence_parentheses() -> None:
     result: int = (2 + 3) * 4
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 20)
     assert result == 20
 
 
 def test_precedence_nested_parens() -> None:
     result: int = ((1 + 2) * (3 + 4))
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 21)
     assert result == 21
 
 
 def test_precedence_sub_mul() -> None:
     result: int = 10 - 2 * 3
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 4)
     assert result == 4
 
 
 def test_precedence_mod() -> None:
     result: int = 10 + 7 % 3
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 11)
     assert result == 11
 
 
 def test_complex_expression() -> None:
     result: int = (5 + 3) * 2 - 4
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 12)
     assert result == 12
 
 
 def test_multi_term() -> None:
     result: int = 1 * 2 + 3 * 4 + 5 * 6
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 44)
     assert result == 44
 
 
 def test_subtraction_chain() -> None:
     result: int = 100 - 20 - 30 - 10
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 40)
     assert result == 40
 
 
@@ -53,6 +69,8 @@ def test_mixed_operations() -> None:
     c: int = 7
     result: int = a * b + c
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 37)
     assert result == 37
 
 
@@ -60,6 +78,8 @@ def test_square() -> None:
     x: int = 12
     result: int = x * x
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 144)
     assert result == 144
 
 
@@ -67,6 +87,8 @@ def test_cube() -> None:
     x: int = 5
     result: int = x * x * x
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 125)
     assert result == 125
 
 
@@ -74,6 +96,8 @@ def test_mod_pattern() -> None:
     x: int = 25
     result: int = x % 10
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 5)
     assert result == 5
 
 
@@ -81,6 +105,8 @@ def test_mod_zero_result() -> None:
     x: int = 100
     result: int = x % 25
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 0)
     assert result == 0
 
 
@@ -89,6 +115,8 @@ def test_arithmetic_with_negative() -> None:
     b: int = 3
     result: int = a + b
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 0 - 2)
     assert result == 0 - 2
 
 
@@ -97,6 +125,8 @@ def test_double_negative() -> None:
     b: int = 0 - 7
     result: int = a + b
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 0 - 10)
     assert result == 0 - 10
 
 
@@ -105,6 +135,8 @@ def test_negative_mul() -> None:
     b: int = 5
     result: int = a * b
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 0 - 20)
     assert result == 0 - 20
 
 
@@ -113,6 +145,8 @@ def test_negative_mul_negative() -> None:
     b: int = 0 - 4
     result: int = a * b
     print(result)
+    print('CHECK test_arithmetic lhs:', result)
+    print('CHECK test_arithmetic rhs:', 12)
     assert result == 12
 
 

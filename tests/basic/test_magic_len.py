@@ -12,6 +12,8 @@ def test_len_on_class_magic() -> None:
     b: Bag = Bag(4)
     n: int = len(b)
     print(n)
+    print('CHECK test_magic_len lhs:', n)
+    print('CHECK test_magic_len rhs:', 4)
     assert n == 4
 
 

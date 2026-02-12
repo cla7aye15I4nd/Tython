@@ -25,6 +25,7 @@ int64_t TYTHON_FN(bytearray_len)(TythonByteArray* ba);
 int64_t TYTHON_FN(bytearray_cmp)(TythonByteArray* a, TythonByteArray* b);
 int64_t TYTHON_FN(bytearray_eq)(TythonByteArray* a, TythonByteArray* b);
 void TYTHON_FN(print_bytearray)(TythonByteArray* ba);
+TythonStr* TYTHON_FN(str_from_bytearray)(TythonByteArray* ba);
 void TYTHON_FN(bytearray_append)(TythonByteArray* ba, int64_t byte_val);
 void TYTHON_FN(bytearray_extend)(TythonByteArray* ba, TythonBytes* other);
 void TYTHON_FN(bytearray_clear)(TythonByteArray* ba);

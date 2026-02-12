@@ -3,6 +3,8 @@ def test_while_count_up() -> None:
     while i < 5:
         i = i + 1
     print(i)
+    print('CHECK test_while lhs:', i)
+    print('CHECK test_while rhs:', 5)
     assert i == 5
 
 
@@ -11,6 +13,8 @@ def test_while_count_down() -> None:
     while i > 0:
         i = i - 1
     print(i)
+    print('CHECK test_while lhs:', i)
+    print('CHECK test_while rhs:', 0)
     assert i == 0
 
 
@@ -21,6 +25,8 @@ def test_while_sum() -> None:
         total = total + i
         i = i + 1
     print(total)
+    print('CHECK test_while lhs:', total)
+    print('CHECK test_while rhs:', 55)
     assert total == 55
 
 
@@ -32,6 +38,8 @@ def test_while_factorial() -> None:
         result = result * i
         i = i + 1
     print(result)
+    print('CHECK test_while lhs:', result)
+    print('CHECK test_while rhs:', 720)
     assert result == 720
 
 
@@ -44,6 +52,8 @@ def test_while_power() -> None:
         result = result * base
         i = i + 1
     print(result)
+    print('CHECK test_while lhs:', result)
+    print('CHECK test_while rhs:', 1024)
     assert result == 1024
 
 
@@ -54,6 +64,8 @@ def test_while_no_iteration() -> None:
         count = count + 1
         i = i + 1
     print(count)
+    print('CHECK test_while lhs:', count)
+    print('CHECK test_while rhs:', 0)
     assert count == 0
 
 
@@ -64,6 +76,8 @@ def test_while_single_iteration() -> None:
         count = count + 1
         i = i + 1
     print(count)
+    print('CHECK test_while lhs:', count)
+    print('CHECK test_while rhs:', 1)
     assert count == 1
 
 
@@ -77,6 +91,8 @@ def test_while_nested() -> None:
             j = j + 1
         i = i + 1
     print(total)
+    print('CHECK test_while lhs:', total)
+    print('CHECK test_while rhs:', 9)
     assert total == 9
 
 
@@ -90,6 +106,8 @@ def test_while_nested_multiply() -> None:
             j = j + 1
         i = i + 1
     print(total)
+    print('CHECK test_while lhs:', total)
+    print('CHECK test_while rhs:', 36)
     assert total == 36
 
 
@@ -100,6 +118,8 @@ def test_while_with_condition() -> None:
         count = count + 1
         i = i + 1
     print(count)
+    print('CHECK test_while lhs:', count)
+    print('CHECK test_while rhs:', 10)
     assert count == 10
 
 
@@ -113,6 +133,8 @@ def test_while_fibonacci() -> None:
         a = temp
         i = i + 1
     print(a)
+    print('CHECK test_while lhs:', a)
+    print('CHECK test_while rhs:', 55)
     assert a == 55
 
 
@@ -124,6 +146,8 @@ def test_while_gcd() -> None:
         b = a % b
         a = temp
     print(a)
+    print('CHECK test_while lhs:', a)
+    print('CHECK test_while rhs:', 6)
     assert a == 6
 
 

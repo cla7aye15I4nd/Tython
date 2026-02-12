@@ -127,6 +127,8 @@ def test_interval_tree_overlap_queries() -> None:
             j = j + 1
 
         got: bool = it.any_overlap(ql, qr)
+        print('CHECK test_interval_and_2d_fenwick lhs:', got)
+        print('CHECK test_interval_and_2d_fenwick rhs:', naive)
         assert got == naive
         if got:
             hits = hits + 1
@@ -177,6 +179,8 @@ def test_fenwick_2d_updates_queries() -> None:
             a = a + 1
 
         got: int = fw.rect_sum(x1 + 1, y1 + 1, x2 + 1, y2 + 1)
+        print('CHECK test_interval_and_2d_fenwick lhs:', got)
+        print('CHECK test_interval_and_2d_fenwick rhs:', naive)
         assert got == naive
         checksum = (checksum + (got % 1000000007 + 1000000007) % 1000000007) % 1000000007
         q = q + 1

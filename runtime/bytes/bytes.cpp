@@ -52,6 +52,51 @@ void TYTHON_FN(print_bytes)(TythonBytes* bb) {
     print_bytes_repr(u(bb)->data, u(bb)->len);
 }
 
+/* ── str/repr conversion ─────────────────────────────────────────── */
+
+int64_t bytes_repr_body_len(const uint8_t* data, int64_t len) {
+    int64_t n = 0;
+    for (int64_t i = 0; i < len; i++) {
+        uint8_t c = data[i];
+        if (c == '\\' || c == '\'') n += 2;
+        else if (c == '\t' || c == '\n' || c == '\r') n += 2;
+        else if (c >= 32 && c < 127) n += 1;
+        else n += 4; /* \xNN */
+    }
+    return n;
+}
+
+char* bytes_repr_body_write(char* out, const uint8_t* data, int64_t len) {
+    for (int64_t i = 0; i < len; i++) {
+        uint8_t c = data[i];
+        if (c == '\\')       { *out++ = '\\'; *out++ = '\\'; }
+        else if (c == '\'')  { *out++ = '\\'; *out++ = '\''; }
+        else if (c == '\t')  { *out++ = '\\'; *out++ = 't'; }
+        else if (c == '\n')  { *out++ = '\\'; *out++ = 'n'; }
+        else if (c == '\r')  { *out++ = '\\'; *out++ = 'r'; }
+        else if (c >= 32 && c < 127) { *out++ = static_cast<char>(c); }
+        else {
+            static const char hex[] = "0123456789abcdef";
+            *out++ = '\\'; *out++ = 'x';
+            *out++ = hex[c >> 4]; *out++ = hex[c & 0xf];
+        }
+    }
+    return out;
+}
+
+TythonStr* TYTHON_FN(str_from_bytes)(TythonBytes* bb) {
+    int64_t body_len = bytes_repr_body_len(u(bb)->data, u(bb)->len);
+    int64_t total = 3 + body_len; /* b' + body + ' */
+    auto* s = reinterpret_cast<TythonStr*>(
+        __tython_malloc(static_cast<int64_t>(sizeof(TythonStr)) + total));
+    s->len = total;
+    char* p = s->data;
+    *p++ = 'b'; *p++ = '\'';
+    p = bytes_repr_body_write(p, u(bb)->data, u(bb)->len);
+    *p = '\'';
+    return s;
+}
+
 /* ── conversion helpers ──────────────────────────────────────────── */
 
 TythonBytes* TYTHON_FN(bytes_from_int)(int64_t n) {

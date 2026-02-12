@@ -200,9 +200,12 @@ def test_avl_tree_large_insertions() -> None:
     ino: list[int] = avl.inorder()
     j: int = 1
     while j < len(ino):
+        print('CHECK test_balanced_tree_structures assert expr:', 'ino[j - 1] <= ino[j]')
         assert ino[j - 1] <= ino[j]
         j = j + 1
+    print('CHECK test_balanced_tree_structures assert expr:', 'avl.is_balanced()')
     assert avl.is_balanced()
+    print('CHECK test_balanced_tree_structures assert expr:', 'avl._h(avl.root) < 40')
     assert avl._h(avl.root) < 40
     print(len(ino))
 
@@ -218,8 +221,10 @@ def test_treap_large_insertions() -> None:
     ino: list[int] = tr.inorder()
     j: int = 1
     while j < len(ino):
+        print('CHECK test_balanced_tree_structures assert expr:', 'ino[j - 1] <= ino[j]')
         assert ino[j - 1] <= ino[j]
         j = j + 1
+    print('CHECK test_balanced_tree_structures assert expr:', 'tr.check_heap_property()')
     assert tr.check_heap_property()
     print(len(ino))
 

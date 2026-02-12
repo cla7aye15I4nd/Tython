@@ -67,3 +67,51 @@ TythonStr* TYTHON_FN(str_from_bool)(int64_t val) {
     return val ? S(StrBuf::create("True", 4))
                : S(StrBuf::create("False", 5));
 }
+
+/* ── repr(str) ──────────────────────────────────────────────────── */
+
+TythonStr* TYTHON_FN(repr_str)(TythonStr* s) {
+    const char* data = b(s)->data;
+    int64_t len = b(s)->len;
+
+    /* Pick delimiter: use " if string contains ' but not ", else ' */
+    bool has_sq = false, has_dq = false;
+    for (int64_t i = 0; i < len; i++) {
+        if (data[i] == '\'') has_sq = true;
+        if (data[i] == '"')  has_dq = true;
+    }
+    char quote = (has_sq && !has_dq) ? '"' : '\'';
+
+    /* Compute output length */
+    int64_t n = 2; /* opening + closing quote */
+    for (int64_t i = 0; i < len; i++) {
+        char c = data[i];
+        if (c == '\\' || c == quote)    n += 2;
+        else if (c == '\t' || c == '\n' || c == '\r') n += 2;
+        else if (c >= 32 && c < 127)    n += 1;
+        else n += 4; /* \xNN */
+    }
+
+    auto* out = reinterpret_cast<TythonStr*>(
+        __tython_malloc(static_cast<int64_t>(sizeof(TythonStr)) + n));
+    out->len = n;
+    char* p = out->data;
+    *p++ = quote;
+    for (int64_t i = 0; i < len; i++) {
+        char c = data[i];
+        if (c == '\\')              { *p++ = '\\'; *p++ = '\\'; }
+        else if (c == quote)        { *p++ = '\\'; *p++ = quote; }
+        else if (c == '\t')         { *p++ = '\\'; *p++ = 't'; }
+        else if (c == '\n')         { *p++ = '\\'; *p++ = 'n'; }
+        else if (c == '\r')         { *p++ = '\\'; *p++ = 'r'; }
+        else if (c >= 32 && c < 127) { *p++ = c; }
+        else {
+            static const char hex[] = "0123456789abcdef";
+            auto uc = static_cast<uint8_t>(c);
+            *p++ = '\\'; *p++ = 'x';
+            *p++ = hex[uc >> 4]; *p++ = hex[uc & 0xf];
+        }
+    }
+    *p = quote;
+    return out;
+}

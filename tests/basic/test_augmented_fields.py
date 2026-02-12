@@ -14,6 +14,8 @@ def test_aug_assign_field_inc() -> None:
     c.inc()
     c.inc()
     c.inc()
+    print('CHECK test_augmented_fields lhs:', c.val)
+    print('CHECK test_augmented_fields rhs:', 3)
     assert c.val == 3
     print("aug_field_inc ok")
 
@@ -21,6 +23,8 @@ def test_aug_assign_field_add() -> None:
     c: Counter = Counter(10)
     c.add(5)
     c.add(3)
+    print('CHECK test_augmented_fields lhs:', c.val)
+    print('CHECK test_augmented_fields rhs:', 18)
     assert c.val == 18
     print("aug_field_add ok")
 
@@ -28,6 +32,8 @@ def test_aug_assign_field_mul() -> None:
     c: Counter = Counter(2)
     c.mul(3)
     c.mul(4)
+    print('CHECK test_augmented_fields lhs:', c.val)
+    print('CHECK test_augmented_fields rhs:', 24)
     assert c.val == 24
     print("aug_field_mul ok")
 

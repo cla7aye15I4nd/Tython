@@ -70,6 +70,8 @@ def test_sliding_window_minimum_large() -> None:
             mins.append(mq.get_min())
         j = j + 1
 
+    print('CHECK test_monotonic_structures lhs expr:', 'len(mins)')
+    print('CHECK test_monotonic_structures rhs:', n - w + 1)
     assert len(mins) == n - w + 1
 
     q: int = 0
@@ -81,6 +83,8 @@ def test_sliding_window_minimum_large() -> None:
             if arr[k] < naive:
                 naive = arr[k]
             k = k + 1
+        print('CHECK test_monotonic_structures lhs:', mins[q])
+        print('CHECK test_monotonic_structures rhs:', naive)
         assert mins[q] == naive
         checksum = (checksum + (naive % 1000000007 + 1000000007) % 1000000007) % 1000000007
         q = q + 97
@@ -98,6 +102,8 @@ def test_next_greater_indices_large() -> None:
 
     ms: MonotonicStackNextGreater = MonotonicStackNextGreater()
     nxt: list[int] = ms.process(arr)
+    print('CHECK test_monotonic_structures lhs expr:', 'len(nxt)')
+    print('CHECK test_monotonic_structures rhs:', n)
     assert len(nxt) == n
 
     q: int = 0
@@ -105,15 +111,19 @@ def test_next_greater_indices_large() -> None:
     while q < n:
         got: int = nxt[q]
         if got != -1:
+            print('CHECK test_monotonic_structures assert expr:', 'got > q')
             assert got > q
+            print('CHECK test_monotonic_structures assert expr:', 'arr[got] > arr[q]')
             assert arr[got] > arr[q]
             t: int = q + 1
             while t < got:
+                print('CHECK test_monotonic_structures assert expr:', 'arr[t] <= arr[q]')
                 assert arr[t] <= arr[q]
                 t = t + 1
             verified = verified + 1
         q = q + 1
 
+    print('CHECK test_monotonic_structures assert expr:', 'verified > 0')
     assert verified > 0
     print(verified)
 

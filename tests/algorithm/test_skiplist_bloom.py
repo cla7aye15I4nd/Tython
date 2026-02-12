@@ -123,6 +123,8 @@ def test_skiplist_large_membership() -> None:
 
     k: int = 0
     while k < 20000:
+        print('CHECK test_skiplist_bloom lhs expr:', 'sl.contains(k)')
+        print('CHECK test_skiplist_bloom rhs:', used[k])
         assert sl.contains(k) == used[k]
         k = k + 1
     print(7000)
@@ -154,10 +156,12 @@ def test_bloom_filter_false_positive_rate() -> None:
             if bf.maybe_contains(y):
                 false_pos = false_pos + 1
         else:
+            print('CHECK test_skiplist_bloom assert expr:', 'bf.maybe_contains(y)')
             assert bf.maybe_contains(y)
         q = q + 1
 
     # Loose upper bound to keep test stable.
+    print('CHECK test_skiplist_bloom assert expr:', 'false_pos * 100 <= negatives * 30')
     assert false_pos * 100 <= negatives * 30
     print(false_pos)
 

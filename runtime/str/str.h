@@ -24,6 +24,7 @@ TythonStr* TYTHON_FN(str_from_int)(int64_t v);
 TythonStr* TYTHON_FN(str_from_float)(double v);
 TythonStr* TYTHON_FN(str_from_bool)(int64_t v);
 int64_t TYTHON_FN(str_contains)(TythonStr* haystack, TythonStr* needle);
+TythonStr* TYTHON_FN(repr_str)(TythonStr* s);
 
 #ifdef __cplusplus
 }

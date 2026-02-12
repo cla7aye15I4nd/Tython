@@ -88,8 +88,12 @@ def point_distance_sq(p1: Point, p2: Point) -> int:
 def test_construct_and_fields() -> None:
     p: Point = Point(3, 4)
     print(p.x)
+    print('CHECK test_class lhs:', p.x)
+    print('CHECK test_class rhs:', 3)
     assert p.x == 3
     print(p.y)
+    print('CHECK test_class lhs:', p.y)
+    print('CHECK test_class rhs:', 4)
     assert p.y == 4
 
 
@@ -97,14 +101,20 @@ def test_method_return_value() -> None:
     p: Point = Point(3, 4)
     result: int = p.magnitude_sq()
     print(result)
+    print('CHECK test_class lhs:', result)
+    print('CHECK test_class rhs:', 25)
     assert result == 25
 
 
 def test_method_multiple() -> None:
     p: Point = Point(5, 7)
     print(p.sum())
+    print('CHECK test_class lhs expr:', 'p.sum()')
+    print('CHECK test_class rhs:', 12)
     assert p.sum() == 12
     print(p.magnitude_sq())
+    print('CHECK test_class lhs expr:', 'p.magnitude_sq()')
+    print('CHECK test_class rhs:', 74)
     assert p.magnitude_sq() == 74
 
 
@@ -112,8 +122,12 @@ def test_field_mutation() -> None:
     p: Point = Point(1, 2)
     p.x = 10
     print(p.x)
+    print('CHECK test_class lhs:', p.x)
+    print('CHECK test_class rhs:', 10)
     assert p.x == 10
     print(p.y)
+    print('CHECK test_class lhs:', p.y)
+    print('CHECK test_class rhs:', 2)
     assert p.y == 2
 
 
@@ -123,17 +137,25 @@ def test_field_mutation_and_method() -> None:
     p.y = 8
     result: int = p.magnitude_sq()
     print(result)
+    print('CHECK test_class lhs:', result)
+    print('CHECK test_class rhs:', 100)
     assert result == 100
 
 
 def test_stack_rebinding() -> None:
     p: Point = Point(3, 4)
     print(p.x)
+    print('CHECK test_class lhs:', p.x)
+    print('CHECK test_class rhs:', 3)
     assert p.x == 3
     p = Point(5, 6)
     print(p.x)
+    print('CHECK test_class lhs:', p.x)
+    print('CHECK test_class rhs:', 5)
     assert p.x == 5
     print(p.y)
+    print('CHECK test_class lhs:', p.y)
+    print('CHECK test_class rhs:', 6)
     assert p.y == 6
 
 
@@ -141,13 +163,21 @@ def test_multiple_instances() -> None:
     a: Point = Point(1, 2)
     b: Point = Point(3, 4)
     print(a.x)
+    print('CHECK test_class lhs:', a.x)
+    print('CHECK test_class rhs:', 1)
     assert a.x == 1
     print(b.x)
+    print('CHECK test_class lhs:', b.x)
+    print('CHECK test_class rhs:', 3)
     assert b.x == 3
     a.x = 99
     print(a.x)
+    print('CHECK test_class lhs:', a.x)
+    print('CHECK test_class rhs:', 99)
     assert a.x == 99
     print(b.x)
+    print('CHECK test_class lhs:', b.x)
+    print('CHECK test_class rhs:', 3)
     assert b.x == 3
 
 
@@ -157,6 +187,8 @@ def test_void_method() -> None:
     c.increment()
     c.increment()
     print(c.get())
+    print('CHECK test_class lhs expr:', 'c.get()')
+    print('CHECK test_class rhs:', 3)
     assert c.get() == 3
 
 
@@ -164,9 +196,13 @@ def test_void_method_with_arg() -> None:
     c: Counter = Counter(10)
     c.add(5)
     print(c.get())
+    print('CHECK test_class lhs expr:', 'c.get()')
+    print('CHECK test_class rhs:', 15)
     assert c.get() == 15
     c.add(100)
     print(c.get())
+    print('CHECK test_class lhs expr:', 'c.get()')
+    print('CHECK test_class rhs:', 115)
     assert c.get() == 115
 
 
@@ -177,23 +213,31 @@ def test_counter_loop() -> None:
         c.increment()
         i = i + 1
     print(c.get())
+    print('CHECK test_class lhs expr:', 'c.get()')
+    print('CHECK test_class rhs:', 10)
     assert c.get() == 10
 
 
 def test_float_field() -> None:
     fb: FloatBox = FloatBox(3.14)
     print(fb.value)
+    print('CHECK test_class lhs:', fb.value)
+    print('CHECK test_class rhs:', 3.14)
     assert fb.value == 3.14
     print(fb.doubled())
+    print('CHECK test_class lhs expr:', 'fb.doubled()')
+    print('CHECK test_class rhs:', 6.28)
     assert fb.doubled() == 6.28
 
 
 def test_bool_field() -> None:
     f: BoolFlag = BoolFlag(True)
     print(f.is_set())
+    print('CHECK test_class assert expr:', 'f.is_set()')
     assert f.is_set()
     g: BoolFlag = BoolFlag(False)
     print(g.is_set())
+    print('CHECK test_class assert expr:', 'not g.is_set()')
     assert not g.is_set()
 
 
@@ -201,8 +245,12 @@ def test_method_returns_instance() -> None:
     c: Container = Container(1, Point(10, 20))
     p: Point = c.get_inner()
     print(p.x)
+    print('CHECK test_class lhs:', p.x)
+    print('CHECK test_class rhs:', 10)
     assert p.x == 10
     print(p.y)
+    print('CHECK test_class lhs:', p.y)
+    print('CHECK test_class rhs:', 20)
     assert p.y == 20
 
 
@@ -210,24 +258,36 @@ def test_method_takes_instance_arg() -> None:
     f: PointFactory = PointFactory(100, 200)
     p: Point = f.make(5, 10)
     print(p.x)
+    print('CHECK test_class lhs:', p.x)
+    print('CHECK test_class rhs:', 105)
     assert p.x == 105
     print(p.y)
+    print('CHECK test_class lhs:', p.y)
+    print('CHECK test_class rhs:', 210)
     assert p.y == 210
 
 
 def test_nested_class_fields() -> None:
     c: Container = Container(42, Point(10, 20))
     print(c.value)
+    print('CHECK test_class lhs:', c.value)
+    print('CHECK test_class rhs:', 42)
     assert c.value == 42
     print(c.inner.x)
+    print('CHECK test_class lhs:', c.inner.x)
+    print('CHECK test_class rhs:', 10)
     assert c.inner.x == 10
     print(c.inner.y)
+    print('CHECK test_class lhs:', c.inner.y)
+    print('CHECK test_class rhs:', 20)
     assert c.inner.y == 20
 
 
 def test_nested_class_method() -> None:
     c: Container = Container(1, Point(3, 7))
     print(c.inner_sum())
+    print('CHECK test_class lhs expr:', 'c.inner_sum()')
+    print('CHECK test_class rhs:', 10)
     assert c.inner_sum() == 10
 
 
@@ -235,9 +295,13 @@ def test_nested_field_mutation() -> None:
     c: Container = Container(1, Point(5, 6))
     c.value = 99
     print(c.value)
+    print('CHECK test_class lhs:', c.value)
+    print('CHECK test_class rhs:', 99)
     assert c.value == 99
     c.inner.x = 50
     print(c.inner.x)
+    print('CHECK test_class lhs:', c.inner.x)
+    print('CHECK test_class rhs:', 50)
     assert c.inner.x == 50
 
 
@@ -246,6 +310,8 @@ def test_free_function_with_class_args() -> None:
     p2: Point = Point(3, 4)
     d: int = point_distance_sq(p1, p2)
     print(d)
+    print('CHECK test_class lhs:', d)
+    print('CHECK test_class rhs:', 25)
     assert d == 25
 
 
@@ -253,12 +319,18 @@ def test_augmented_assign_field() -> None:
     c: Counter = Counter(10)
     c.count += 5
     print(c.count)
+    print('CHECK test_class lhs:', c.count)
+    print('CHECK test_class rhs:', 15)
     assert c.count == 15
     c.count -= 3
     print(c.count)
+    print('CHECK test_class lhs:', c.count)
+    print('CHECK test_class rhs:', 12)
     assert c.count == 12
     c.count *= 2
     print(c.count)
+    print('CHECK test_class lhs:', c.count)
+    print('CHECK test_class rhs:', 24)
     assert c.count == 24
 
 
@@ -266,6 +338,8 @@ def test_field_in_expression() -> None:
     p: Point = Point(3, 4)
     result: int = p.x + p.y * 2
     print(result)
+    print('CHECK test_class lhs:', result)
+    print('CHECK test_class rhs:', 11)
     assert result == 11
 
 
@@ -275,12 +349,15 @@ def test_field_as_condition() -> None:
         print(1)
     else:
         print(0)
+    print('CHECK test_class lhs:', c.count)
+    print('CHECK test_class rhs:', 0)
     assert c.count == 0
     c.count = 5
     if c.count > 3:
         print(1)
     else:
         print(0)
+    print('CHECK test_class assert expr:', 'c.count > 3')
     assert c.count > 3
 
 
@@ -289,6 +366,8 @@ def test_class_in_while_condition() -> None:
     while c.get() < 5:
         c.increment()
     print(c.get())
+    print('CHECK test_class lhs expr:', 'c.get()')
+    print('CHECK test_class rhs:', 5)
     assert c.get() == 5
 
 

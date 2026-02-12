@@ -162,11 +162,9 @@ pub fn lookup_bytearray_method(name: &str) -> Option<Result<MethodCallRule, Stri
 /// - `Some(Ok(rule))` — method exists and is supported
 /// - `Some(Err(msg))` — method is recognized but unsupported
 /// - `None` — method name is not a known str method
-pub fn lookup_str_method(name: &str) -> Option<Result<MethodCallRule, String>> {
-    match name {
-        // No str methods exposed yet; stub for unified dispatch.
-        _ => None,
-    }
+pub fn lookup_str_method(_name: &str) -> Option<Result<MethodCallRule, String>> {
+    // No str methods exposed yet; stub for unified dispatch.
+    None
 }
 
 /// Look up a method on `bytes`.
@@ -175,11 +173,9 @@ pub fn lookup_str_method(name: &str) -> Option<Result<MethodCallRule, String>> {
 /// - `Some(Ok(rule))` — method exists and is supported
 /// - `Some(Err(msg))` — method is recognized but unsupported
 /// - `None` — method name is not a known bytes method
-pub fn lookup_bytes_method(name: &str) -> Option<Result<MethodCallRule, String>> {
-    match name {
-        // No bytes methods exposed yet; stub for unified dispatch.
-        _ => None,
-    }
+pub fn lookup_bytes_method(_name: &str) -> Option<Result<MethodCallRule, String>> {
+    // No bytes methods exposed yet; stub for unified dispatch.
+    None
 }
 
 /// Generate error message for wrong argument count in a method call.

@@ -129,16 +129,29 @@ def test_binary_tree_bst_class_algorithms() -> None:
         bst.insert(x)
 
     inorder: list[int] = bst.inorder_iterative()
+    print('CHECK test_tree_algorithms lhs:', inorder)
+    print('CHECK test_tree_algorithms rhs:', [1, 3, 4, 6, 6, 7, 7, 8, 10, 13, 14, 14])
     assert inorder == [1, 3, 4, 6, 6, 7, 7, 8, 10, 13, 14, 14]
 
+    print('CHECK test_tree_algorithms lhs expr:', 'bst.height_bfs()')
+    print('CHECK test_tree_algorithms rhs:', 5)
     assert bst.height_bfs() == 5
 
+    print('CHECK test_tree_algorithms lhs expr:', 'bst.lca(1, 7)')
+    print('CHECK test_tree_algorithms rhs:', 3)
     assert bst.lca(1, 7) == 3
+    print('CHECK test_tree_algorithms lhs expr:', 'bst.lca(4, 14)')
+    print('CHECK test_tree_algorithms rhs:', 8)
     assert bst.lca(4, 14) == 8
+    print('CHECK test_tree_algorithms lhs expr:', 'bst.lca(13, 14)')
+    print('CHECK test_tree_algorithms rhs:', 14)
     assert bst.lca(13, 14) == 14
 
+    print('CHECK test_tree_algorithms assert expr:', 'bst.has_path_sum(12)')
     assert bst.has_path_sum(12)  # 8 -> 3 -> 1
+    print('CHECK test_tree_algorithms assert expr:', 'bst.has_path_sum(31)')
     assert bst.has_path_sum(31)  # 8 -> 10 -> 13
+    print('CHECK test_tree_algorithms assert expr:', 'not bst.has_path_sum(100)')
     assert not bst.has_path_sum(100)
 
     weighted: int = 0
@@ -146,6 +159,8 @@ def test_binary_tree_bst_class_algorithms() -> None:
     while i < len(inorder):
         weighted = weighted + inorder[i] * (i + 1)
         i = i + 1
+    print('CHECK test_tree_algorithms lhs:', weighted)
+    print('CHECK test_tree_algorithms rhs:', 770)
     assert weighted == 770
 
 

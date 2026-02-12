@@ -44,6 +44,7 @@ import basic.test_print_complex as test_print_complex
 import basic.test_subscript_aug as test_subscript_aug
 import basic.test_bytearray_compare as test_bytearray_compare
 import basic.test_coverage_edges as test_coverage_edges
+import basic.test_str_auto as test_str_auto
 
 
 def run_all_tests() -> None:
@@ -93,3 +94,4 @@ def run_all_tests() -> None:
     test_subscript_aug.run_tests()
     test_bytearray_compare.run_tests()
     test_coverage_edges.run_tests()
+    test_str_auto.run_tests()

@@ -199,6 +199,8 @@ def test_square_of_sum() -> None:
     s: int = add(3, 4)
     result: int = square(s)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 49)
     assert result == 49
 
 
@@ -206,12 +208,16 @@ def test_cube_from_nested() -> None:
     base: int = sub(10, 7)
     result: int = cube(base)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 27)
     assert result == 27
 
 
 def test_abs_diff_via_abs() -> None:
     d: int = abs_val(sub(15, 42))
     print(d)
+    print('CHECK test_int lhs:', d)
+    print('CHECK test_int rhs:', 27)
     assert d == 27
 
 
@@ -219,6 +225,8 @@ def test_clamp_uses_min_max() -> None:
     raw: int = mul(add(8, 7), 12)
     result: int = clamp(raw, 50, 150)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 150)
     assert result == 150
 
 
@@ -226,12 +234,16 @@ def test_clamp_lower_bound() -> None:
     raw: int = sub(10, cube(3))
     result: int = clamp(raw, 0, 100)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 0)
     assert result == 0
 
 
 def test_weighted_sum4_basic() -> None:
     result: int = weighted_sum4(3, 10, 7, 5)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 65)
     assert result == 65
 
 
@@ -240,12 +252,16 @@ def test_weighted_sum4_composed() -> None:
     b: int = cube(2)
     result: int = weighted_sum4(a, 4, b, 3)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 60)
     assert result == 60
 
 
 def test_sum_range_with_step() -> None:
     result: int = sum_range(1, 20, 3)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 70)
     assert result == 70
 
 
@@ -253,6 +269,8 @@ def test_sum_range_feeds_square() -> None:
     s: int = sum_range(1, 5, 1)
     result: int = square(s)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 225)
     assert result == 225
 
 
@@ -260,6 +278,8 @@ def test_factorial_feeds_digit_sum() -> None:
     f: int = factorial(7)
     ds: int = digit_sum(f)
     print(ds)
+    print('CHECK test_int lhs:', ds)
+    print('CHECK test_int rhs:', 9)
     assert ds == 9
 
 
@@ -268,6 +288,8 @@ def test_power_nested_args() -> None:
     exp: int = min2(square(2), 5)
     result: int = power(base, exp)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 81)
     assert result == 81
 
 
@@ -276,12 +298,16 @@ def test_gcd_chain() -> None:
     g2: int = gcd(mul(9, 11), mul(9, 7))
     result: int = gcd(g1, g2)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 3)
     assert result == 3
 
 
 def test_lcm_basic() -> None:
     result: int = lcm(12, 18)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 36)
     assert result == 36
 
 
@@ -290,6 +316,8 @@ def test_lcm_from_primes() -> None:
     p2: int = nth_prime(5)
     result: int = lcm(p1, p2)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 77)
     assert result == 77
 
 
@@ -298,6 +326,8 @@ def test_collatz_known_values() -> None:
     s19: int = collatz_steps(19)
     result: int = add(s27, s19)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 131)
     assert result == 131
 
 
@@ -305,6 +335,8 @@ def test_collatz_feeds_clamp() -> None:
     steps: int = collatz_steps(27)
     result: int = clamp(steps, 0, 100)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 100)
     assert result == 100
 
 
@@ -312,6 +344,8 @@ def test_digit_sum_of_power() -> None:
     p: int = power(2, 15)
     result: int = digit_sum(p)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 26)
     assert result == 26
 
 
@@ -319,12 +353,16 @@ def test_digit_sum_of_factorial() -> None:
     f: int = factorial(10)
     result: int = digit_sum(f)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 27)
     assert result == 27
 
 
 def test_count_divisors_basic() -> None:
     result: int = count_divisors(28)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 6)
     assert result == 6
 
 
@@ -332,6 +370,8 @@ def test_count_divisors_of_power() -> None:
     p: int = power(2, 5)
     result: int = count_divisors(p)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 6)
     assert result == 6
 
 
@@ -342,6 +382,8 @@ def test_is_prime_chain() -> None:
         total = add(total, is_prime_int(i))
         i = add(i, 1)
     print(total)
+    print('CHECK test_int lhs:', total)
+    print('CHECK test_int rhs:', 10)
     assert total == 10
 
 
@@ -350,6 +392,8 @@ def test_nth_prime_values() -> None:
     p5: int = nth_prime(5)
     result: int = sub(p10, p5)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 18)
     assert result == 18
 
 
@@ -358,6 +402,8 @@ def test_fibonacci_chain() -> None:
     b: int = fibonacci(8)
     result: int = gcd(a, b)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 1)
     assert result == 1
 
 
@@ -369,12 +415,16 @@ def test_fibonacci_sum_loop() -> None:
         i = add(i, 1)
     result: int = mod(total, 100)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 43)
     assert result == 43
 
 
 def test_map_accumulate_linear() -> None:
     result: int = map_accumulate(1, 5, 2, 1)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 63)
     assert result == 63
 
 
@@ -383,6 +433,8 @@ def test_map_accumulate_feeds_gcd() -> None:
     b: int = map_accumulate(2, 3, 3, 1)
     result: int = gcd(a, b)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 1)
     assert result == 1
 
 
@@ -391,12 +443,16 @@ def test_triangular_identity() -> None:
     direct: int = mul(10, 11) // 2
     result: int = sub(t10, direct)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 0)
     assert result == 0
 
 
 def test_choose_basic() -> None:
     result: int = choose(10, 3)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 120)
     assert result == 120
 
 
@@ -405,6 +461,8 @@ def test_choose_symmetry() -> None:
     b: int = choose(12, 8)
     result: int = sub(a, b)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 0)
     assert result == 0
 
 
@@ -417,6 +475,8 @@ def test_mega_pipeline() -> None:
     base: int = clamp(steps, 1, 10)
     result: int = power(base, 2)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 1)
     assert result == 1
 
 
@@ -427,6 +487,8 @@ def test_convergent_branches() -> None:
     clamped: int = clamp(mid, 10, 80)
     result: int = mod(clamped, nth_prime(5))
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 3)
     assert result == 3
 
 
@@ -441,6 +503,8 @@ def test_loop_with_deep_calls() -> None:
         i = add(i, 1)
     result: int = mod(acc, 100)
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 26)
     assert result == 26
 
 
@@ -451,6 +515,8 @@ def test_nested_choose_sum() -> None:
         total = add(total, choose(5, k))
         k = add(k, 1)
     print(total)
+    print('CHECK test_int lhs:', total)
+    print('CHECK test_int rhs:', 32)
     assert total == 32
 
 
@@ -465,6 +531,8 @@ def test_double_accumulation() -> None:
         i = add(i, 1)
     result: int = mod(product, add(sum_val, 1))
     print(result)
+    print('CHECK test_int lhs:', result)
+    print('CHECK test_int rhs:', 30)
     assert result == 30
 
 

@@ -78,23 +78,43 @@ def test_persistent_stack_version_branching() -> None:
     v1: int = ps.push(0, 10)
     v2: int = ps.push(v1, 20)
     v3: int = ps.push(v2, 30)
+    print('CHECK test_persistent_data_structures lhs expr:', 'ps.top(v1)')
+    print('CHECK test_persistent_data_structures rhs:', 10)
     assert ps.top(v1) == 10
+    print('CHECK test_persistent_data_structures lhs expr:', 'ps.top(v2)')
+    print('CHECK test_persistent_data_structures rhs:', 20)
     assert ps.top(v2) == 20
+    print('CHECK test_persistent_data_structures lhs expr:', 'ps.top(v3)')
+    print('CHECK test_persistent_data_structures rhs:', 30)
     assert ps.top(v3) == 30
 
     p1: tuple[int, int] = ps.pop(v3)
     v4: int = p1[0]
     x1: int = p1[1]
+    print('CHECK test_persistent_data_structures lhs:', x1)
+    print('CHECK test_persistent_data_structures rhs:', 30)
     assert x1 == 30
+    print('CHECK test_persistent_data_structures lhs expr:', 'ps.top(v4)')
+    print('CHECK test_persistent_data_structures rhs:', 20)
     assert ps.top(v4) == 20
+    print('CHECK test_persistent_data_structures lhs expr:', 'ps.top(v3)')
+    print('CHECK test_persistent_data_structures rhs:', 30)
     assert ps.top(v3) == 30
 
     v5: int = ps.push(v1, 99)
+    print('CHECK test_persistent_data_structures lhs expr:', 'ps.top(v5)')
+    print('CHECK test_persistent_data_structures rhs:', 99)
     assert ps.top(v5) == 99
+    print('CHECK test_persistent_data_structures lhs expr:', 'ps.top(v2)')
+    print('CHECK test_persistent_data_structures rhs:', 20)
     assert ps.top(v2) == 20
 
     p2: tuple[int, int] = ps.pop(v5)
+    print('CHECK test_persistent_data_structures lhs:', p2[1])
+    print('CHECK test_persistent_data_structures rhs:', 99)
     assert p2[1] == 99
+    print('CHECK test_persistent_data_structures lhs expr:', 'ps.top(p2[0])')
+    print('CHECK test_persistent_data_structures rhs:', 10)
     assert ps.top(p2[0]) == 10
     print(ps.top(v2))
 
@@ -127,7 +147,11 @@ def test_persistent_array_many_versions() -> None:
         q = q + 1
 
     # Persistence check: older versions remain unchanged.
+    print('CHECK test_persistent_data_structures lhs expr:', 'pa.get(0, 0)')
+    print('CHECK test_persistent_data_structures rhs:', 0)
     assert pa.get(0, 0) == 0
+    print('CHECK test_persistent_data_structures lhs expr:', 'pa.get(0, n - 1)')
+    print('CHECK test_persistent_data_structures rhs:', 0)
     assert pa.get(0, n - 1) == 0
     print(checksum)
 

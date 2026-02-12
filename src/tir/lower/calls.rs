@@ -57,6 +57,14 @@ impl Lowering {
                             &func_name,
                         )?));
                     }
+                    if matches!(rule, type_rules::BuiltinCallRule::StrAuto) {
+                        let arg = tir_args.remove(0);
+                        return Ok(CallResult::Expr(self.lower_str_auto(arg)));
+                    }
+                    if matches!(rule, type_rules::BuiltinCallRule::ReprAuto) {
+                        let arg = tir_args.remove(0);
+                        return Ok(CallResult::Expr(self.lower_repr_str_expr(arg)));
+                    }
                     return Ok(Self::lower_builtin_rule(rule, tir_args));
                 }
 
@@ -396,6 +404,12 @@ impl Lowering {
             }
             type_rules::BuiltinCallRule::ClassMagic { .. } => {
                 unreachable!("ICE: ClassMagic should be handled before lower_builtin_rule")
+            }
+            type_rules::BuiltinCallRule::StrAuto => {
+                unreachable!("ICE: StrAuto should be handled before lower_builtin_rule")
+            }
+            type_rules::BuiltinCallRule::ReprAuto => {
+                unreachable!("ICE: ReprAuto should be handled before lower_builtin_rule")
             }
         }
     }

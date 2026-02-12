@@ -94,12 +94,24 @@ def test_large_prefix_and_range_queries() -> None:
     values: list[int] = build_int_signal(n)
     prefix: list[int] = build_prefix_sums(values)
 
+    print('CHECK test_list_algorithms lhs expr:', 'len(values)')
+    print('CHECK test_list_algorithms rhs:', n)
     assert len(values) == n
+    print('CHECK test_list_algorithms lhs expr:', 'len(prefix)')
+    print('CHECK test_list_algorithms rhs:', n)
     assert len(prefix) == n
 
+    print('CHECK test_list_algorithms lhs expr:', 'range_sum(prefix, 0, 7999)')
+    print('CHECK test_list_algorithms rhs expr:', 'direct_range_sum(values, 0, 7999)')
     assert range_sum(prefix, 0, 7999) == direct_range_sum(values, 0, 7999)
+    print('CHECK test_list_algorithms lhs expr:', 'range_sum(prefix, 123, 3456)')
+    print('CHECK test_list_algorithms rhs expr:', 'direct_range_sum(values, 123, 3456)')
     assert range_sum(prefix, 123, 3456) == direct_range_sum(values, 123, 3456)
+    print('CHECK test_list_algorithms lhs expr:', 'range_sum(prefix, 2000, 7000)')
+    print('CHECK test_list_algorithms rhs expr:', 'direct_range_sum(values, 2000, 7000)')
     assert range_sum(prefix, 2000, 7000) == direct_range_sum(values, 2000, 7000)
+    print('CHECK test_list_algorithms lhs expr:', 'range_sum(prefix, 7999, 7999)')
+    print('CHECK test_list_algorithms rhs:', values[7999])
     assert range_sum(prefix, 7999, 7999) == values[7999]
 
     print(prefix[7999])
@@ -110,6 +122,8 @@ def test_large_cumulative_mean() -> None:
     values: list[float] = build_float_signal(n)
     means: list[float] = cumulative_mean(values)
 
+    print('CHECK test_list_algorithms lhs expr:', 'len(means)')
+    print('CHECK test_list_algorithms rhs:', n)
     assert len(means) == n
 
     total: float = 0.0
@@ -120,6 +134,7 @@ def test_large_cumulative_mean() -> None:
 
     last_mean: float = means[n - 1]
     expected_last: float = total / float(n)
+    print('CHECK test_list_algorithms assert expr:', 'abs(last_mean - expected_last) < 0.000001')
     assert abs(last_mean - expected_last) < 0.000001
 
     spot: int = 4999
@@ -128,6 +143,7 @@ def test_large_cumulative_mean() -> None:
     while j <= spot:
         partial = partial + values[j]
         j = j + 1
+    print('CHECK test_list_algorithms assert expr:', 'abs(means[spot] - (partial / float(spot + 1))) < 0.000001')
     assert abs(means[spot] - (partial / float(spot + 1))) < 0.000001
 
     print(int(last_mean))
@@ -138,10 +154,20 @@ def test_large_sieve_with_bool_list() -> None:
     is_prime: list[bool] = sieve_primes(limit)
     prime_count: int = count_true(is_prime)
 
+    print('CHECK test_list_algorithms lhs:', prime_count)
+    print('CHECK test_list_algorithms rhs:', 1229)
     assert prime_count == 1229
+    print('CHECK test_list_algorithms lhs:', is_prime[2])
+    print('CHECK test_list_algorithms rhs:', True)
     assert is_prime[2] == True
+    print('CHECK test_list_algorithms lhs:', is_prime[97])
+    print('CHECK test_list_algorithms rhs:', True)
     assert is_prime[97] == True
+    print('CHECK test_list_algorithms lhs:', is_prime[9999])
+    print('CHECK test_list_algorithms rhs:', False)
     assert is_prime[9999] == False
+    print('CHECK test_list_algorithms lhs:', is_prime[10000])
+    print('CHECK test_list_algorithms rhs:', False)
     assert is_prime[10000] == False
 
     print(prime_count)
@@ -314,6 +340,8 @@ def test_fenwick_tree_large_scale() -> None:
         naive_ans: int = prefix_naive[right0]
         if left0 > 0:
             naive_ans = naive_ans - prefix_naive[left0 - 1]
+        print('CHECK test_list_algorithms lhs:', fenwick_ans)
+        print('CHECK test_list_algorithms rhs:', naive_ans)
         assert fenwick_ans == naive_ans
         q = q + 1
 
@@ -337,9 +365,17 @@ def test_graph_bfs_large_grid() -> None:
     target: int = n - 1
 
     # Manhattan distance from (0,0) to (rows-1, cols-1).
+    print('CHECK test_list_algorithms lhs:', dist[target])
+    print('CHECK test_list_algorithms rhs:', rows - 1 + (cols - 1))
     assert dist[target] == (rows - 1) + (cols - 1)
+    print('CHECK test_list_algorithms lhs:', dist[1])
+    print('CHECK test_list_algorithms rhs:', 1)
     assert dist[1] == 1
+    print('CHECK test_list_algorithms lhs:', dist[cols])
+    print('CHECK test_list_algorithms rhs:', 1)
     assert dist[cols] == 1
+    print('CHECK test_list_algorithms lhs:', dist[rows // 2 * cols + cols // 2])
+    print('CHECK test_list_algorithms rhs:', rows // 2 + cols // 2)
     assert dist[(rows // 2) * cols + (cols // 2)] == (rows // 2) + (cols // 2)
 
     print(dist[target])
@@ -351,10 +387,18 @@ def test_fibonacci_matrix_exponentiation_large_n() -> None:
 
     fast_val: int = fib_matrix_mod(n, mod)
     linear_val: int = fib_linear_mod(n, mod)
+    print('CHECK test_list_algorithms lhs:', fast_val)
+    print('CHECK test_list_algorithms rhs:', linear_val)
     assert fast_val == linear_val
 
+    print('CHECK test_list_algorithms lhs expr:', 'fib_matrix_mod(0, mod)')
+    print('CHECK test_list_algorithms rhs:', 0)
     assert fib_matrix_mod(0, mod) == 0
+    print('CHECK test_list_algorithms lhs expr:', 'fib_matrix_mod(1, mod)')
+    print('CHECK test_list_algorithms rhs:', 1)
     assert fib_matrix_mod(1, mod) == 1
+    print('CHECK test_list_algorithms lhs expr:', 'fib_matrix_mod(10, mod)')
+    print('CHECK test_list_algorithms rhs:', 55)
     assert fib_matrix_mod(10, mod) == 55
 
     print(fast_val)

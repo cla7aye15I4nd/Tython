@@ -209,6 +209,8 @@ def test_is_odd_via_negate() -> None:
     b: bool = is_odd(10)
     result: int = bool_to_int(a) + bool_to_int(b)
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -219,6 +221,8 @@ def test_is_divisible_chain() -> None:
     d7: bool = is_divisible(30, 7)
     result: int = count_true4(d2, d3, d5, d7)
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 3)
     assert result == 3
 
 
@@ -228,6 +232,8 @@ def test_is_in_range_composed() -> None:
     hi: int = 60
     result: int = bool_to_int(is_in_range(val, lo, hi))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -238,6 +244,8 @@ def test_xor_truth_table() -> None:
     r4: int = bool_to_int(xor(False, False))
     result: int = r1 + r2 + r3 + r4
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 2)
     assert result == 2
 
 
@@ -248,6 +256,8 @@ def test_implies_truth_table() -> None:
     r4: int = bool_to_int(implies(False, False))
     result: int = r1 + r2 + r3 + r4
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 3)
     assert result == 3
 
 
@@ -256,6 +266,8 @@ def test_iff_same() -> None:
     b: bool = iff(False, False)
     result: int = bool_to_int(both(a, b))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -264,6 +276,8 @@ def test_iff_different() -> None:
     b: bool = iff(False, True)
     result: int = bool_to_int(either(a, b))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 0)
     assert result == 0
 
 
@@ -272,6 +286,8 @@ def test_iff_from_predicates() -> None:
     b: bool = is_divisible(14, 2)
     result: int = bool_to_int(iff(a, b))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -282,6 +298,8 @@ def test_count_true4_from_predicates() -> None:
     d: bool = is_in_range(10, 5, 15)
     result: int = count_true4(a, b, c, d)
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 3)
     assert result == 3
 
 
@@ -291,6 +309,8 @@ def test_majority3_from_complex() -> None:
     c: bool = is_in_range(17, 10, 20)
     result: int = bool_to_int(majority3(a, b, c))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -300,6 +320,8 @@ def test_unanimous3_all_true() -> None:
     c: bool = is_prime(5)
     result: int = bool_to_int(unanimous3(a, b, c))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -309,6 +331,8 @@ def test_unanimous3_one_false() -> None:
     c: bool = is_prime(4)
     result: int = bool_to_int(unanimous3(a, b, c))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 0)
     assert result == 0
 
 
@@ -319,6 +343,8 @@ def test_any_of4_one_true() -> None:
     d: bool = is_even(7)
     result: int = bool_to_int(any_of4(a, b, c, d))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -329,6 +355,8 @@ def test_none_of4_all_false() -> None:
     d: bool = is_zero(3)
     result: int = bool_to_int(none_of4(a, b, c, d))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -339,6 +367,8 @@ def test_exactly_n_two() -> None:
     d: bool = is_divisible(7, 3)
     result: int = bool_to_int(exactly_n(2, a, b, c, d))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -348,6 +378,8 @@ def test_classify_sign_chain() -> None:
     s3: int = classify_sign(0)
     result: int = s1 + s2 + s3
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 0)
     assert result == 0
 
 
@@ -356,6 +388,8 @@ def test_abs_val_uses_is_negative() -> None:
     b: int = abs_val(25)
     result: int = bool_to_int(a == b)
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -365,6 +399,8 @@ def test_safe_div_guards() -> None:
     c: int = safe_div_positive(100, 0 - 5)
     result: int = a + b + c
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 14)
     assert result == 14
 
 
@@ -375,6 +411,8 @@ def test_is_prime_loop() -> None:
         total = total + bool_to_int(is_prime(i))
         i = i + 1
     print(total)
+    print('CHECK test_bool lhs:', total)
+    print('CHECK test_bool rhs:', 8)
     assert total == 8
 
 
@@ -385,36 +423,48 @@ def test_is_perfect_square_loop() -> None:
         count = count + bool_to_int(is_perfect_square(i))
         i = i + 1
     print(count)
+    print('CHECK test_bool lhs:', count)
+    print('CHECK test_bool rhs:', 6)
     assert count == 6
 
 
 def test_all_positive_range_true() -> None:
     result: int = bool_to_int(all_positive_range(1, 10))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
 def test_all_positive_range_false() -> None:
     result: int = bool_to_int(all_positive_range(0 - 2, 5))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 0)
     assert result == 0
 
 
 def test_has_prime_in_range_true() -> None:
     result: int = bool_to_int(has_prime_in_range(20, 30))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
 def test_has_prime_in_range_false() -> None:
     result: int = bool_to_int(has_prime_in_range(24, 28))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 0)
     assert result == 0
 
 
 def test_count_primes_in_range_basic() -> None:
     result: int = count_primes_in_range(1, 30)
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 10)
     assert result == 10
 
 
@@ -422,6 +472,8 @@ def test_count_primes_feeds_is_even() -> None:
     c: int = count_primes_in_range(1, 50)
     result: int = bool_to_int(is_odd(c))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
@@ -432,6 +484,8 @@ def test_fizzbuzz_class_all_cases() -> None:
     fb7: int = fizzbuzz_class(7)
     result: int = fb15 * 1000 + fb9 * 100 + fb10 * 10 + fb7
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 3120)
     assert result == 3120
 
 
@@ -451,6 +505,8 @@ def test_fizzbuzz_loop_count() -> None:
         i = i + 1
     result: int = fizz_count * 100 + buzz_count * 10 + fizzbuzz_count
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 842)
     assert result == 842
 
 
@@ -462,6 +518,8 @@ def test_grade_all_levels() -> None:
     g50: int = grade(50)
     result: int = g95 + g85 + g75 + g65 + g50
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 10)
     assert result == 10
 
 
@@ -470,24 +528,32 @@ def test_grade_from_computed_score() -> None:
     score: int = base * 5 + bool_to_int(is_prime(base)) * 10
     result: int = grade(score)
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 2)
     assert result == 2
 
 
 def test_multi_condition_check_pass() -> None:
     result: int = bool_to_int(multi_condition_check(10, 20, 30, 50))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 1)
     assert result == 1
 
 
 def test_multi_condition_check_fail_sum() -> None:
     result: int = bool_to_int(multi_condition_check(5, 3, 2, 50))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 0)
     assert result == 0
 
 
 def test_multi_condition_check_fail_negative() -> None:
     result: int = bool_to_int(multi_condition_check(100, 0 - 1, 50, 10))
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 0)
     assert result == 0
 
 
@@ -501,6 +567,8 @@ def test_complex_predicate_pipeline() -> None:
     g: int = grade(n + 50)
     result: int = bool_to_int(all4) * 10 + g
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 14)
     assert result == 14
 
 
@@ -521,6 +589,8 @@ def test_nested_bool_decision_tree() -> None:
     else:
         result = 0 - 1
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 10)
     assert result == 10
 
 
@@ -541,6 +611,8 @@ def test_loop_with_multiple_predicates() -> None:
             score = score + 1
         i = i + 1
     print(score)
+    print('CHECK test_bool lhs:', score)
+    print('CHECK test_bool rhs:', 45)
     assert score == 45
 
 
@@ -555,6 +627,8 @@ def test_double_accumulation_bools() -> None:
         i = i + 1
     result: int = true_count * 100 + false_count
     print(result)
+    print('CHECK test_bool lhs:', result)
+    print('CHECK test_bool rhs:', 609)
     assert result == 609
 
 

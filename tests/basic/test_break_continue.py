@@ -5,6 +5,8 @@ def test_break_simple() -> None:
             break
         i = i + 1
     print(i)
+    print('CHECK test_break_continue lhs:', i)
+    print('CHECK test_break_continue rhs:', 5)
     assert i == 5
 
 
@@ -17,6 +19,8 @@ def test_continue_simple() -> None:
             continue
         total = total + i
     print(total)
+    print('CHECK test_break_continue lhs:', total)
+    print('CHECK test_break_continue rhs:', 25)
     assert total == 25
 
 
@@ -32,6 +36,8 @@ def test_break_nested_inner() -> None:
             total = total + 1
         i = i + 1
     print(total)
+    print('CHECK test_break_continue lhs:', total)
+    print('CHECK test_break_continue rhs:', 6)
     assert total == 6
 
 
@@ -47,6 +53,8 @@ def test_continue_nested_inner() -> None:
             total = total + 1
         i = i + 1
     print(total)
+    print('CHECK test_break_continue lhs:', total)
+    print('CHECK test_break_continue rhs:', 12)
     assert total == 12
 
 
@@ -55,6 +63,8 @@ def test_break_first_iteration() -> None:
     while i < 100:
         break
     print(i)
+    print('CHECK test_break_continue lhs:', i)
+    print('CHECK test_break_continue rhs:', 0)
     assert i == 0
 
 
@@ -66,6 +76,8 @@ def test_continue_all_iterations() -> None:
         continue
         count = count + 1
     print(count)
+    print('CHECK test_break_continue lhs:', count)
+    print('CHECK test_break_continue rhs:', 0)
     assert count == 0
 
 
@@ -78,6 +90,8 @@ def test_break_with_accumulator() -> None:
             break
         i = i + 1
     print(total)
+    print('CHECK test_break_continue lhs:', total)
+    print('CHECK test_break_continue rhs:', 55)
     assert total == 55
 
 
@@ -92,6 +106,8 @@ def test_continue_skip_multiples() -> None:
             continue
         total = total + i
     print(total)
+    print('CHECK test_break_continue lhs:', total)
+    print('CHECK test_break_continue rhs:', 112)
     assert total == 112
 
 

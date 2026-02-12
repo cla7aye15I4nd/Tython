@@ -7,102 +7,136 @@ def to_int(b: bool) -> int:
 def test_eq_true() -> None:
     result: int = to_int(5 == 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
 def test_eq_false() -> None:
     result: int = to_int(5 == 3)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 0)
     assert result == 0
 
 
 def test_neq_true() -> None:
     result: int = to_int(5 != 3)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
 def test_neq_false() -> None:
     result: int = to_int(5 != 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 0)
     assert result == 0
 
 
 def test_lt_true() -> None:
     result: int = to_int(3 < 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
 def test_lt_false() -> None:
     result: int = to_int(5 < 3)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 0)
     assert result == 0
 
 
 def test_lt_equal() -> None:
     result: int = to_int(5 < 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 0)
     assert result == 0
 
 
 def test_gt_true() -> None:
     result: int = to_int(5 > 3)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
 def test_gt_false() -> None:
     result: int = to_int(3 > 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 0)
     assert result == 0
 
 
 def test_gt_equal() -> None:
     result: int = to_int(5 > 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 0)
     assert result == 0
 
 
 def test_lte_less() -> None:
     result: int = to_int(3 <= 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
 def test_lte_equal() -> None:
     result: int = to_int(5 <= 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
 def test_lte_greater() -> None:
     result: int = to_int(5 <= 3)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 0)
     assert result == 0
 
 
 def test_gte_greater() -> None:
     result: int = to_int(5 >= 3)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
 def test_gte_equal() -> None:
     result: int = to_int(5 >= 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
 def test_gte_less() -> None:
     result: int = to_int(3 >= 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 0)
     assert result == 0
 
 
 def test_cmp_zero() -> None:
     result: int = to_int(0 == 0)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
@@ -110,6 +144,8 @@ def test_cmp_negative() -> None:
     neg: int = 0 - 5
     result: int = to_int(neg < 0)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
@@ -118,12 +154,16 @@ def test_cmp_negative_ordering() -> None:
     b: int = 0 - 3
     result: int = to_int(a < b)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
 def test_cmp_with_arithmetic() -> None:
     result: int = to_int(2 + 3 == 5)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 
@@ -132,6 +172,8 @@ def test_cmp_variables() -> None:
     y: int = 20
     result: int = to_int(x < y)
     print(result)
+    print('CHECK test_comparison lhs:', result)
+    print('CHECK test_comparison rhs:', 1)
     assert result == 1
 
 

@@ -71,6 +71,15 @@ pub fn lookup_builtin_dunder(ty: &ValueType, dunder: &str) -> Option<BuiltinCall
                 func: BuiltinFn::StrFromBool,
                 return_type: ValueType::Str,
             }),
+            ValueType::Bytes => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::StrFromBytes,
+                return_type: ValueType::Str,
+            }),
+            ValueType::ByteArray => Some(BuiltinCallRule::ExternalCall {
+                func: BuiltinFn::StrFromByteArray,
+                return_type: ValueType::Str,
+            }),
+            ValueType::List(_) | ValueType::Tuple(_) => Some(BuiltinCallRule::StrAuto),
             _ => None,
         },
         _ => None,

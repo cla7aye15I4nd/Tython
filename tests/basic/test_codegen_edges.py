@@ -31,6 +31,8 @@ def test_for_range_else() -> None:
         total = total + i
     else:
         total = total + 10
+    print('CHECK test_codegen_edges lhs:', total)
+    print('CHECK test_codegen_edges rhs:', 16)
     assert total == 16
 
 
@@ -40,6 +42,8 @@ def test_try_finally_without_except() -> None:
         events.append(1)
     finally:
         events.append(2)
+    print('CHECK test_codegen_edges lhs:', events)
+    print('CHECK test_codegen_edges rhs:', [1, 2])
     assert events == [1, 2]
 
 
@@ -61,9 +65,17 @@ def classify_exception(flag: int) -> str:
 
 
 def test_except_chain_and_bare_except() -> None:
+    print('CHECK test_codegen_edges lhs expr:', 'classify_exception(0)')
+    print('CHECK test_codegen_edges rhs:', 'value')
     assert classify_exception(0) == "value"
+    print('CHECK test_codegen_edges lhs expr:', 'classify_exception(1)')
+    print('CHECK test_codegen_edges rhs:', 'type')
     assert classify_exception(1) == "type"
+    print('CHECK test_codegen_edges lhs expr:', 'classify_exception(2)')
+    print('CHECK test_codegen_edges rhs:', 'other')
     assert classify_exception(2) == "other"
+    print('CHECK test_codegen_edges lhs expr:', 'classify_exception(3)')
+    print('CHECK test_codegen_edges rhs:', 'ok')
     assert classify_exception(3) == "ok"
 
 
@@ -71,6 +83,8 @@ def test_dynamic_float_tuple_index() -> None:
     vals: tuple[float, float, float] = (1.25, 2.5, 3.75)
     idx: int = 1
     got: float = vals[idx]
+    print('CHECK test_codegen_edges lhs:', got)
+    print('CHECK test_codegen_edges rhs:', 2.5)
     assert got == 2.5
 
 
@@ -82,6 +96,8 @@ def test_for_iter_break_continue_else() -> None:
         total = total + n
     else:
         total = total + 100
+    print('CHECK test_codegen_edges lhs:', total)
+    print('CHECK test_codegen_edges rhs:', 108)
     assert total == 108
 
     seen: int = 0
@@ -89,6 +105,8 @@ def test_for_iter_break_continue_else() -> None:
         if n == 4:
             break
         seen = seen + 1
+    print('CHECK test_codegen_edges lhs:', seen)
+    print('CHECK test_codegen_edges rhs:', 3)
     assert seen == 3
 
 
@@ -99,6 +117,8 @@ def test_personality_paths_in_while_else() -> None:
     else:
         for n in TinyIter(1):
             v = v + n
+    print('CHECK test_codegen_edges lhs:', v)
+    print('CHECK test_codegen_edges rhs:', 1)
     assert v == 1
 
     msg_len: int = 0
@@ -109,6 +129,8 @@ def test_personality_paths_in_while_else() -> None:
             raise Exception("boom")
         except Exception as e:
             msg_len = len(str(e))
+    print('CHECK test_codegen_edges lhs:', msg_len)
+    print('CHECK test_codegen_edges rhs:', 4)
     assert msg_len == 4
 
 
@@ -116,6 +138,8 @@ def test_dead_bare_raise_is_valid() -> None:
     marker: int = 9
     if False:
         raise
+    print('CHECK test_codegen_edges lhs:', marker)
+    print('CHECK test_codegen_edges rhs:', 9)
     assert marker == 9
 
 
@@ -128,6 +152,8 @@ def test_trycatch_personality_in_while_else() -> None:
             raise Exception("catch me")
         except Exception:
             x = 99
+    print('CHECK test_codegen_edges lhs:', x)
+    print('CHECK test_codegen_edges rhs:', 99)
     assert x == 99
 
 
@@ -141,6 +167,8 @@ def test_float_args_in_try_invoke() -> None:
         result = add_floats(1.5, 2.5)
     except Exception:
         result = -1.0
+    print('CHECK test_codegen_edges lhs:', result)
+    print('CHECK test_codegen_edges rhs:', 4.0)
     assert result == 4.0
 
 
@@ -151,6 +179,8 @@ def test_try_inside_if_personality() -> None:
             x = 42
         except Exception:
             x = -1
+    print('CHECK test_codegen_edges lhs:', x)
+    print('CHECK test_codegen_edges rhs:', 42)
     assert x == 42
 
 
@@ -159,6 +189,8 @@ def test_for_iter_inside_if_personality() -> None:
     if True:
         for n in TinyIter(3):
             total = total + n
+    print('CHECK test_codegen_edges lhs:', total)
+    print('CHECK test_codegen_edges rhs:', 6)
     assert total == 6
 
 

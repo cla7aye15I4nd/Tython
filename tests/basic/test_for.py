@@ -3,6 +3,8 @@ def test_for_range_stop_only() -> None:
     for i in range(5):
         total = total + i
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 10)
     assert total == 10
 
 
@@ -11,6 +13,8 @@ def test_for_range_start_stop() -> None:
     for i in range(2, 7):
         total = total + i
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 20)
     assert total == 20
 
 
@@ -19,6 +23,8 @@ def test_for_range_start_stop_step() -> None:
     for i in range(1, 10, 3):
         total = total + i
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 12)
     assert total == 12
 
 
@@ -27,6 +33,8 @@ def test_for_range_negative_step() -> None:
     for i in range(5, 0, -2):
         total = total + i
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 9)
     assert total == 9
 
 
@@ -37,6 +45,8 @@ def test_for_continue() -> None:
             continue
         total = total + i
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 16)
     assert total == 16
 
 
@@ -47,6 +57,8 @@ def test_for_break() -> None:
             break
         total = total + i
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 6)
     assert total == 6
 
 
@@ -57,6 +69,8 @@ def test_for_range_args_evaluated_once() -> None:
         stop = 1
         count = count + 1
     print(count)
+    print('CHECK test_for lhs:', count)
+    print('CHECK test_for rhs:', 5)
     assert count == 5
 
 
@@ -65,6 +79,8 @@ def test_for_range_step_minus_one() -> None:
     for i in range(7, -1, -1):
         total = total + i
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 28)
     assert total == 28
 
 
@@ -73,6 +89,8 @@ def test_for_range_step_minus_two_mixed_sign() -> None:
     for i in range(9, -4, -2):
         total = total + i
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 21)
     assert total == 21
 
 
@@ -82,6 +100,8 @@ def test_for_nested_negative_steps() -> None:
         for j in range(6, 0, -2):
             total = total + i * j
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 180)
     assert total == 180
 
 
@@ -94,6 +114,8 @@ def test_for_negative_step_with_continue_and_break() -> None:
             break
         total = total + i
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 41)
     assert total == 41
 
 
@@ -104,6 +126,8 @@ def test_for_negative_empty_ranges() -> None:
     for _ in range(3, 3, -2):
         count = count + 1
     print(count)
+    print('CHECK test_for lhs:', count)
+    print('CHECK test_for rhs:', 0)
     assert count == 0
 
 
@@ -113,6 +137,8 @@ def test_for_tuple_iteration() -> None:
     for n in values:
         total = total + n
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 20)
     assert total == 20
 
 
@@ -126,6 +152,8 @@ def test_for_tuple_break_continue() -> None:
             break
         total = total + n
     print(total)
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 8)
     assert total == 8
 
 

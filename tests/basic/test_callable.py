@@ -9,6 +9,8 @@ def apply_binop(f: 'callable[[int, int], int]', x: int, y: int) -> int:
 def test_callable_as_parameter() -> None:
     result: int = apply_binop(add, 5, 9)
     print(result)
+    print('CHECK test_callable lhs:', result)
+    print('CHECK test_callable rhs:', 14)
     assert result == 14
 
 
@@ -16,6 +18,8 @@ def test_callable_variable_annotation() -> None:
     op: "callable[[int, int], int]" = add
     result: int = apply_binop(op, 10, 3)
     print(result)
+    print('CHECK test_callable lhs:', result)
+    print('CHECK test_callable rhs:', 13)
     assert result == 13
 
 

@@ -41,10 +41,18 @@ def test_try_except_finally_raise_nested() -> None:
     bad_zero: int = risky_divide(0, events)
     bad_negative: int = risky_divide(-2, events)
 
+    print('CHECK test_comprehension lhs:', ok)
+    print('CHECK test_comprehension rhs:', 4)
     assert ok == 4
+    print('CHECK test_comprehension lhs:', bad_zero)
+    print('CHECK test_comprehension rhs:', -1)
     assert bad_zero == -1
+    print('CHECK test_comprehension lhs:', bad_negative)
+    print('CHECK test_comprehension rhs:', -1)
     assert bad_negative == -1
 
+    print('CHECK test_comprehension lhs:', events)
+    print('CHECK test_comprehension rhs:', [10, 30, 10, 20, 30, 10, 20, 30])
     assert events == [10, 30, 10, 20, 30, 10, 20, 30]
 
     nested_score: int = 0
@@ -59,6 +67,8 @@ def test_try_except_finally_raise_nested() -> None:
     finally:
         nested_score = nested_score + 19
 
+    print('CHECK test_comprehension lhs:', nested_score)
+    print('CHECK test_comprehension rhs:', 35)
     assert nested_score == 35
 
 
@@ -72,12 +82,16 @@ def test_iter_next_stopiteration_manual_and_for() -> None:
         except StopIteration:
             break
 
+    print('CHECK test_comprehension lhs:', seen)
+    print('CHECK test_comprehension rhs:', [4, 3, 2, 1])
     assert seen == [4, 3, 2, 1]
 
     loop_iter: Countdown = Countdown(5, 2)
     loop_sum: int = 0
     for value in loop_iter:
         loop_sum = loop_sum + value
+    print('CHECK test_comprehension lhs:', loop_sum)
+    print('CHECK test_comprehension rhs:', 14)
     assert loop_sum == 14
 
 
@@ -91,15 +105,23 @@ def test_for_over_iterable_object_nested() -> None:
             total = total + i * j
             products.append(i * j)
 
+    print('CHECK test_comprehension lhs:', products)
+    print('CHECK test_comprehension rhs:', [16, 12, 8, 4, 9, 6, 3, 4, 2, 1])
     assert products == [16, 12, 8, 4, 9, 6, 3, 4, 2, 1]
+    print('CHECK test_comprehension lhs:', total)
+    print('CHECK test_comprehension rhs:', 65)
     assert total == 65
 
 
 def test_list_and_tuple_comprehensions_nested() -> None:
     matrix: list[list[int]] = [[i * j for j in range(1, 5)] for i in range(1, 5)]
+    print('CHECK test_comprehension lhs:', matrix)
+    print('CHECK test_comprehension rhs:', [[1, 2, 3, 4], [2, 4, 6, 8], [3, 6, 9, 12], [4, 8, 12, 16]])
     assert matrix == [[1, 2, 3, 4], [2, 4, 6, 8], [3, 6, 9, 12], [4, 8, 12, 16]]
 
     flat_filtered: list[int] = [x for row in matrix for x in row if x % 3 == 0]
+    print('CHECK test_comprehension lhs:', flat_filtered)
+    print('CHECK test_comprehension rhs:', [3, 6, 3, 6, 9, 12, 12])
     assert flat_filtered == [3, 6, 3, 6, 9, 12, 12]
 
     tuple_items: list[tuple[int, int, tuple[int, int]]] = [
@@ -108,6 +130,7 @@ def test_list_and_tuple_comprehensions_nested() -> None:
         for j in range(2, 5)
         if (i + j) % 2 == 0
     ]
+    print('CHECK test_comprehension assert expr:', 'tuple_items == [')
     assert tuple_items == [
         (1, 3, (4, 3)),
         (2, 2, (4, 4)),
@@ -118,6 +141,8 @@ def test_list_and_tuple_comprehensions_nested() -> None:
     tuple_from_comp: tuple[tuple[int, int], tuple[int, int], tuple[int, int]] = tuple(
         (n, n * n) for n in range(1, 4)
     )
+    print('CHECK test_comprehension lhs:', tuple_from_comp)
+    print('CHECK test_comprehension rhs:', ((1, 1), (2, 4), (3, 9)))
     assert tuple_from_comp == ((1, 1), (2, 4), (3, 9))
 
 
@@ -138,7 +163,11 @@ def test_stopiteration_repeated_after_exhaustion() -> None:
     except StopIteration:
         stop_hits = stop_hits + 1
 
+    print('CHECK test_comprehension lhs:', seen)
+    print('CHECK test_comprehension rhs:', [2, 1])
     assert seen == [2, 1]
+    print('CHECK test_comprehension lhs:', stop_hits)
+    print('CHECK test_comprehension rhs:', 2)
     assert stop_hits == 2
 
 
@@ -159,8 +188,14 @@ def test_try_except_finally_with_nested_for_and_raise() -> None:
             finally:
                 finally_hits = finally_hits + 1
 
+    print('CHECK test_comprehension lhs:', total)
+    print('CHECK test_comprehension rhs:', 25)
     assert total == 25
+    print('CHECK test_comprehension lhs:', except_hits)
+    print('CHECK test_comprehension rhs:', 1)
     assert except_hits == 1
+    print('CHECK test_comprehension lhs:', finally_hits)
+    print('CHECK test_comprehension rhs:', 6)
     assert finally_hits == 6
 
 
@@ -169,8 +204,12 @@ def test_iterator_consumption_in_comprehensions() -> None:
     first: list[int] = [x for x in shared]
     second: list[int] = [x for x in shared]
 
+    print('CHECK test_comprehension lhs:', first)
+    print('CHECK test_comprehension rhs:', [4, 3, 2, 1])
     assert first == [4, 3, 2, 1]
     empty: list[int] = []
+    print('CHECK test_comprehension lhs:', second)
+    print('CHECK test_comprehension rhs:', empty)
     assert second == empty
 
     pair_tuple: tuple[
@@ -181,9 +220,13 @@ def test_iterator_consumption_in_comprehensions() -> None:
         tuple[int, int],
         tuple[int, int],
     ] = tuple((x, y) for x in Countdown(3, 1) for y in range(1, x + 1))
+    print('CHECK test_comprehension lhs:', pair_tuple)
+    print('CHECK test_comprehension rhs:', ((3, 1), (3, 2), (3, 3), (2, 1), (2, 2), (1, 1)))
     assert pair_tuple == ((3, 1), (3, 2), (3, 3), (2, 1), (2, 2), (1, 1))
 
     diagonal_products: list[int] = [p[0] * p[1] for p in pair_tuple if p[0] == p[1]]
+    print('CHECK test_comprehension lhs:', diagonal_products)
+    print('CHECK test_comprehension rhs:', [9, 4, 1])
     assert diagonal_products == [9, 4, 1]
 
 
@@ -193,6 +236,7 @@ def test_deep_nested_comprehensions_with_filters() -> None:
         for i in range(1, 5)
         if i != 3
     ]
+    print('CHECK test_comprehension assert expr:', 'triples == [')
     assert triples == [
         [(1, 2, 2), (1, 4, 4)],
         [(2, 1, 2), (2, 2, 4), (2, 3, 6), (2, 4, 8)],
@@ -200,6 +244,8 @@ def test_deep_nested_comprehensions_with_filters() -> None:
     ]
 
     flattened: list[int] = [t[2] for row in triples for t in row if t[2] % 4 == 0]
+    print('CHECK test_comprehension lhs:', flattened)
+    print('CHECK test_comprehension rhs:', [4, 4, 8, 4, 8, 12, 16])
     assert flattened == [4, 4, 8, 4, 8, 12, 16]
 
 
@@ -217,7 +263,11 @@ def test_internal_iter_next_basic() -> None:
     except StopIteration:
         stop_hits = stop_hits + 1
 
+    print('CHECK test_comprehension lhs:', values)
+    print('CHECK test_comprehension rhs:', [4, 3, 2])
     assert values == [4, 3, 2]
+    print('CHECK test_comprehension lhs:', stop_hits)
+    print('CHECK test_comprehension rhs:', 1)
     assert stop_hits == 1
 
 
@@ -240,7 +290,11 @@ def test_internal_iter_next_nested_structure() -> None:
         except StopIteration:
             break
 
+    print('CHECK test_comprehension lhs:', values)
+    print('CHECK test_comprehension rhs:', [33, 32, 31, 22, 21, 11])
     assert values == [33, 32, 31, 22, 21, 11]
+    print('CHECK test_comprehension lhs:', total)
+    print('CHECK test_comprehension rhs:', 25)
     assert total == 25
 
 

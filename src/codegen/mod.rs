@@ -125,22 +125,38 @@ impl<'ctx> Codegen<'ctx> {
 
     const RUNTIME_BC: &'static str = env!("RUNTIME_BC_PATH");
 
+    /// Path to the tcmalloc static archive (.a or .lo), if built with TCMALLOC_LIB.
+    const TCMALLOC_LIB: Option<&'static str> = option_env!("TCMALLOC_LIB");
+
     pub fn link(&self, output_path: &Path) {
         let bc_path = output_path.with_extension("o");
 
         self.module.write_bitcode_to_path(&bc_path);
 
-        Command::new("clang++")
-            .arg("-static")
+        let mut cmd = Command::new("clang++");
+        cmd.arg("-static")
             .arg("-flto")
             .arg("-O2")
             .arg("-o")
             .arg(output_path)
             .arg(&bc_path)
-            .arg(Self::RUNTIME_BC)
-            .arg("-lm")
-            .output()
-            .unwrap();
+            .arg(Self::RUNTIME_BC);
+
+        if let Some(tcmalloc_lib) = Self::TCMALLOC_LIB {
+            cmd.arg("-Wl,--whole-archive")
+                .arg(tcmalloc_lib)
+                .arg("-Wl,--no-whole-archive")
+                .arg("-lpthread")
+                .arg("-lstdc++");
+        }
+
+        cmd.arg("-lm");
+
+        let output = cmd.output().expect("failed to invoke clang++");
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            panic!("link failed (exit {}):\n{}", output.status, stderr);
+        }
     }
 
     // ── class registration ────────────────────────────────────────────

@@ -100,6 +100,8 @@ def test_topological_sort_large_dag() -> None:
         layer = layer + 1
 
     order: list[int] = topo_sort_kahn(n, head, to, nxt, indeg)
+    print('CHECK test_graph_algorithms lhs expr:', 'len(order)')
+    print('CHECK test_graph_algorithms rhs:', n)
     assert len(order) == n
 
     pos: list[int] = []
@@ -117,6 +119,7 @@ def test_topological_sort_large_dag() -> None:
         e: int = head[u2]
         while e != -1:
             v2: int = to[e]
+            print('CHECK test_graph_algorithms assert expr:', 'pos[u2] < pos[v2]')
             assert pos[u2] < pos[v2]
             e = nxt[e]
         u2 = u2 + 1
@@ -170,6 +173,7 @@ def test_dijkstra_large_weighted_grid() -> None:
                 heap_push_pair(heap, nd2, v2, shift)
 
     target: int = n - 1
+    print('CHECK test_graph_algorithms assert expr:', 'dist[target] > 0')
     assert dist[target] > 0
 
     # DP on same acyclic right/down graph for cross-check.
@@ -202,6 +206,8 @@ def test_dijkstra_large_weighted_grid() -> None:
             cc = cc + 1
         rr = rr + 1
 
+    print('CHECK test_graph_algorithms lhs:', dist[target])
+    print('CHECK test_graph_algorithms rhs:', dp[target])
     assert dist[target] == dp[target]
     print(dist[target])
 

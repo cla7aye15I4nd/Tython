@@ -54,11 +54,21 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 # Update PATH so cargo and rustc are available
 ENV PATH="/home/ubuntu/.cargo/bin:${PATH}"
 
+# Install Rust nightly toolchain
+RUN rustup toolchain install nightly
+
 # Install llvm-tools-preview component for llvm-cov support
-RUN rustup component add llvm-tools-preview
+RUN rustup component add llvm-tools-preview && \
+    rustup component add llvm-tools-preview --toolchain nightly
 
 # Install useful Rust components
 RUN cargo install cargo-llvm-cov
 
+# Install Bazel via Bazelisk
+RUN cargo install cargo-bazel || true
+RUN curl -fSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 -o /home/ubuntu/.cargo/bin/bazel && \
+    chmod +x /home/ubuntu/.cargo/bin/bazel
+
 # Verify installation
-RUN rustc --version && cargo --version && python3 --version
+RUN rustc --version && cargo --version && python3 --version && \
+    rustup toolchain list && bazel --version

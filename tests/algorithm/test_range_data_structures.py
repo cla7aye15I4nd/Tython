@@ -113,6 +113,8 @@ def test_fenwick_tree_massive_updates_and_queries() -> None:
             x = x + 1
 
         got: int = fw.range_sum(l0 + 1, r0 + 1)
+        print('CHECK test_range_data_structures lhs:', got)
+        print('CHECK test_range_data_structures rhs:', naive)
         assert got == naive
         checksum = (checksum + (got % 1000000007 + 1000000007) % 1000000007) % 1000000007
         q = q + 1
@@ -162,6 +164,8 @@ def test_segment_tree_sum_interleaved_ops() -> None:
             j = j + 1
 
         got2: int = st.range_sum(l, r)
+        print('CHECK test_range_data_structures lhs:', got2)
+        print('CHECK test_range_data_structures rhs:', naive2)
         assert got2 == naive2
         agg = (agg + (got2 % 1000000007 + 1000000007) % 1000000007) % 1000000007
         q = q + 1

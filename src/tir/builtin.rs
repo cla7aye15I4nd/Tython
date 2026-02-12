@@ -57,6 +57,9 @@ define_builtins! {
     StrFromInt    => "__tython_str_from_int",   params: [ValueType::Int],                          ret: Some(ValueType::Str);
     StrFromFloat  => "__tython_str_from_float", params: [ValueType::Float],                        ret: Some(ValueType::Str);
     StrFromBool   => "__tython_str_from_bool",  params: [ValueType::Bool],                         ret: Some(ValueType::Str);
+    StrFromBytes  => "__tython_str_from_bytes", params: [ValueType::Bytes],                        ret: Some(ValueType::Str);
+    StrFromByteArray => "__tython_str_from_bytearray", params: [ValueType::ByteArray],             ret: Some(ValueType::Str);
+    ReprStr       => "__tython_repr_str",       params: [ValueType::Str],                          ret: Some(ValueType::Str);
 
     // bytes builtins
     BytesConcat   => "__tython_bytes_concat",   params: [ValueType::Bytes, ValueType::Bytes],       ret: Some(ValueType::Bytes);
@@ -90,12 +93,6 @@ define_builtins! {
     ListAppend         => "__tython_list_append",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: None;
     ListPop            => "__tython_list_pop",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
     ListClear          => "__tython_list_clear",          params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: None;
-    PrintListInt       => "__tython_print_list_int",      params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: None;
-    PrintListFloat     => "__tython_print_list_float",    params: [ValueType::List(Box::new(ValueType::Float))],                                     ret: None;
-    PrintListBool      => "__tython_print_list_bool",     params: [ValueType::List(Box::new(ValueType::Bool))],                                      ret: None;
-    PrintListStr       => "__tython_print_list_str",      params: [ValueType::List(Box::new(ValueType::Str))],                                       ret: None;
-    PrintListBytes     => "__tython_print_list_bytes",    params: [ValueType::List(Box::new(ValueType::Bytes))],                                     ret: None;
-    PrintListByteArray => "__tython_print_list_bytearray", params: [ValueType::List(Box::new(ValueType::ByteArray))],                                ret: None;
 
     // list equality
     ListEqShallow      => "__tython_list_eq_shallow",     params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);

@@ -57,7 +57,11 @@ def test_try_except_finally_ordering_stress() -> None:
         finally:
             values.append(7)
 
+    print('CHECK test_exception_iter_stress lhs:', values)
+    print('CHECK test_exception_iter_stress rhs:', [6, 7, 99, 7, 99, 7, 4, 7])
     assert values == [6, 7, 99, 7, 99, 7, 4, 7]
+    print('CHECK test_exception_iter_stress lhs:', events)
+    print('CHECK test_exception_iter_stress rhs:', [1, 3, 1, 2, 3, 1, 2, 3, 1, 3])
     assert events == [1, 3, 1, 2, 3, 1, 2, 3, 1, 3]
 
 
@@ -79,7 +83,11 @@ def test_manual_next_loop_and_repeated_stopiteration() -> None:
     except StopIteration:
         stop_count = stop_count + 1
 
+    print('CHECK test_exception_iter_stress lhs:', seen)
+    print('CHECK test_exception_iter_stress rhs:', [11, 12, 13, 21, 22, 23])
     assert seen == [11, 12, 13, 21, 22, 23]
+    print('CHECK test_exception_iter_stress lhs:', stop_count)
+    print('CHECK test_exception_iter_stress rhs:', 2)
     assert stop_count == 2
 
 
@@ -107,27 +115,39 @@ def test_for_iterable_nested_control_flow() -> None:
         finally:
             trace.append(0)
 
+    print('CHECK test_exception_iter_stress lhs:', total)
+    print('CHECK test_exception_iter_stress rhs:', 19)
     assert total == 19
+    print('CHECK test_exception_iter_stress lhs:', trace)
+    print('CHECK test_exception_iter_stress rhs:', [11, 0, 12, 0, 13, 0, 22, 0, 23, 0, 31, 0])
     assert trace == [11, 0, 12, 0, 13, 0, 22, 0, 23, 0, 31, 0]
 
 
 def test_comprehensions_with_pairs_and_filters() -> None:
     products: list[int] = [p[0] * p[1] for p in PairWalk(4, 3)]
+    print('CHECK test_exception_iter_stress lhs:', products)
+    print('CHECK test_exception_iter_stress rhs:', [1, 2, 3, 2, 4, 6, 3, 6, 9, 4, 8, 12])
     assert products == [1, 2, 3, 2, 4, 6, 3, 6, 9, 4, 8, 12]
 
     even_pairs_code: list[int] = [
         p[0] * 10 + p[1] for p in PairWalk(4, 4) if (p[0] + p[1]) % 2 == 0
     ]
+    print('CHECK test_exception_iter_stress lhs:', even_pairs_code)
+    print('CHECK test_exception_iter_stress rhs:', [11, 13, 22, 24, 31, 33, 42, 44])
     assert even_pairs_code == [11, 13, 22, 24, 31, 33, 42, 44]
 
     layered_code: list[int] = [
         i * 100 + j * 10 + i * j for i in range(1, 5) for j in range(1, 5) if (i + j) % 2 == 1
     ]
+    print('CHECK test_exception_iter_stress lhs:', layered_code)
+    print('CHECK test_exception_iter_stress rhs:', [122, 144, 212, 236, 326, 352, 414, 442])
     assert layered_code == [122, 144, 212, 236, 326, 352, 414, 442]
 
     tuple_summary: tuple[tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]] = (
         tuple((i, 2) for i in range(1, 5))
     )
+    print('CHECK test_exception_iter_stress lhs:', tuple_summary)
+    print('CHECK test_exception_iter_stress rhs:', ((1, 2), (2, 2), (3, 2), (4, 2)))
     assert tuple_summary == ((1, 2), (2, 2), (3, 2), (4, 2))
 
 

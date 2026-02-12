@@ -88,7 +88,11 @@ def test_extended_gcd_batch() -> None:
         x: int = eg[1]
         y: int = eg[2]
 
+        print('CHECK test_math_algorithms lhs:', a * x + b * y)
+        print('CHECK test_math_algorithms rhs:', g)
         assert a * x + b * y == g
+        print('CHECK test_math_algorithms lhs:', g)
+        print('CHECK test_math_algorithms rhs expr:', 'gcd_int(a, b)')
         assert g == gcd_int(a, b)
 
         checked = checked + 1
@@ -107,6 +111,8 @@ def test_fast_mod_pow_many_queries() -> None:
 
         fast: int = mod_pow(base, exp, mod)
         slow: int = mod_pow_slow(base, exp, mod)
+        print('CHECK test_math_algorithms lhs:', fast)
+        print('CHECK test_math_algorithms rhs:', slow)
         assert fast == slow
 
         acc = (acc + fast) % mod
@@ -119,11 +125,15 @@ def test_pascal_row_mod_large() -> None:
     mod: int = 1000000007
     n: int = 800
     row: list[int] = pascal_row_mod(n, mod)
+    print('CHECK test_math_algorithms lhs expr:', 'len(row)')
+    print('CHECK test_math_algorithms rhs:', n + 1)
     assert len(row) == n + 1
 
     # Symmetry: C(n, k) == C(n, n-k).
     k: int = 0
     while k <= n:
+        print('CHECK test_math_algorithms lhs:', row[k])
+        print('CHECK test_math_algorithms rhs:', row[n - k])
         assert row[k] == row[n - k]
         k = k + 1
 
@@ -133,11 +143,17 @@ def test_pascal_row_mod_large() -> None:
     while i <= n:
         total = (total + row[i]) % mod
         i = i + 1
+    print('CHECK test_math_algorithms lhs:', total)
+    print('CHECK test_math_algorithms rhs expr:', 'mod_pow(2, n, mod)')
     assert total == mod_pow(2, n, mod)
 
     # Spot checks with known small combinations.
     row20: list[int] = pascal_row_mod(20, mod)
+    print('CHECK test_math_algorithms lhs:', row20[10])
+    print('CHECK test_math_algorithms rhs:', 184756)
     assert row20[10] == 184756
+    print('CHECK test_math_algorithms lhs:', row20[3])
+    print('CHECK test_math_algorithms rhs:', 1140)
     assert row20[3] == 1140
 
     print(row[n // 2])

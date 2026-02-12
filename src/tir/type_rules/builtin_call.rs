@@ -30,6 +30,13 @@ pub enum BuiltinCallRule {
         /// `None` = infer the return type from the method declaration.
         return_type: Option<ValueType>,
     },
+    /// Compiler-generated str() for composite types (list, tuple).
+    /// The lowering pass auto-generates string building code using
+    /// StrConcat and per-element repr conversion.
+    StrAuto,
+    /// Compiler-generated repr() — produces the repr string for any value.
+    /// For Str this wraps in quotes; for composites it delegates to StrAuto.
+    ReprAuto,
 }
 
 pub fn is_builtin_call(name: &str) -> bool {
@@ -153,6 +160,8 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
                 Some(class_magic(&["__str__", "__repr__"], Some(ValueType::Str)))
             }
         }
+        // repr(str) wraps in quotes with proper escaping — differs from str(str) which is identity
+        ("repr", [ValueType::Str]) => Some(external_call(BuiltinFn::ReprStr, ValueType::Str)),
         ("str" | "repr", [ty]) => lookup_builtin_dunder(ty, "__str__"),
 
         ("bytes", [ValueType::Bytes]) => Some(BuiltinCallRule::Identity),

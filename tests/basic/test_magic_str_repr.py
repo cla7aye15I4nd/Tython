@@ -25,6 +25,8 @@ def test_str_uses_dunder_str() -> None:
     p: Person = Person("alice")
     s: str = str(p)
     print(s)
+    print('CHECK test_magic_str_repr lhs:', s)
+    print('CHECK test_magic_str_repr rhs:', 'Person(alice)')
     assert s == "Person(alice)"
 
 
@@ -32,6 +34,8 @@ def test_repr_uses_dunder_repr() -> None:
     p: Person = Person("bob")
     r: str = repr(p)
     print(r)
+    print('CHECK test_magic_str_repr lhs:', r)
+    print('CHECK test_magic_str_repr rhs:', 'Person<bob>')
     assert r == "Person<bob>"
 
 
@@ -44,7 +48,9 @@ def test_str_falls_back_to_repr() -> None:
     x: OnlyRepr = OnlyRepr(7)
     s: str = str(x)
     print(s)
+    print('CHECK test_magic_str_repr assert expr:', 's == "OnlyRepr')
     assert s == "OnlyRepr#7"
+    print('CHECK test_magic_str_repr assert expr:', 'repr(x) == "OnlyRepr')
     assert repr(x) == "OnlyRepr#7"
 
 
