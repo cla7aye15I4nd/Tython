@@ -137,6 +137,26 @@ def test_sorted_bool_list() -> None:
     assert src[3] == False
 
 
+def test_sorted_str_list() -> None:
+    src: list[str] = ["banana", "apple", "cherry"]
+    ordered: list[str] = sorted(src)
+    assert ordered[0] == "apple"
+    assert ordered[1] == "banana"
+    assert ordered[2] == "cherry"
+    # sorted() should return a new list, leaving source unchanged
+    assert src[0] == "banana"
+    assert src[1] == "apple"
+    assert src[2] == "cherry"
+
+
+def test_list_sort_str() -> None:
+    xs: list[str] = ["cherry", "apple", "banana"]
+    xs.sort()
+    assert xs[0] == "apple"
+    assert xs[1] == "banana"
+    assert xs[2] == "cherry"
+
+
 def test_print_list_bytes_and_bytearray() -> None:
     lb: list[bytes] = [b"a", b"bc"]
     lba: list[bytearray] = [bytearray(b"x"), bytearray(b"yz")]
@@ -167,4 +187,6 @@ def run_tests() -> None:
     test_print_empty()
     test_sorted_float_list()
     test_sorted_bool_list()
+    test_sorted_str_list()
+    test_list_sort_str()
     test_print_list_bytes_and_bytearray()

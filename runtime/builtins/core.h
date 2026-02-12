@@ -3,7 +3,15 @@
 
 #include "common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void TYTHON_BUILTIN(assert)(int64_t condition);
 void* TYTHON_BUILTIN(malloc)(int64_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TYTHON_BUILTINS_CORE_H */

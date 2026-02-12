@@ -1338,15 +1338,16 @@ impl Lowering {
         right: TirExpr,
     ) -> Result<(TirExpr, TirExpr)> {
         if left.ty == right.ty {
-            match left.ty {
-                ValueType::Int | ValueType::Float | ValueType::Bool => Ok((left, right)),
-                _ => Err(self.type_error(
+            if left.ty.supports_ordering() {
+                Ok((left, right))
+            } else {
+                Err(self.type_error(
                     line,
                     format!(
-                        "comparison operands must have compatible types: `{}` vs `{}`",
-                        left.ty, right.ty
+                        "type `{}` does not support ordering comparisons (no `__lt__`)",
+                        left.ty
                     ),
-                )),
+                ))
             }
         } else if matches!(
             (&left.ty, &right.ty),

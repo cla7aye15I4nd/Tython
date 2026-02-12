@@ -5,6 +5,10 @@
 #include "../builtins/common.h"
 #include "../bytes/bytes.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     int64_t len;
     int64_t capacity;
@@ -27,5 +31,9 @@ void TYTHON_FN(bytearray_clear)(TythonByteArray* ba);
 void TYTHON_FN(bytearray_insert)(TythonByteArray* ba, int64_t index, int64_t byte_val);
 void TYTHON_FN(bytearray_remove)(TythonByteArray* ba, int64_t byte_val);
 void TYTHON_FN(bytearray_reverse)(TythonByteArray* ba);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TYTHON_DATASTRUCTURES_BYTEARRAY_H */

@@ -5,9 +5,13 @@
 #include "../builtins/common.h"
 #include "../str/str.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     int64_t len;
-    uint8_t* data;
+    uint8_t data[]; /* flexible array — data stored inline after len */
 } TythonBytes;
 
 TythonBytes* TYTHON_FN(bytes_new)(const uint8_t* data, int64_t len);
@@ -20,5 +24,9 @@ void TYTHON_FN(print_bytes)(TythonBytes* b);
 TythonBytes* TYTHON_FN(bytes_from_int)(int64_t n);
 TythonBytes* TYTHON_FN(bytes_from_str)(TythonStr* s);
 void print_bytes_repr(const uint8_t* data, int64_t len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TYTHON_DATASTRUCTURES_BYTES_H */

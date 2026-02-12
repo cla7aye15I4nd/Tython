@@ -70,7 +70,7 @@ impl<'ctx> Codegen<'ctx> {
                 value,
             } => {
                 let obj_ptr = self.codegen_expr(object).into_pointer_value();
-                let struct_type = self.class_types[class_name.as_str()];
+                let struct_type = self.struct_types[class_name.as_str()];
 
                 let field_ptr = emit!(self.build_struct_gep(
                     struct_type,

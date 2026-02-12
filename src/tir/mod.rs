@@ -95,6 +95,20 @@ impl ValueType {
         matches!(self, ValueType::Int | ValueType::Float | ValueType::Bool)
     }
 
+    /// Returns `true` if the type supports ordering comparisons (`<`, `>`, `<=`, `>=`),
+    /// i.e. the type conceptually has a `__lt__` method.
+    pub fn supports_ordering(&self) -> bool {
+        matches!(
+            self,
+            ValueType::Int
+                | ValueType::Float
+                | ValueType::Bool
+                | ValueType::Str
+                | ValueType::Bytes
+                | ValueType::ByteArray
+        )
+    }
+
     pub fn unwrap_function(&self) -> (&Vec<ValueType>, &Option<Box<ValueType>>) {
         match self {
             ValueType::Function {

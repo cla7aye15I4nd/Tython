@@ -1,2 +1,2 @@
-xs: list[str] = ["b", "a", "c"]
-ys: list[str] = sorted(xs)
+xs: list[list[int]] = [[3, 1], [2, 4]]
+ys: list[list[int]] = sorted(xs)

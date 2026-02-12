@@ -4,7 +4,7 @@ use pyo3::types::PyList;
 use std::collections::HashMap;
 
 use crate::ast::{ClassField, ClassInfo, ClassMethod, Type};
-use crate::tir::{FunctionParam, TirFunction, ValueType};
+use crate::tir::{FunctionParam, TirExpr, TirExprKind, TirFunction, TirStmt, ValueType};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 use super::Lowering;
@@ -157,6 +157,20 @@ impl Lowering {
             }
         }
 
+        // Auto-generate `new()` factory method if `__init__` exists.
+        if let Some(init_method) = methods.get("__init__") {
+            let new_mangled = format!("{}$new", qualified_name);
+            methods.insert(
+                "new".to_string(),
+                ClassMethod {
+                    name: "new".to_string(),
+                    params: init_method.params.clone(),
+                    return_type: Type::Class(qualified_name.to_string()),
+                    mangled_name: new_mangled,
+                },
+            );
+        }
+
         let class_info = ClassInfo {
             name: qualified_name.to_string(),
             fields,
@@ -199,8 +213,64 @@ impl Lowering {
             }
         }
 
+        // Generate `new()` factory TirFunction if __init__ exists.
+        if let Some(init_method) = class_info.methods.get("__init__") {
+            if let Some(new_method) = class_info.methods.get("new") {
+                let new_fn = Self::generate_new_factory(
+                    qualified_name,
+                    &new_method.mangled_name,
+                    &init_method.mangled_name,
+                    &init_method.params,
+                );
+                functions.push(new_fn);
+            }
+        }
+
         self.current_class = None;
         Ok((all_classes, functions))
+    }
+
+    /// Generate a `new()` factory function that constructs and returns an instance.
+    fn generate_new_factory(
+        qualified_name: &str,
+        new_mangled: &str,
+        init_mangled: &str,
+        init_params: &[Type],
+    ) -> TirFunction {
+        let params: Vec<FunctionParam> = init_params
+            .iter()
+            .enumerate()
+            .map(|(i, ty)| {
+                FunctionParam::new(
+                    format!("__arg{}", i),
+                    ValueType::from_type(ty).expect("ICE: non-value param type in new()"),
+                )
+            })
+            .collect();
+
+        let arg_exprs: Vec<TirExpr> = params
+            .iter()
+            .map(|p| TirExpr {
+                kind: TirExprKind::Var(p.name.clone()),
+                ty: p.ty.clone(),
+            })
+            .collect();
+
+        let construct = TirExpr {
+            kind: TirExprKind::Construct {
+                class_name: qualified_name.to_string(),
+                init_mangled_name: init_mangled.to_string(),
+                args: arg_exprs,
+            },
+            ty: ValueType::Class(qualified_name.to_string()),
+        };
+
+        TirFunction {
+            name: new_mangled.to_string(),
+            params,
+            return_type: Some(ValueType::Class(qualified_name.to_string())),
+            body: vec![TirStmt::Return(Some(construct))],
+        }
     }
 
     fn lower_method(&mut self, node: &Bound<PyAny>, class_info: &ClassInfo) -> Result<TirFunction> {

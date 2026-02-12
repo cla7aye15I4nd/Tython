@@ -82,8 +82,14 @@ pub fn lookup_list_method(inner: &ValueType, name: &str) -> Option<Result<Method
             let sort_fn = match inner {
                 ValueType::Int | ValueType::Bool => BuiltinFn::ListSortInt,
                 ValueType::Float => BuiltinFn::ListSortFloat,
+                ValueType::Str => BuiltinFn::ListSortStr,
+                ValueType::Bytes => BuiltinFn::ListSortBytes,
+                ValueType::ByteArray => BuiltinFn::ListSortByteArray,
                 _ => {
-                    return Some(Err(format!("list[{}].sort() is not supported", inner)));
+                    return Some(Err(format!(
+                        "list[{}].sort() is not supported; element type has no `__lt__`",
+                        inner
+                    )));
                 }
             };
             Some(Ok(MethodCallRule {
@@ -146,6 +152,32 @@ pub fn lookup_bytearray_method(name: &str) -> Option<Result<MethodCallRule, Stri
             params: vec![],
             result: MethodCallResult::Void(BuiltinFn::ByteArrayReverse),
         })),
+        _ => None,
+    }
+}
+
+/// Look up a method on `str`.
+///
+/// Returns:
+/// - `Some(Ok(rule))` — method exists and is supported
+/// - `Some(Err(msg))` — method is recognized but unsupported
+/// - `None` — method name is not a known str method
+pub fn lookup_str_method(name: &str) -> Option<Result<MethodCallRule, String>> {
+    match name {
+        // No str methods exposed yet; stub for unified dispatch.
+        _ => None,
+    }
+}
+
+/// Look up a method on `bytes`.
+///
+/// Returns:
+/// - `Some(Ok(rule))` — method exists and is supported
+/// - `Some(Err(msg))` — method is recognized but unsupported
+/// - `None` — method name is not a known bytes method
+pub fn lookup_bytes_method(name: &str) -> Option<Result<MethodCallRule, String>> {
+    match name {
+        // No bytes methods exposed yet; stub for unified dispatch.
         _ => None,
     }
 }

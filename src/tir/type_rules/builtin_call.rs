@@ -1,3 +1,4 @@
+use super::builtin_class::lookup_builtin_dunder;
 use crate::tir::builtin::BuiltinFn;
 use crate::tir::ValueType;
 
@@ -144,17 +145,15 @@ fn numeric_variadic_builtin(
 /// Returns `None` if the name is not built-in or argument types are invalid.
 pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<BuiltinCallRule> {
     match (name, arg_types) {
-        // Conversions/constructors
-        ("str" | "repr", [ValueType::Str]) => Some(BuiltinCallRule::Identity),
-        ("str" | "repr", [ValueType::Int]) => {
-            Some(external_call(BuiltinFn::StrFromInt, ValueType::Str))
+        // Conversions/constructors — str()/repr() via unified __str__ dunder
+        ("str" | "repr", [ValueType::Class(_)]) => {
+            if name == "repr" {
+                Some(class_magic(&["__repr__"], Some(ValueType::Str)))
+            } else {
+                Some(class_magic(&["__str__", "__repr__"], Some(ValueType::Str)))
+            }
         }
-        ("str" | "repr", [ValueType::Float]) => {
-            Some(external_call(BuiltinFn::StrFromFloat, ValueType::Str))
-        }
-        ("str" | "repr", [ValueType::Bool]) => {
-            Some(external_call(BuiltinFn::StrFromBool, ValueType::Str))
-        }
+        ("str" | "repr", [ty]) => lookup_builtin_dunder(ty, "__str__"),
 
         ("bytes", [ValueType::Bytes]) => Some(BuiltinCallRule::Identity),
         ("bytes", [ValueType::Int]) => {
@@ -188,16 +187,12 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
             target_type: ValueType::Bool,
         }),
 
-        // Built-in functions
-        ("len", [ValueType::Str]) => Some(external_call(BuiltinFn::StrLen, ValueType::Int)),
-        ("len", [ValueType::Bytes]) => Some(external_call(BuiltinFn::BytesLen, ValueType::Int)),
-        ("len", [ValueType::ByteArray]) => {
-            Some(external_call(BuiltinFn::ByteArrayLen, ValueType::Int))
-        }
-        ("len", [ValueType::List(_)]) => Some(external_call(BuiltinFn::ListLen, ValueType::Int)),
+        // Built-in functions — len() via unified __len__ dunder
         ("len", [ValueType::Tuple(elements)]) => {
             Some(BuiltinCallRule::ConstInt(elements.len() as i64))
         }
+        ("len", [ValueType::Class(_)]) => Some(class_magic(&["__len__"], Some(ValueType::Int))),
+        ("len", [ty]) => lookup_builtin_dunder(ty, "__len__"),
 
         ("abs", _) => numeric_unary_builtin(arg_types, BuiltinFn::AbsInt, BuiltinFn::AbsFloat),
         ("min", _) => numeric_variadic_builtin(arg_types, BuiltinFn::MinInt, BuiltinFn::MinFloat),
@@ -216,29 +211,19 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
 
         ("any", [ValueType::List(_)]) => Some(external_call(BuiltinFn::AnyList, ValueType::Bool)),
 
-        ("sorted", [ValueType::List(inner)]) => match inner.as_ref() {
-            ValueType::Int => Some(external_call(
-                BuiltinFn::SortedInt,
-                ValueType::List(Box::new(ValueType::Int)),
-            )),
-            ValueType::Bool => Some(external_call(
-                BuiltinFn::SortedInt,
-                ValueType::List(Box::new(ValueType::Bool)),
-            )),
-            ValueType::Float => Some(external_call(
-                BuiltinFn::SortedFloat,
-                ValueType::List(Box::new(ValueType::Float)),
-            )),
-            _ => None,
-        },
-
-        // Class dunder-method dispatch: when a builtin is called on a user-defined class,
-        // resolve to the corresponding magic method(s).
-        ("str", [ValueType::Class(_)]) => {
-            Some(class_magic(&["__str__", "__repr__"], Some(ValueType::Str)))
+        ("sorted", [ValueType::List(inner)]) => {
+            let sorted_fn = match inner.as_ref() {
+                ValueType::Int | ValueType::Bool => BuiltinFn::SortedInt,
+                ValueType::Float => BuiltinFn::SortedFloat,
+                ValueType::Str => BuiltinFn::SortedStr,
+                ValueType::Bytes => BuiltinFn::SortedBytes,
+                ValueType::ByteArray => BuiltinFn::SortedByteArray,
+                _ => return None,
+            };
+            Some(external_call(sorted_fn, ValueType::List(inner.clone())))
         }
-        ("repr", [ValueType::Class(_)]) => Some(class_magic(&["__repr__"], Some(ValueType::Str))),
-        ("len", [ValueType::Class(_)]) => Some(class_magic(&["__len__"], Some(ValueType::Int))),
+
+        // Class dunder-method dispatch for iter/next
         ("iter", [ValueType::Class(_)]) => Some(class_magic(&["__iter__"], None)),
         ("next", [ValueType::Class(_)]) => Some(class_magic(&["__next__"], None)),
 
@@ -355,7 +340,10 @@ pub fn builtin_call_error_message(name: &str, arg_types: &[&ValueType], provided
             if provided != 1 {
                 format!("sorted() expects exactly 1 argument, got {}", provided)
             } else {
-                format!("sorted() requires a list, got `{}`", arg_types[0])
+                format!(
+                    "sorted() requires a list whose elements support ordering (`__lt__`), got `{}`",
+                    arg_types[0]
+                )
             }
         }
         "iter" => {

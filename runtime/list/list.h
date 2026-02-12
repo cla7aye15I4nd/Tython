@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "../builtins/common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     int64_t len;
     int64_t capacity;
@@ -32,8 +36,14 @@ int64_t TYTHON_FN(list_count)(TythonList* lst, int64_t value);
 void TYTHON_FN(list_reverse)(TythonList* lst);
 void TYTHON_FN(list_sort_int)(TythonList* lst);
 void TYTHON_FN(list_sort_float)(TythonList* lst);
+void TYTHON_FN(list_sort_str)(TythonList* lst);
+void TYTHON_FN(list_sort_bytes)(TythonList* lst);
+void TYTHON_FN(list_sort_bytearray)(TythonList* lst);
 TythonList* TYTHON_FN(sorted_int)(TythonList* lst);
 TythonList* TYTHON_FN(sorted_float)(TythonList* lst);
+TythonList* TYTHON_FN(sorted_str)(TythonList* lst);
+TythonList* TYTHON_FN(sorted_bytes)(TythonList* lst);
+TythonList* TYTHON_FN(sorted_bytearray)(TythonList* lst);
 void TYTHON_FN(list_extend)(TythonList* lst, TythonList* other);
 TythonList* TYTHON_FN(list_copy)(TythonList* lst);
 int64_t TYTHON_FN(sum_int)(TythonList* lst);
@@ -44,5 +54,9 @@ int64_t TYTHON_FN(all_list)(TythonList* lst);
 int64_t TYTHON_FN(any_list)(TythonList* lst);
 int64_t TYTHON_FN(list_eq_shallow)(TythonList* a, TythonList* b);
 int64_t TYTHON_FN(list_eq_deep)(TythonList* a, TythonList* b, int64_t depth);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TYTHON_DATASTRUCTURES_LIST_H */

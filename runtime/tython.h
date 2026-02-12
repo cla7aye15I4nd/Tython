@@ -36,6 +36,11 @@
 #define TYTHON_EXC_FILE_NOT_FOUND   18
 #define TYTHON_EXC_PERMISSION_ERROR 19
 #define TYTHON_EXC_OS_ERROR         20
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     int64_t    type_tag;
     TythonStr* message;
@@ -46,5 +51,9 @@ int64_t TYTHON_FN(caught_type_tag)(void* caught_ptr);
 void*   TYTHON_FN(caught_message)(void* caught_ptr);
 int64_t TYTHON_FN(caught_matches)(void* caught_ptr, int64_t type_tag);
 void    TYTHON_FN(print_unhandled)(int64_t type_tag, void* message);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TYTHON_H */

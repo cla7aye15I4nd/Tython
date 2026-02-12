@@ -77,8 +77,7 @@ pub struct Codegen<'ctx> {
     builder: Builder<'ctx>,
     variables: HashMap<String, PointerValue<'ctx>>,
     loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
-    class_types: HashMap<String, StructType<'ctx>>,
-    tuple_types: HashMap<String, StructType<'ctx>>,
+    struct_types: HashMap<String, StructType<'ctx>>,
     /// > 0 when inside a try/except or ForIter — calls use `invoke` instead of `call`.
     try_depth: usize,
     /// Stack of unwind destinations for nested try/ForIter blocks.
@@ -117,8 +116,7 @@ impl<'ctx> Codegen<'ctx> {
             builder,
             variables: HashMap::new(),
             loop_stack: Vec::new(),
-            class_types: HashMap::new(),
-            tuple_types: HashMap::new(),
+            struct_types: HashMap::new(),
             try_depth: 0,
             unwind_dest_stack: Vec::new(),
             reraise_state: None,
@@ -160,7 +158,7 @@ impl<'ctx> Codegen<'ctx> {
         let struct_type = self.context.opaque_struct_type(&class_info.name);
         struct_type.set_body(&field_types, false);
 
-        self.class_types
+        self.struct_types
             .insert(class_info.name.clone(), struct_type);
     }
 
@@ -174,17 +172,17 @@ impl<'ctx> Codegen<'ctx> {
 
     fn get_or_create_tuple_struct(&mut self, elem_types: &[ValueType]) -> StructType<'ctx> {
         let key = Self::tuple_signature_key(elem_types);
-        if let Some(existing) = self.tuple_types.get(&key) {
+        if let Some(existing) = self.struct_types.get(&key) {
             return *existing;
         }
 
-        let struct_name = format!("__tython_tuple${}", self.tuple_types.len());
+        let struct_name = format!("__tython_tuple${}", self.struct_types.len());
         let field_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> =
             elem_types.iter().map(|ty| self.get_llvm_type(ty)).collect();
 
         let struct_type = self.context.opaque_struct_type(&struct_name);
         struct_type.set_body(&field_types, false);
-        self.tuple_types.insert(key, struct_type);
+        self.struct_types.insert(key, struct_type);
         struct_type
     }
 

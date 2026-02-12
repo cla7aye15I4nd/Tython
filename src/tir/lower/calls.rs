@@ -308,27 +308,12 @@ impl Lowering {
                             }))
                         }
                     }
-                    ValueType::ByteArray => self.lower_builtin_method_call(
-                        line,
-                        obj_expr,
-                        tir_args,
-                        &attr,
-                        "bytearray",
-                        type_rules::lookup_bytearray_method(&attr),
-                    ),
-                    ValueType::List(ref inner) => {
-                        let type_name = format!("list[{}]", inner);
+                    ref ty => {
+                        let type_name = type_rules::builtin_type_display_name(ty);
+                        let lookup = type_rules::lookup_builtin_method(ty, &attr);
                         self.lower_builtin_method_call(
-                            line,
-                            obj_expr,
-                            tir_args,
-                            &attr,
-                            &type_name,
-                            type_rules::lookup_list_method(inner, &attr),
+                            line, obj_expr, tir_args, &attr, &type_name, lookup,
                         )
-                    }
-                    other => {
-                        Err(self.type_error(line, format!("`{}` is not a class instance", other)))
                     }
                 }
             }

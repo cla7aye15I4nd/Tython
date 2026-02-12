@@ -3,14 +3,14 @@ use std::path::Path;
 use std::process::Command;
 
 const RUNTIME_SOURCES: &[&str] = &[
-    "runtime/builtins/print.c",
-    "runtime/builtins/math.c",
-    "runtime/builtins/core.c",
-    "runtime/str/str.c",
-    "runtime/bytes/bytes.c",
-    "runtime/bytearray/bytearray.c",
-    "runtime/list/list.c",
-    "runtime/exception.c",
+    "runtime/builtins/print.cpp",
+    "runtime/builtins/math.cpp",
+    "runtime/builtins/core.cpp",
+    "runtime/str/str.cpp",
+    "runtime/bytes/bytes.cpp",
+    "runtime/bytearray/bytearray.cpp",
+    "runtime/list/list.cpp",
+    "runtime/exception.cpp",
 ];
 const RUNTIME_HEADERS: &[&str] = &[
     "runtime/tython.h",
@@ -23,20 +23,23 @@ const RUNTIME_HEADERS: &[&str] = &[
     "runtime/bytes/bytes.h",
     "runtime/bytearray/bytearray.h",
     "runtime/list/list.h",
+    "runtime/internal/vec.h",
+    "runtime/internal/buf.h",
 ];
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = Path::new(&out_dir);
 
-    // Compile each .c file to a .o object
+    // Compile each .cpp file to a .o bitcode object
     let mut objects = Vec::new();
     for src in RUNTIME_SOURCES {
         let src_path = Path::new(src);
         let stem = src_path.file_stem().unwrap().to_str().unwrap();
         let obj = out_path.join(format!("{}.o", stem));
 
-        let status = Command::new("clang")
+        let status = Command::new("clang++")
+            .arg("-std=c++17")
             .arg("-c")
             .arg("-flto")
             .arg("-O2")

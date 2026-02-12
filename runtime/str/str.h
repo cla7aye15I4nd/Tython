@@ -4,9 +4,13 @@
 #include <stdint.h>
 #include "../builtins/common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     int64_t len;
-    char* data;
+    char data[]; /* flexible array — data stored inline after len */
 } TythonStr;
 
 TythonStr* TYTHON_FN(str_new)(const char* data, int64_t len);
@@ -20,5 +24,9 @@ TythonStr* TYTHON_FN(str_from_int)(int64_t v);
 TythonStr* TYTHON_FN(str_from_float)(double v);
 TythonStr* TYTHON_FN(str_from_bool)(int64_t v);
 int64_t TYTHON_FN(str_contains)(TythonStr* haystack, TythonStr* needle);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TYTHON_DATASTRUCTURES_STR_H */

@@ -326,7 +326,7 @@ impl<'ctx> Codegen<'ctx> {
                 init_mangled_name,
                 args,
             } => {
-                let struct_type = self.class_types[class_name.as_str()];
+                let struct_type = self.struct_types[class_name.as_str()];
 
                 // Allocate heap memory for the struct
                 let size = struct_type.size_of().unwrap();
@@ -355,7 +355,7 @@ impl<'ctx> Codegen<'ctx> {
                 field_index,
             } => {
                 let obj_ptr = self.codegen_expr(object).into_pointer_value();
-                let struct_type = self.class_types[class_name.as_str()];
+                let struct_type = self.struct_types[class_name.as_str()];
 
                 let field_ptr = emit!(self.build_struct_gep(
                     struct_type,

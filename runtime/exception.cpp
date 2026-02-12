@@ -1,60 +1,66 @@
 #include "tython.h"
 
-/* C++ ABI functions used for LLVM landingpad exception handling */
-extern void* __cxa_allocate_exception(unsigned long thrown_size);
-extern void  __cxa_throw(void* thrown_exception, void* tinfo, void (*dest)(void*));
-extern void* __cxa_begin_catch(void* exc_obj);
-extern void  __cxa_end_catch(void);
+#include <cstdio>
+#include <cstdlib>
 
-/* typeinfo for void* from libstdc++/libc++ — used as the exception typeinfo.
-   All Tython exceptions use this single typeinfo; dispatch is by type_tag field. */
-extern void* _ZTIPv;
+/* C++ ABI functions used for LLVM landingpad exception handling.
+   These have C linkage in the Itanium C++ ABI. */
+extern "C" {
+    void* __cxa_allocate_exception(unsigned long thrown_size);
+    void  __cxa_throw(void* thrown_exception, void* tinfo, void (*dest)(void*));
+    void* __cxa_begin_catch(void* exc_obj);
+    void  __cxa_end_catch(void);
+
+    /* typeinfo for void* — mangled C++ symbol from libstdc++/libc++.
+       All Tython exceptions use this single typeinfo; dispatch is by type_tag. */
+    extern void* _ZTIPv;
+}
 
 void TYTHON_FN(raise)(int64_t type_tag, void* message) {
-    TythonException* exc =
-        (TythonException*)__cxa_allocate_exception(sizeof(TythonException));
+    auto* exc = static_cast<TythonException*>(
+        __cxa_allocate_exception(sizeof(TythonException)));
     exc->type_tag = type_tag;
-    exc->message  = (TythonStr*)message;
-    __cxa_throw(exc, &_ZTIPv, NULL);
+    exc->message  = static_cast<TythonStr*>(message);
+    __cxa_throw(exc, &_ZTIPv, nullptr);
     __builtin_unreachable();
 }
 
 int64_t TYTHON_FN(caught_type_tag)(void* caught_ptr) {
-    TythonException* exc = (TythonException*)caught_ptr;
-    return exc->type_tag;
+    return static_cast<TythonException*>(caught_ptr)->type_tag;
 }
 
 void* TYTHON_FN(caught_message)(void* caught_ptr) {
-    TythonException* exc = (TythonException*)caught_ptr;
-    return (void*)exc->message;
+    return static_cast<TythonException*>(caught_ptr)->message;
 }
 
 int64_t TYTHON_FN(caught_matches)(void* caught_ptr, int64_t type_tag) {
-    TythonException* exc = (TythonException*)caught_ptr;
-    if (type_tag == TYTHON_EXC_EXCEPTION) {
-        /* Exception is the base class — matches all non-zero tags */
+    auto* exc = static_cast<TythonException*>(caught_ptr);
+
+    /* Exception is the base class — matches all non-zero tags */
+    if (type_tag == TYTHON_EXC_EXCEPTION)
         return exc->type_tag != TYTHON_EXC_NONE ? 1 : 0;
-    }
+
     if (exc->type_tag == type_tag) return 1;
-    /* Hierarchy: ArithmeticError catches ZeroDivisionError, OverflowError */
-    if (type_tag == TYTHON_EXC_ARITHMETIC_ERROR) {
+
+    /* ArithmeticError catches ZeroDivisionError, OverflowError */
+    if (type_tag == TYTHON_EXC_ARITHMETIC_ERROR)
         return (exc->type_tag == TYTHON_EXC_ZERO_DIVISION ||
                 exc->type_tag == TYTHON_EXC_OVERFLOW_ERROR) ? 1 : 0;
-    }
-    /* Hierarchy: LookupError catches KeyError, IndexError */
-    if (type_tag == TYTHON_EXC_LOOKUP_ERROR) {
+
+    /* LookupError catches KeyError, IndexError */
+    if (type_tag == TYTHON_EXC_LOOKUP_ERROR)
         return (exc->type_tag == TYTHON_EXC_KEY_ERROR ||
                 exc->type_tag == TYTHON_EXC_INDEX_ERROR) ? 1 : 0;
-    }
-    /* Hierarchy: OSError catches FileNotFoundError, PermissionError */
-    if (type_tag == TYTHON_EXC_OS_ERROR) {
+
+    /* OSError catches FileNotFoundError, PermissionError */
+    if (type_tag == TYTHON_EXC_OS_ERROR)
         return (exc->type_tag == TYTHON_EXC_FILE_NOT_FOUND ||
                 exc->type_tag == TYTHON_EXC_PERMISSION_ERROR) ? 1 : 0;
-    }
-    /* Hierarchy: ImportError catches ModuleNotFoundError */
-    if (type_tag == TYTHON_EXC_IMPORT_ERROR) {
+
+    /* ImportError catches ModuleNotFoundError */
+    if (type_tag == TYTHON_EXC_IMPORT_ERROR)
         return (exc->type_tag == TYTHON_EXC_MODULE_NOT_FOUND) ? 1 : 0;
-    }
+
     return 0;
 }
 
@@ -83,10 +89,10 @@ void TYTHON_FN(print_unhandled)(int64_t type_tag, void* message) {
         default: break;
     }
     if (message) {
-        TythonStr* msg = (TythonStr*)message;
-        fprintf(stderr, "%s: %.*s\n", name, (int)msg->len, msg->data);
+        auto* msg = static_cast<TythonStr*>(message);
+        std::fprintf(stderr, "%s: %.*s\n", name, static_cast<int>(msg->len), msg->data);
     } else {
-        fprintf(stderr, "Unhandled %s\n", name);
+        std::fprintf(stderr, "Unhandled %s\n", name);
     }
-    exit(1);
+    std::exit(1);
 }
