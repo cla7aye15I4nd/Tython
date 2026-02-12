@@ -44,6 +44,7 @@ import basic.test_subscript_aug as test_subscript_aug
 import basic.test_bytearray_compare as test_bytearray_compare
 import basic.test_coverage_edges as test_coverage_edges
 import basic.test_str_auto as test_str_auto
+import basic.test_feature_roadmap as test_feature_roadmap
 
 
 def run_all_tests() -> None:
@@ -93,3 +94,4 @@ def run_all_tests() -> None:
     test_bytearray_compare.run_tests()
     test_coverage_edges.run_tests()
     test_str_auto.run_tests()
+    test_feature_roadmap.run_tests()
