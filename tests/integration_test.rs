@@ -123,6 +123,27 @@ fn test_invalid_programs_produce_compilation_errors() {
     }
 }
 
+/// Test that tython fails when the entry point is a broken symlink,
+/// which triggers the `input_path.canonicalize()?` error in Compiler::new.
+#[cfg(unix)]
+#[test]
+fn test_broken_symlink_entry_point() {
+    let tmp = tempfile::tempdir().expect("Failed to create temp dir");
+    std::os::unix::fs::symlink("/nonexistent/target.py", tmp.path().join("main.py")).unwrap();
+
+    let output = cargo_bin_cmd!("tython")
+        .arg("main.py")
+        .current_dir(tmp.path())
+        .output()
+        .expect("Failed to run tython");
+
+    assert!(
+        !output.status.success(),
+        "Expected tython to fail on broken symlink entry point, but it succeeded\n  stdout: {}",
+        String::from_utf8_lossy(&output.stdout).trim()
+    );
+}
+
 const ALL_BINOPS: &[RawBinOp] = &[
     RawBinOp::Arith(ArithBinOp::Add),
     RawBinOp::Arith(ArithBinOp::Sub),

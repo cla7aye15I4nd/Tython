@@ -27,8 +27,10 @@ impl Resolver {
     pub fn resolve_imports(&self, file_path: &Path) -> Result<ResolvedImports> {
         Python::attach(|py| {
             let source = std::fs::read_to_string(file_path).unwrap();
-            let ast_module = PyModule::import(py, "ast")?;
-            let ast = ast_module.call_method1("parse", (source.as_str(),))?;
+            let ast_module = PyModule::import(py, "ast").unwrap();
+            let ast = ast_module
+                .call_method1("parse", (source.as_str(),))
+                .unwrap();
             let file_dir = file_path.parent().unwrap();
 
             let mut dependencies = Vec::new();
@@ -81,11 +83,6 @@ impl Resolver {
         let level = ast_get_int!(node, "level", usize);
         let module_val = ast_getattr!(node, "module");
         let module_name = (!module_val.is_none()).then(|| ast_extract!(module_val, String));
-
-        // Skip __future__ imports (Python-only, no-op for Tython)
-        if module_name.as_deref() == Some("__future__") {
-            return Ok(());
-        }
 
         if let Some(ref mod_name) = module_name {
             if let Ok(module_file) = self.resolve_module(file_dir, level, mod_name) {

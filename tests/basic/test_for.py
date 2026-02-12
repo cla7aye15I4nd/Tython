@@ -107,6 +107,28 @@ def test_for_negative_empty_ranges() -> None:
     assert count == 0
 
 
+def test_for_tuple_iteration() -> None:
+    values: tuple[int, int, int, int] = (2, 4, 6, 8)
+    total: int = 0
+    for n in values:
+        total = total + n
+    print(total)
+    assert total == 20
+
+
+def test_for_tuple_break_continue() -> None:
+    values: tuple[int, int, int, int, int] = (1, 2, 3, 4, 5)
+    total: int = 0
+    for n in values:
+        if n == 2:
+            continue
+        if n == 5:
+            break
+        total = total + n
+    print(total)
+    assert total == 8
+
+
 def run_tests() -> None:
     test_for_range_stop_only()
     test_for_range_start_stop()
@@ -120,3 +142,5 @@ def run_tests() -> None:
     test_for_nested_negative_steps()
     test_for_negative_step_with_continue_and_break()
     test_for_negative_empty_ranges()
+    test_for_tuple_iteration()
+    test_for_tuple_break_continue()

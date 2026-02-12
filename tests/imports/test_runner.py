@@ -18,6 +18,8 @@ from .nested.deep import cross_level_imports
 from .nested import top_level
 from . import class_provider_a
 from . import class_provider_b
+from .class_provider_a import Vec2 as ImportedVec2
+from .class_provider_nested import Outer, Deep
 
 
 def test_module_a() -> None:
@@ -274,6 +276,27 @@ def test_cross_module_same_name_no_collision() -> None:
     assert b.sum() == 6
 
 
+def test_from_import_class() -> None:
+    p: ImportedVec2 = ImportedVec2(9, 4)
+    print(p.sum())
+    assert p.sum() == 13
+
+
+def test_from_import_nested_class() -> None:
+    outer: Outer = Outer(21)
+    inner: Outer.Inner = Outer.Inner(8)
+    print(outer.get_base())
+    assert outer.get_base() == 21
+    print(inner.get())
+    assert inner.get() == 8
+
+
+def test_from_import_deep_nested_class() -> None:
+    leaf: Deep.Mid.Leaf = Deep.Mid.Leaf(7)
+    print(leaf.triple())
+    assert leaf.triple() == 21
+
+
 def run_all_tests() -> None:
     test_module_a()
     test_module_b()
@@ -315,3 +338,6 @@ def run_all_tests() -> None:
     test_cross_module_class_field_mutation()
     test_cross_module_factory_function()
     test_cross_module_same_name_no_collision()
+    test_from_import_class()
+    test_from_import_nested_class()
+    test_from_import_deep_nested_class()

@@ -156,6 +156,43 @@ def test_list_print_bool() -> None:
     print([True, False])
 
 
+def test_list_copy_int() -> None:
+    xs: list[int] = [3, 1, 2]
+    ys: list[int] = xs.copy()
+    ys[0] = 99
+    assert xs[0] == 3
+    assert ys[0] == 99
+
+
+def test_list_extend_int() -> None:
+    xs: list[int] = [1, 2]
+    ys: list[int] = [3, 4]
+    xs.extend(ys)
+    assert xs == [1, 2, 3, 4]
+    assert ys == [3, 4]
+
+
+def test_list_sort_float() -> None:
+    xs: list[float] = [3.5, -2.0, 1.25, 0.0]
+    xs.sort()
+    assert xs[0] == -2.0
+    assert xs[1] == 0.0
+    assert xs[2] == 1.25
+    assert xs[3] == 3.5
+
+
+def test_list_index_int() -> None:
+    xs: list[int] = [4, 7, 9, 7]
+    pos: int = xs.index(7)
+    assert pos == 1
+
+
+def test_list_count_int() -> None:
+    xs: list[int] = [5, 5, 1, 5, 2]
+    c: int = xs.count(5)
+    assert c == 3
+
+
 def run_tests() -> None:
     test_list_int_literal()
     test_list_float_literal()
@@ -181,3 +218,8 @@ def run_tests() -> None:
     test_list_print_int()
     test_list_print_float()
     test_list_print_bool()
+    test_list_copy_int()
+    test_list_extend_int()
+    test_list_sort_float()
+    test_list_index_int()
+    test_list_count_int()

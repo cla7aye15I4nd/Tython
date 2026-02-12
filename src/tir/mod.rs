@@ -236,19 +236,6 @@ pub enum IntArithOp {
     Pow,
 }
 
-impl std::fmt::Display for IntArithOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IntArithOp::Add => write!(f, "+"),
-            IntArithOp::Sub => write!(f, "-"),
-            IntArithOp::Mul => write!(f, "*"),
-            IntArithOp::FloorDiv => write!(f, "//"),
-            IntArithOp::Mod => write!(f, "%"),
-            IntArithOp::Pow => write!(f, "**"),
-        }
-    }
-}
-
 /// Float arithmetic operations. Includes `Div` (true division).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FloatArithOp {
@@ -261,20 +248,6 @@ pub enum FloatArithOp {
     Pow,
 }
 
-impl std::fmt::Display for FloatArithOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FloatArithOp::Add => write!(f, "+"),
-            FloatArithOp::Sub => write!(f, "-"),
-            FloatArithOp::Mul => write!(f, "*"),
-            FloatArithOp::Div => write!(f, "/"),
-            FloatArithOp::FloorDiv => write!(f, "//"),
-            FloatArithOp::Mod => write!(f, "%"),
-            FloatArithOp::Pow => write!(f, "**"),
-        }
-    }
-}
-
 /// Fully-typed binary operation stored in TIR nodes.
 /// Codegen can match on this directly without checking `expr.ty`.
 /// Sequence operations (concat, repeat) are lowered to `ExternalCall` instead.
@@ -283,16 +256,6 @@ pub enum TypedBinOp {
     IntArith(IntArithOp),
     FloatArith(FloatArithOp),
     Bitwise(BitwiseBinOp),
-}
-
-impl std::fmt::Display for TypedBinOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TypedBinOp::IntArith(op) => write!(f, "{}", op),
-            TypedBinOp::FloatArith(op) => write!(f, "{}", op),
-            TypedBinOp::Bitwise(op) => write!(f, "{}", op),
-        }
-    }
 }
 
 // ── Cast kinds ──────────────────────────────────────────────────────

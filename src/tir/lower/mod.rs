@@ -213,8 +213,10 @@ impl Lowering {
         Python::attach(|py| -> Result<_> {
             let source = std::fs::read_to_string(canonical_path)?;
             self.source_lines = source.lines().map(String::from).collect();
-            let ast_module = PyModule::import(py, "ast")?;
-            let py_ast = ast_module.call_method1("parse", (source.as_str(),))?;
+            let ast_module = PyModule::import(py, "ast").unwrap();
+            let py_ast = ast_module
+                .call_method1("parse", (source.as_str(),))
+                .unwrap();
 
             self.lower_py_ast(&py_ast)
         })
@@ -392,8 +394,8 @@ impl Lowering {
                     // If not a simple name, parse as a type expression
                     // (e.g., "callable[[int, int], int]")
                     Python::attach(|py| {
-                        let ast_module = PyModule::import(py, "ast")?;
-                        let parsed = ast_module.call_method1("parse", (s.as_str(),))?;
+                        let ast_module = PyModule::import(py, "ast").unwrap();
+                        let parsed = ast_module.call_method1("parse", (s.as_str(),)).unwrap();
                         let body = ast_get_list!(&parsed, "body");
                         if body.len() != 1 {
                             bail!("unsupported forward reference type `{}`", s);

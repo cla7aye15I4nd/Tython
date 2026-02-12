@@ -89,6 +89,20 @@ def test_print_empty() -> None:
     print()
 
 
+def test_sorted_float_list() -> None:
+    src: list[float] = [3.25, -1.5, 0.0, 2.75]
+    ordered: list[float] = sorted(src)
+    assert ordered[0] == -1.5
+    assert ordered[1] == 0.0
+    assert ordered[2] == 2.75
+    assert ordered[3] == 3.25
+    # sorted() should return a new list, leaving source unchanged
+    assert src[0] == 3.25
+    assert src[1] == -1.5
+    assert src[2] == 0.0
+    assert src[3] == 2.75
+
+
 def run_tests() -> None:
     test_abs_int_pos()
     test_abs_int_neg()
@@ -107,3 +121,4 @@ def run_tests() -> None:
     test_round_down()
     test_print_variadic()
     test_print_empty()
+    test_sorted_float_list()

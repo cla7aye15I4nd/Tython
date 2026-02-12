@@ -92,7 +92,15 @@ pub fn lookup_list_method(inner: &ValueType, name: &str) -> Option<Result<Method
             }))
         }
         "extend" => Some(Ok(MethodCallRule {
-            params: vec![ValueType::List(Box::new(inner.clone()))],
+            params: {
+                if !inner.is_primitive() {
+                    return Some(Err(format!(
+                        "list[{}].extend() is not supported; only list[int], list[float], list[bool] support extend",
+                        inner
+                    )));
+                }
+                vec![ValueType::List(Box::new(inner.clone()))]
+            },
             result: MethodCallResult::Void(BuiltinFn::ListExtend),
         })),
         "copy" => Some(Ok(MethodCallRule {
