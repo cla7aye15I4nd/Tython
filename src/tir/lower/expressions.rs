@@ -1604,13 +1604,12 @@ impl Lowering {
                         name: iter_var.clone(),
                         ty: ValueType::Class(iter_class.clone()),
                         value: TirExpr {
-                            kind: TirExprKind::MethodCall {
-                                object: Box::new(TirExpr {
+                            kind: TirExprKind::Call {
+                                func: iter_mangled.clone(),
+                                args: vec![TirExpr {
                                     kind: TirExprKind::Var(obj_var),
                                     ty: obj_expr.ty.clone(),
-                                }),
-                                method_mangled_name: iter_mangled.clone(),
-                                args: vec![],
+                                }],
                             },
                             ty: ValueType::Class(iter_class.clone()),
                         },

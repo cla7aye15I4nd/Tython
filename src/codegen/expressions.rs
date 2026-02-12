@@ -3,11 +3,13 @@ use inkwell::values::BasicValueEnum;
 use inkwell::AddressSpace;
 use inkwell::IntPredicate;
 
+use crate::tir::builtin::BuiltinFn;
 use crate::tir::{
     BitwiseBinOp, CastKind, FloatArithOp, IntArithOp, LogicalOp, TirExpr, TirExprKind, TypedBinOp,
     UnaryOpKind, ValueType,
 };
 
+use super::runtime_fn::RuntimeFn;
 use super::Codegen;
 
 impl<'ctx> Codegen<'ctx> {
@@ -21,7 +23,7 @@ impl<'ctx> Codegen<'ctx> {
                 let global = emit!(self.build_global_string_ptr(s, "str_data"));
                 let data_ptr = global.as_pointer_value();
                 let len = self.i64_type().const_int(s.len() as u64, false);
-                let str_new_fn = self.get_or_declare_str_new();
+                let str_new_fn = self.get_runtime_fn(RuntimeFn::StrNew);
                 let call =
                     emit!(self.build_call(str_new_fn, &[data_ptr.into(), len.into()], "str_new"));
                 self.extract_call_value(call)
@@ -39,7 +41,7 @@ impl<'ctx> Codegen<'ctx> {
                 global.set_constant(true);
                 let data_ptr = global.as_pointer_value();
                 let len = self.i64_type().const_int(bytes.len() as u64, false);
-                let bytes_new_fn = self.get_or_declare_bytes_new();
+                let bytes_new_fn = self.get_runtime_fn(RuntimeFn::BytesNew);
                 let call = emit!(self.build_call(
                     bytes_new_fn,
                     &[data_ptr.into(), len.into()],
@@ -49,8 +51,11 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirExprKind::Var(name) => {
-                let ptr = self.variables[name.as_str()];
-                emit!(self.build_load(self.get_llvm_type(&expr.ty), ptr, name))
+                emit!(self.build_load(
+                    self.get_llvm_type(&expr.ty),
+                    self.variables[name.as_str()],
+                    name
+                ))
             }
 
             TirExprKind::BinOp { op, left, right } => {
@@ -63,43 +68,28 @@ impl<'ctx> Codegen<'ctx> {
                         let r = right_val.into_float_value();
 
                         let result = match float_op {
-                            FloatArithOp::Add => {
-                                emit!(self.build_float_add(l, r, "fadd"))
-                            }
-                            FloatArithOp::Sub => {
-                                emit!(self.build_float_sub(l, r, "fsub"))
-                            }
-                            FloatArithOp::Mul => {
-                                emit!(self.build_float_mul(l, r, "fmul"))
-                            }
-                            FloatArithOp::Div => {
-                                emit!(self.build_float_div(l, r, "fdiv"))
-                            }
-                            FloatArithOp::Mod => {
-                                emit!(self.build_float_rem(l, r, "fmod"))
-                            }
+                            FloatArithOp::Add => emit!(self.build_float_add(l, r, "fadd")),
+                            FloatArithOp::Sub => emit!(self.build_float_sub(l, r, "fsub")),
+                            FloatArithOp::Mul => emit!(self.build_float_mul(l, r, "fmul")),
+                            FloatArithOp::Div => emit!(self.build_float_div(l, r, "fdiv")),
+                            FloatArithOp::Mod => emit!(self.build_float_rem(l, r, "fmod")),
                             FloatArithOp::FloorDiv => {
                                 let div = emit!(self.build_float_div(l, r, "fdiv"));
-                                let floor_fn = self
-                                    .module
-                                    .get_function("llvm.floor.f64")
-                                    .unwrap_or_else(|| {
-                                        let f64_type = self.context.f64_type();
-                                        let fn_type = f64_type.fn_type(&[f64_type.into()], false);
-                                        self.module.add_function("llvm.floor.f64", fn_type, None)
-                                    });
+                                let f64_ty = self.f64_type();
+                                let floor_fn = self.get_llvm_intrinsic(
+                                    "llvm.floor.f64",
+                                    f64_ty.fn_type(&[f64_ty.into()], false),
+                                );
                                 let call =
                                     emit!(self.build_call(floor_fn, &[div.into()], "floordiv"));
                                 self.extract_call_value(call).into_float_value()
                             }
                             FloatArithOp::Pow => {
-                                let pow_fn =
-                                    self.module.get_function("llvm.pow.f64").unwrap_or_else(|| {
-                                        let f64_type = self.context.f64_type();
-                                        let fn_type = f64_type
-                                            .fn_type(&[f64_type.into(), f64_type.into()], false);
-                                        self.module.add_function("llvm.pow.f64", fn_type, None)
-                                    });
+                                let f64_ty = self.f64_type();
+                                let pow_fn = self.get_llvm_intrinsic(
+                                    "llvm.pow.f64",
+                                    f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false),
+                                );
                                 let call =
                                     emit!(self.build_call(pow_fn, &[l.into(), r.into()], "pow"));
                                 self.extract_call_value(call).into_float_value()
@@ -116,10 +106,7 @@ impl<'ctx> Codegen<'ctx> {
                             IntArithOp::Add => emit!(self.build_int_add(l, r, "add")),
                             IntArithOp::Sub => emit!(self.build_int_sub(l, r, "sub")),
                             IntArithOp::Mul => emit!(self.build_int_mul(l, r, "mul")),
-                            // No Div variant — Python `/` always returns float.
-                            IntArithOp::Mod => {
-                                emit!(self.build_int_signed_rem(l, r, "mod"))
-                            }
+                            IntArithOp::Mod => emit!(self.build_int_signed_rem(l, r, "mod")),
                             IntArithOp::FloorDiv => {
                                 let div = emit!(self.build_int_signed_div(l, r, "div_tmp"));
                                 let rem = emit!(self.build_int_signed_rem(l, r, "rem_tmp"));
@@ -147,11 +134,7 @@ impl<'ctx> Codegen<'ctx> {
                                 emit!(self.build_int_sub(div, adjust, "floordiv"))
                             }
                             IntArithOp::Pow => {
-                                let pow_fn = self.get_or_declare_function(
-                                    "__tython_pow_int",
-                                    &[ValueType::Int, ValueType::Int],
-                                    Some(ValueType::Int),
-                                );
+                                let pow_fn = self.get_builtin(BuiltinFn::PowInt);
                                 let call =
                                     emit!(self.build_call(pow_fn, &[l.into(), r.into()], "ipow"));
                                 self.extract_call_value(call).into_int_value()
@@ -161,93 +144,27 @@ impl<'ctx> Codegen<'ctx> {
                     }
 
                     TypedBinOp::Bitwise(bitwise_op) => {
-                        let left_int = left_val.into_int_value();
-                        let right_int = right_val.into_int_value();
-
-                        let result = match bitwise_op {
-                            BitwiseBinOp::BitAnd => {
-                                emit!(self.build_and(left_int, right_int, "bitand"))
-                            }
-                            BitwiseBinOp::BitOr => {
-                                emit!(self.build_or(left_int, right_int, "bitor"))
-                            }
-                            BitwiseBinOp::BitXor => {
-                                emit!(self.build_xor(left_int, right_int, "bitxor"))
-                            }
-                            BitwiseBinOp::LShift => {
-                                emit!(self.build_left_shift(left_int, right_int, "lshift"))
-                            }
-                            BitwiseBinOp::RShift => {
-                                emit!(self.build_right_shift(left_int, right_int, true, "rshift"))
-                            }
-                        };
-                        result.into()
+                        let l = left_val.into_int_value();
+                        let r = right_val.into_int_value();
+                        dispatch!(self, bitwise_op,
+                            BitwiseBinOp::BitAnd  => build_and(l, r, "bitand"),
+                            BitwiseBinOp::BitOr   => build_or(l, r, "bitor"),
+                            BitwiseBinOp::BitXor  => build_xor(l, r, "bitxor"),
+                            BitwiseBinOp::LShift  => build_left_shift(l, r, "lshift"),
+                            BitwiseBinOp::RShift  => build_right_shift(l, r, true, "rshift"),
+                        )
+                        .into()
                     }
                 }
             }
 
             TirExprKind::Call { func, args } => {
-                let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty.clone()).collect();
-                let function =
-                    self.get_or_declare_function(func, &arg_types, Some(expr.ty.clone()));
-                let arg_metadata = self.codegen_call_args(args);
-                let call_site = self.build_call_maybe_invoke(function, &arg_metadata, "call", true);
-                self.extract_call_value(call_site)
+                self.codegen_named_call(func, args, Some(&expr.ty)).unwrap()
             }
 
-            TirExprKind::ExternalCall { func, args } => {
-                use crate::tir::builtin::BuiltinFn;
-                if matches!(func, BuiltinFn::ListPop | BuiltinFn::ListGet) {
-                    // Return value is i64 slot — bitcast from i64 to actual type
-                    let function = self.get_or_declare_function(
-                        func.symbol(),
-                        &func.param_types(),
-                        func.return_type(),
-                    );
-                    let arg_metadata = self.codegen_call_args(args);
-                    let call_site = emit!(self.build_call(
-                        function,
-                        &Self::to_meta_args(&arg_metadata),
-                        "list_get_elem"
-                    ));
-                    let i64_val = self.extract_call_value(call_site).into_int_value();
-                    return self.bitcast_from_i64(i64_val, &expr.ty);
-                }
-
-                if matches!(
-                    func,
-                    BuiltinFn::ListContains | BuiltinFn::ListIndex | BuiltinFn::ListCount
-                ) {
-                    // args = [list, value] — value needs bitcast to i64
-                    let function = self.get_or_declare_function(
-                        func.symbol(),
-                        &func.param_types(),
-                        func.return_type(),
-                    );
-                    let list_val = self.codegen_expr(&args[0]);
-                    let elem_val = self.codegen_expr(&args[1]);
-                    let i64_val = self.bitcast_to_i64(elem_val, &args[1].ty);
-                    let call_site = emit!(self.build_call(
-                        function,
-                        &[list_val.into(), i64_val.into()],
-                        "list_elem_op"
-                    ));
-                    return self.extract_call_value(call_site);
-                }
-
-                let function = self.get_or_declare_function(
-                    func.symbol(),
-                    &func.param_types(),
-                    func.return_type(),
-                );
-                let arg_metadata = self.codegen_call_args(args);
-                let call_site = emit!(self.build_call(
-                    function,
-                    &Self::to_meta_args(&arg_metadata),
-                    "ext_call"
-                ));
-                self.extract_call_value(call_site)
-            }
+            TirExprKind::ExternalCall { func, args } => self
+                .codegen_builtin_call(*func, args, Some(&expr.ty))
+                .unwrap(),
 
             TirExprKind::Cast { kind, arg } => {
                 let arg_val = self.codegen_expr(arg);
@@ -414,7 +331,7 @@ impl<'ctx> Codegen<'ctx> {
                 // Allocate heap memory for the struct
                 let size = struct_type.size_of().unwrap();
                 let size_i64 = emit!(self.build_int_cast(size, self.i64_type(), "size_i64"));
-                let malloc_fn = self.get_or_declare_malloc();
+                let malloc_fn = self.get_runtime_fn(RuntimeFn::Malloc);
                 let call_site = emit!(self.build_call(malloc_fn, &[size_i64.into()], "malloc"));
                 let ptr = self.extract_call_value(call_site).into_pointer_value();
 
@@ -451,32 +368,6 @@ impl<'ctx> Codegen<'ctx> {
                 emit!(self.build_load(field_llvm_type, field_ptr, "field_val"))
             }
 
-            TirExprKind::MethodCall {
-                object,
-                method_mangled_name,
-                args,
-            } => {
-                let self_val = self.codegen_expr(object);
-
-                // Build full arg list: [self, ...args]
-                let mut all_vals: Vec<inkwell::values::BasicValueEnum> = vec![self_val];
-                all_vals.extend(self.codegen_call_args(args));
-
-                // Declare/get method function
-                let mut param_types = vec![object.ty.clone()];
-                param_types.extend(args.iter().map(|a| a.ty.clone()));
-                let method_fn = self.get_or_declare_function(
-                    method_mangled_name,
-                    &param_types,
-                    Some(expr.ty.clone()),
-                );
-
-                let call_site =
-                    self.build_call_maybe_invoke(method_fn, &all_vals, "method_call", true);
-
-                self.extract_call_value(call_site)
-            }
-
             TirExprKind::TupleLiteral {
                 elements,
                 element_types,
@@ -484,7 +375,7 @@ impl<'ctx> Codegen<'ctx> {
                 let struct_type = self.get_or_create_tuple_struct(element_types);
                 let size = struct_type.size_of().unwrap();
                 let size_i64 = emit!(self.build_int_cast(size, self.i64_type(), "tuple_size_i64"));
-                let malloc_fn = self.get_or_declare_malloc();
+                let malloc_fn = self.get_runtime_fn(RuntimeFn::Malloc);
                 let call_site =
                     emit!(self.build_call(malloc_fn, &[size_i64.into()], "tuple_malloc"));
                 let tuple_ptr = self.extract_call_value(call_site).into_pointer_value();
@@ -608,11 +499,7 @@ impl<'ctx> Codegen<'ctx> {
                 elements,
             } => {
                 if elements.is_empty() {
-                    let empty_fn = self.get_or_declare_function(
-                        "__tython_list_empty",
-                        &[],
-                        Some(ValueType::List(Box::new(element_type.clone()))),
-                    );
+                    let empty_fn = self.get_builtin(BuiltinFn::ListEmpty);
                     let call = emit!(self.build_call(empty_fn, &[], "list_empty"));
                     self.extract_call_value(call)
                 } else {
@@ -638,7 +525,7 @@ impl<'ctx> Codegen<'ctx> {
                     }
 
                     let len_val = i64_ty.const_int(len as u64, false);
-                    let list_new_fn = self.get_or_declare_list_new();
+                    let list_new_fn = self.get_runtime_fn(RuntimeFn::ListNew);
                     let call = emit!(self.build_call(
                         list_new_fn,
                         &[array_alloca.into(), len_val.into()],

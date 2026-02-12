@@ -347,20 +347,20 @@ impl Lowering {
                         let return_type = &method.return_type;
                         let mangled = method.mangled_name.clone();
 
+                        // Prepend self (obj_expr) to args — method is just a Call
+                        let mut all_args = vec![obj_expr];
+                        all_args.extend(tir_args);
+
                         if *return_type == Type::Unit {
                             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                                target: CallTarget::MethodCall {
-                                    mangled_name: mangled,
-                                    object: obj_expr,
-                                },
-                                args: tir_args,
+                                target: CallTarget::Named(mangled),
+                                args: all_args,
                             })))
                         } else {
                             Ok(CallResult::Expr(TirExpr {
-                                kind: TirExprKind::MethodCall {
-                                    object: Box::new(obj_expr),
-                                    method_mangled_name: mangled,
-                                    args: tir_args,
+                                kind: TirExprKind::Call {
+                                    func: mangled,
+                                    args: all_args,
                                 },
                                 ty: Self::to_value_type(return_type),
                             }))
@@ -646,10 +646,9 @@ impl Lowering {
         };
 
         Ok(TirExpr {
-            kind: TirExprKind::MethodCall {
-                object: Box::new(object),
-                method_mangled_name: method.mangled_name.clone(),
-                args: vec![],
+            kind: TirExprKind::Call {
+                func: method.mangled_name.clone(),
+                args: vec![object],
             },
             ty: return_type,
         })

@@ -313,10 +313,6 @@ pub enum CastKind {
 pub enum CallTarget {
     Named(String),
     Builtin(builtin::BuiltinFn),
-    MethodCall {
-        mangled_name: String,
-        object: TirExpr,
-    },
     Indirect(TirExpr),
 }
 
@@ -548,11 +544,6 @@ pub enum TirExprKind {
     Construct {
         class_name: String,
         init_mangled_name: String,
-        args: Vec<TirExpr>,
-    },
-    MethodCall {
-        object: Box<TirExpr>,
-        method_mangled_name: String,
         args: Vec<TirExpr>,
     },
     TupleLiteral {
