@@ -5,7 +5,10 @@
 #include <cstdlib>
 #include <cstring>
 
-extern "C" void* __tython_malloc(int64_t size);
+#include "../gc/gc.h"
+
+// Use atomic allocation for buffers (strings/bytes contain no pointers)
+#define __tython_malloc __tython_gc_malloc_atomic
 
 namespace tython {
 

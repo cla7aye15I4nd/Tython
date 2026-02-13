@@ -1,4 +1,5 @@
 #include "tython.h"
+#include "gc/gc.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -17,25 +18,17 @@ static void ensure_capacity(TythonSet* s, int64_t needed) {
     if (s->capacity >= needed) return;
     int64_t next = s->capacity == 0 ? 4 : s->capacity * 2;
     while (next < needed) next *= 2;
-    auto* next_data = static_cast<int64_t*>(std::malloc(sizeof(int64_t) * next));
-    if (!next_data) {
-        std::fprintf(stderr, "MemoryError: allocation failed\n");
-        std::exit(1);
-    }
+    auto* next_data = static_cast<int64_t*>(__tython_gc_malloc(sizeof(int64_t) * next));
     if (s->len > 0) {
         std::memcpy(next_data, s->data, sizeof(int64_t) * s->len);
     }
-    std::free(s->data);
+    __tython_gc_free(s->data);
     s->data = next_data;
     s->capacity = next;
 }
 
 TythonSet* TYTHON_FN(set_empty)(void) {
-    auto* s = static_cast<TythonSet*>(std::malloc(sizeof(TythonSet)));
-    if (!s) {
-        std::fprintf(stderr, "MemoryError: allocation failed\n");
-        std::exit(1);
-    }
+    auto* s = static_cast<TythonSet*>(__tython_gc_malloc(sizeof(TythonSet)));
     s->len = 0;
     s->capacity = 0;
     s->data = nullptr;

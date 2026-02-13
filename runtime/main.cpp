@@ -1,4 +1,5 @@
 #include "tython.h"
+#include "gc/gc.h"
 
 extern "C" {
     // Entry point function that generated code must provide
@@ -10,6 +11,9 @@ extern "C" {
 }
 
 int main() {
+    // Initialize garbage collector
+    __tython_gc_init();
+
     try {
         __tython_user_main();
         return 0;

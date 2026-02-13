@@ -1,5 +1,5 @@
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const RUNTIME_SOURCES: &[&str] = &[
@@ -15,8 +15,12 @@ const RUNTIME_SOURCES: &[&str] = &[
     "runtime/exception.cpp",
     "runtime/main.cpp",
 ];
+
+const GC_SOURCES: &[&str] = &["runtime/gc/gc_naive.cpp", "runtime/gc/gc_boehm.cpp"];
+
 const RUNTIME_HEADERS: &[&str] = &[
     "runtime/tython.h",
+    "runtime/gc/gc.h",
     "runtime/builtins/builtins.h",
     "runtime/builtins/common.h",
     "runtime/builtins/print.h",
@@ -32,16 +36,20 @@ const RUNTIME_HEADERS: &[&str] = &[
     "runtime/internal/buf.h",
 ];
 
-fn main() {
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let out_path = Path::new(&out_dir);
+fn compile_runtime(out_path: &Path, gc_type: &str) -> PathBuf {
+    let gc_define = match gc_type {
+        "naive" => "TYTHON_GC_NAIVE",
+        "boehm" => "TYTHON_GC_BOEHM",
+        _ => panic!("Unknown GC type: {}", gc_type),
+    };
 
-    // Compile each .cpp file to a .o bitcode object
     let mut objects = Vec::new();
+
+    // Compile runtime sources with GC flag
     for src in RUNTIME_SOURCES {
         let src_path = Path::new(src);
         let stem = src_path.file_stem().unwrap().to_str().unwrap();
-        let obj = out_path.join(format!("{}.o", stem));
+        let obj = out_path.join(format!("{}_{}.o", stem, gc_type));
 
         let status = Command::new("clang++")
             .arg("-std=c++17")
@@ -49,6 +57,7 @@ fn main() {
             .arg("-flto")
             .arg("-O2")
             .arg("-fexceptions")
+            .arg(format!("-D{}", gc_define))
             .arg("-Iruntime")
             .arg("-o")
             .arg(&obj)
@@ -60,8 +69,38 @@ fn main() {
         objects.push(obj);
     }
 
-    // Merge all bitcode objects into a single .o with llvm-link
-    let runtime_obj = out_path.join("runtime.o");
+    // Compile appropriate GC implementation
+    let gc_src = match gc_type {
+        "naive" => "runtime/gc/gc_naive.cpp",
+        "boehm" => "runtime/gc/gc_boehm.cpp",
+        _ => unreachable!(),
+    };
+
+    let gc_obj = out_path.join(format!("gc_{}.o", gc_type));
+    let mut cmd = Command::new("clang++");
+    cmd.arg("-std=c++17")
+        .arg("-c")
+        .arg("-flto")
+        .arg("-O2")
+        .arg("-fexceptions")
+        .arg(format!("-D{}", gc_define))
+        .arg("-Iruntime");
+
+    // Add Boehm GC include path if needed
+    if gc_type == "boehm" {
+        cmd.arg("-I/usr/include/gc");
+    }
+
+    cmd.arg("-o").arg(&gc_obj).arg(gc_src);
+
+    let status = cmd
+        .status()
+        .unwrap_or_else(|_| panic!("Failed to compile {}", gc_src));
+    assert!(status.success(), "Failed to compile {}", gc_src);
+    objects.push(gc_obj);
+
+    // Link all objects into runtime_{gc_type}.o
+    let runtime_obj = out_path.join(format!("runtime_{}.o", gc_type));
     let mut cmd = Command::new("llvm-link");
     cmd.arg("-o").arg(&runtime_obj);
     for obj in &objects {
@@ -69,11 +108,41 @@ fn main() {
     }
     let status = cmd
         .status()
-        .expect("Failed to link runtime objects with llvm-link");
-    assert!(status.success(), "Failed to link runtime objects");
+        .unwrap_or_else(|_| panic!("Failed to link runtime_{}.o", gc_type));
+    assert!(status.success(), "Failed to link runtime_{}.o", gc_type);
 
-    println!("cargo:rustc-env=RUNTIME_BC_PATH={}", runtime_obj.display());
+    runtime_obj
+}
+
+fn main() {
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_path = Path::new(&out_dir);
+
+    // Build both runtime variants
+    let runtime_naive = compile_runtime(out_path, "naive");
+    let runtime_boehm = compile_runtime(out_path, "boehm");
+
+    // Export both paths
+    println!(
+        "cargo:rustc-env=RUNTIME_BC_PATH_NAIVE={}",
+        runtime_naive.display()
+    );
+    println!(
+        "cargo:rustc-env=RUNTIME_BC_PATH_BOEHM={}",
+        runtime_boehm.display()
+    );
+
+    // Default to Boehm
+    println!(
+        "cargo:rustc-env=RUNTIME_BC_PATH={}",
+        runtime_boehm.display()
+    );
+
+    // Rerun if any source changes
     for src in RUNTIME_SOURCES {
+        println!("cargo:rerun-if-changed={}", src);
+    }
+    for src in GC_SOURCES {
         println!("cargo:rerun-if-changed={}", src);
     }
     for header in RUNTIME_HEADERS {

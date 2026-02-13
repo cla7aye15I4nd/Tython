@@ -1,4 +1,5 @@
 #include "tython.h"
+#include "gc/gc.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -12,12 +13,7 @@ void TYTHON_BUILTIN(assert)(int64_t condition) {
 }
 
 void* TYTHON_BUILTIN(malloc)(int64_t size) {
-    void* ptr = std::malloc(static_cast<size_t>(size));
-    if (!ptr) {
-        std::fprintf(stderr, "MemoryError: allocation failed\n");
-        std::exit(1);
-    }
-    return ptr;
+    return __tython_gc_malloc(size);
 }
 
 void* TYTHON_BUILTIN(open_read_all)(void* path_ptr) {

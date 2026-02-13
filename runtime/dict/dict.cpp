@@ -1,4 +1,5 @@
 #include "tython.h"
+#include "gc/gc.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -18,30 +19,22 @@ static void ensure_capacity(TythonDict* d, int64_t needed) {
     int64_t next = d->capacity == 0 ? 4 : d->capacity * 2;
     while (next < needed) next *= 2;
 
-    auto* next_keys = static_cast<int64_t*>(std::malloc(sizeof(int64_t) * next));
-    auto* next_values = static_cast<int64_t*>(std::malloc(sizeof(int64_t) * next));
-    if (!next_keys || !next_values) {
-        std::fprintf(stderr, "MemoryError: allocation failed\n");
-        std::exit(1);
-    }
+    auto* next_keys = static_cast<int64_t*>(__tython_gc_malloc(sizeof(int64_t) * next));
+    auto* next_values = static_cast<int64_t*>(__tython_gc_malloc(sizeof(int64_t) * next));
 
     if (d->len > 0) {
         std::memcpy(next_keys, d->keys, sizeof(int64_t) * d->len);
         std::memcpy(next_values, d->values, sizeof(int64_t) * d->len);
     }
-    std::free(d->keys);
-    std::free(d->values);
+    __tython_gc_free(d->keys);
+    __tython_gc_free(d->values);
     d->keys = next_keys;
     d->values = next_values;
     d->capacity = next;
 }
 
 TythonDict* TYTHON_FN(dict_empty)(void) {
-    auto* d = static_cast<TythonDict*>(std::malloc(sizeof(TythonDict)));
-    if (!d) {
-        std::fprintf(stderr, "MemoryError: allocation failed\n");
-        std::exit(1);
-    }
+    auto* d = static_cast<TythonDict*>(__tython_gc_malloc(sizeof(TythonDict)));
     d->len = 0;
     d->capacity = 0;
     d->keys = nullptr;

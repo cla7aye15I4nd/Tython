@@ -6,7 +6,10 @@
 #include <cstring>
 #include <algorithm>
 
-extern "C" void* __tython_malloc(int64_t size);
+#include "../gc/gc.h"
+
+// Use regular GC allocation for vectors (can contain pointers)
+#define __tython_malloc __tython_gc_malloc
 
 namespace tython {
 
@@ -51,7 +54,7 @@ struct Vec {
         auto* new_data = static_cast<T*>(
             __tython_malloc(new_cap * static_cast<int64_t>(sizeof(T))));
         std::memcpy(new_data, data, static_cast<size_t>(len) * sizeof(T));
-        std::free(data);
+        __tython_gc_free(data);
         data = new_data;
         capacity = new_cap;
     }

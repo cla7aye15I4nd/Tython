@@ -109,23 +109,51 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
-    const RUNTIME_BC: &'static str = env!("RUNTIME_BC_PATH");
+    const RUNTIME_BC_NAIVE: &'static str = env!("RUNTIME_BC_PATH_NAIVE");
+    const RUNTIME_BC_BOEHM: &'static str = env!("RUNTIME_BC_PATH_BOEHM");
 
     pub fn link(&self, output_path: &Path) {
         let bc_path = output_path.with_extension("o");
 
         self.module.write_bitcode_to_path(&bc_path);
 
+        // Select runtime based on TYTHON_GC environment variable
+        let gc_type = std::env::var("TYTHON_GC").unwrap_or_else(|_| "boehm".to_string());
+        let runtime_bc = match gc_type.as_str() {
+            "naive" => Self::RUNTIME_BC_NAIVE,
+            "boehm" => Self::RUNTIME_BC_BOEHM,
+            _ => {
+                eprintln!(
+                    "Warning: Unknown TYTHON_GC value '{}', defaulting to 'boehm'",
+                    gc_type
+                );
+                Self::RUNTIME_BC_BOEHM
+            }
+        };
+
         let mut cmd = Command::new("clang++");
         cmd.arg("-static")
             .arg("-flto")
             .arg("-O2")
-            .arg("-lm")
             .arg("-o")
             .arg(output_path)
             .arg(&bc_path)
-            .arg(Self::RUNTIME_BC);
+            .arg(runtime_bc);
 
-        let _ = cmd.output().expect("Failed to execute clang++");
+        // Add libraries AFTER object files (linking order matters)
+        cmd.arg("-lm");
+
+        // Add Boehm GC library if using boehm
+        if gc_type == "boehm" {
+            cmd.arg("-lgc");
+        }
+
+        cmd.arg("-lpthread").arg("-ldl");
+
+        let output = cmd.output().expect("Failed to execute clang++");
+        if !output.status.success() {
+            eprintln!("Linker error:\n{}", String::from_utf8_lossy(&output.stderr));
+            panic!("Failed to link with runtime");
+        }
     }
 }
