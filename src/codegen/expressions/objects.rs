@@ -54,6 +54,35 @@ impl<'ctx> Codegen<'ctx> {
         emit!(self.build_load(field_llvm_type, field_ptr, "field_val"))
     }
 
+    pub(crate) fn codegen_get_tuple_field(
+        &mut self,
+        tuple: &TirExpr,
+        _tuple_signature: &str,
+        field_index: usize,
+        field_ty: &ValueType,
+    ) -> BasicValueEnum<'ctx> {
+        let tuple_ptr = self.codegen_expr(tuple).into_pointer_value();
+
+        // Parse signature to get element types (signature is "type1|type2|...")
+        // We need to get the tuple type from the TirExpr instead
+        let elem_types = if let ValueType::Tuple(types) = &tuple.ty {
+            types.as_slice()
+        } else {
+            panic!("ICE: GetTupleField on non-tuple type");
+        };
+
+        let struct_type = self.get_or_create_tuple_struct(elem_types);
+        let field_ptr = emit!(self.build_struct_gep(
+            struct_type,
+            tuple_ptr,
+            field_index as u32,
+            "tuple_field_ptr"
+        ));
+
+        let field_llvm_type = self.get_llvm_type(field_ty);
+        emit!(self.build_load(field_llvm_type, field_ptr, "tuple_field"))
+    }
+
     pub(crate) fn codegen_tuple_literal(
         &mut self,
         elements: &[TirExpr],
@@ -73,20 +102,6 @@ impl<'ctx> Codegen<'ctx> {
             emit!(self.build_store(field_ptr, elem_val));
         }
         tuple_ptr.into()
-    }
-
-    pub(crate) fn codegen_tuple_get(
-        &mut self,
-        tuple: &TirExpr,
-        index: usize,
-        element_types: &[ValueType],
-        result_ty: &ValueType,
-    ) -> BasicValueEnum<'ctx> {
-        let tuple_ptr = self.codegen_expr(tuple).into_pointer_value();
-        let struct_type = self.get_or_create_tuple_struct(element_types);
-        let field_ptr =
-            emit!(self.build_struct_gep(struct_type, tuple_ptr, index as u32, "tuple_get_ptr"));
-        emit!(self.build_load(self.get_llvm_type(result_ty), field_ptr, "tuple_get"))
     }
 
     pub(crate) fn codegen_tuple_get_dynamic(

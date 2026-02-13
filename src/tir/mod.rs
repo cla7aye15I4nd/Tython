@@ -604,6 +604,11 @@ pub enum TirExprKind {
         class_name: String,
         field_index: usize,
     },
+    GetTupleField {
+        tuple: Box<TirExpr>,
+        tuple_signature: String,
+        field_index: usize,
+    },
     Construct {
         class_name: String,
         init_mangled_name: String,
@@ -613,17 +618,6 @@ pub enum TirExprKind {
     // ── Tuple operations ────────────────────────────────────────────
     TupleLiteral {
         elements: Vec<TirExpr>,
-        element_types: Vec<ValueType>,
-    },
-    TupleGet {
-        tuple: Box<TirExpr>,
-        index: usize,
-        element_types: Vec<ValueType>,
-    },
-    TupleGetDynamic {
-        tuple: Box<TirExpr>,
-        index: Box<TirExpr>,
-        len: usize,
         element_types: Vec<ValueType>,
     },
 

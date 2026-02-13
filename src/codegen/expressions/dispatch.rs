@@ -85,21 +85,15 @@ impl<'ctx> Codegen<'ctx> {
                 class_name,
                 field_index,
             } => self.codegen_get_field(object, class_name, *field_index, &expr.ty),
+            TirExprKind::GetTupleField {
+                tuple,
+                tuple_signature,
+                field_index,
+            } => self.codegen_get_tuple_field(tuple, tuple_signature, *field_index, &expr.ty),
             TirExprKind::TupleLiteral {
                 elements,
                 element_types,
             } => self.codegen_tuple_literal(elements, element_types),
-            TirExprKind::TupleGet {
-                tuple,
-                index,
-                element_types,
-            } => self.codegen_tuple_get(tuple, *index, element_types, &expr.ty),
-            TirExprKind::TupleGetDynamic {
-                tuple,
-                index,
-                len,
-                element_types,
-            } => self.codegen_tuple_get_dynamic(tuple, index, *len, element_types, &expr.ty),
             TirExprKind::ListLiteral {
                 element_type,
                 elements,

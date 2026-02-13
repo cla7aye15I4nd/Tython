@@ -241,6 +241,22 @@ impl<'ctx> Codegen<'ctx> {
             return Some(self.bitcast_from_i64(i64_val, result_ty.unwrap()));
         }
 
+        // TupleGetItem — use codegen_tuple_get_dynamic logic
+        if matches!(func, BuiltinFn::TupleGetItem) {
+            let tuple = &args[0];
+            let index = &args[1];
+            let ValueType::Tuple(elem_types) = &tuple.ty else {
+                panic!("ICE: TupleGetItem on non-tuple type");
+            };
+            return Some(self.codegen_tuple_get_dynamic(
+                tuple,
+                index,
+                elem_types.len(),
+                elem_types,
+                result_ty.unwrap(),
+            ));
+        }
+
         // List ops returning an element stored as i64 — bitcast result
         if matches!(
             func,

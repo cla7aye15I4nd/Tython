@@ -1319,25 +1319,22 @@ impl Lowering {
         let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
 
         // Prepend: loop_var = tuple[idx_var]
-        let tuple_element_types = match &tuple_expr.ty {
-            ValueType::Tuple(types) => types.clone(),
-            _ => vec![elem_ty.clone(); tuple_len],
-        };
         let mut full_body = vec![TirStmt::Let {
             name: loop_var.to_string(),
             ty: elem_ty.clone(),
             value: TirExpr {
-                kind: TirExprKind::TupleGetDynamic {
-                    tuple: Box::new(TirExpr {
-                        kind: TirExprKind::Var(tuple_var.clone()),
-                        ty: tuple_expr.ty.clone(),
-                    }),
-                    index: Box::new(TirExpr {
-                        kind: TirExprKind::Var(idx_var.clone()),
-                        ty: ValueType::Int,
-                    }),
-                    len: tuple_len,
-                    element_types: tuple_element_types,
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::TupleGetItem,
+                    args: vec![
+                        TirExpr {
+                            kind: TirExprKind::Var(tuple_var.clone()),
+                            ty: tuple_expr.ty.clone(),
+                        },
+                        TirExpr {
+                            kind: TirExprKind::Var(idx_var.clone()),
+                            ty: ValueType::Int,
+                        },
+                    ],
                 },
                 ty: elem_ty,
             },

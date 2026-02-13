@@ -616,11 +616,12 @@ impl Lowering {
                             }
                             let idx = normalized as usize;
                             let elem_ty = elements[idx].clone();
+                            let tuple_signature = self.get_or_register_tuple(&elements);
                             Ok(TirExpr {
-                                kind: TirExprKind::TupleGet {
+                                kind: TirExprKind::GetTupleField {
                                     tuple: Box::new(obj_expr),
-                                    index: idx,
-                                    element_types: elements.clone(),
+                                    tuple_signature,
+                                    field_index: idx,
                                 },
                                 ty: elem_ty,
                             })
@@ -636,11 +637,9 @@ impl Lowering {
                                 ));
                             }
                             Ok(TirExpr {
-                                kind: TirExprKind::TupleGetDynamic {
-                                    tuple: Box::new(obj_expr),
-                                    index: Box::new(index_expr),
-                                    len: elements.len(),
-                                    element_types: elements.clone(),
+                                kind: TirExprKind::ExternalCall {
+                                    func: builtin::BuiltinFn::TupleGetItem,
+                                    args: vec![obj_expr, index_expr],
                                 },
                                 ty: first.clone(),
                             })
@@ -882,14 +881,15 @@ impl Lowering {
                         Self::push_print_str_literal(stmts, ", ");
                     }
 
+                    let tuple_signature = self.get_or_register_tuple(&tuple_element_types);
                     let element_expr = TirExpr {
-                        kind: TirExprKind::TupleGet {
+                        kind: TirExprKind::GetTupleField {
                             tuple: Box::new(TirExpr {
                                 kind: TirExprKind::Var(tuple_var.clone()),
                                 ty: tuple_ty.clone(),
                             }),
-                            index: i,
-                            element_types: tuple_element_types.clone(),
+                            tuple_signature,
+                            field_index: i,
                         },
                         ty: element_ty.clone(),
                     };
@@ -1228,14 +1228,15 @@ impl Lowering {
                 });
             }
 
+            let tuple_signature = self.get_or_register_tuple(&element_types);
             let elem_expr = TirExpr {
-                kind: TirExprKind::TupleGet {
+                kind: TirExprKind::GetTupleField {
                     tuple: Box::new(TirExpr {
                         kind: TirExprKind::Var(tuple_var.clone()),
                         ty: tuple_ty.clone(),
                     }),
-                    index: i,
-                    element_types: element_types.clone(),
+                    tuple_signature,
+                    field_index: i,
                 },
                 ty: elem_ty.clone(),
             };
@@ -2125,21 +2126,22 @@ impl Lowering {
         }
 
         let mut comparisons = Vec::new();
+        let tuple_signature = self.get_or_register_tuple(&elements);
 
         for (i, elem_ty) in elements.iter().enumerate() {
             let left_elem = TirExpr {
-                kind: TirExprKind::TupleGet {
+                kind: TirExprKind::GetTupleField {
                     tuple: Box::new(left.clone()),
-                    index: i,
-                    element_types: elements.clone(),
+                    tuple_signature: tuple_signature.clone(),
+                    field_index: i,
                 },
                 ty: elem_ty.clone(),
             };
             let right_elem = TirExpr {
-                kind: TirExprKind::TupleGet {
+                kind: TirExprKind::GetTupleField {
                     tuple: Box::new(right.clone()),
-                    index: i,
-                    element_types: elements.clone(),
+                    tuple_signature: tuple_signature.clone(),
+                    field_index: i,
                 },
                 ty: elem_ty.clone(),
             };
@@ -2891,25 +2893,22 @@ impl Lowering {
                 let step_name = self.fresh_internal("comp_step");
 
                 // Prepend: var_name = tuple[idx_var]
-                let tuple_element_types = match &tuple_expr.ty {
-                    ValueType::Tuple(types) => types.clone(),
-                    _ => vec![elem_ty.clone(); *len],
-                };
                 let mut full_body = vec![TirStmt::Let {
                     name: var_name.to_string(),
                     ty: elem_ty.clone(),
                     value: TirExpr {
-                        kind: TirExprKind::TupleGetDynamic {
-                            tuple: Box::new(TirExpr {
-                                kind: TirExprKind::Var(tuple_var.clone()),
-                                ty: tuple_expr.ty.clone(),
-                            }),
-                            index: Box::new(TirExpr {
-                                kind: TirExprKind::Var(idx_var.clone()),
-                                ty: ValueType::Int,
-                            }),
-                            len: *len,
-                            element_types: tuple_element_types,
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::TupleGetItem,
+                            args: vec![
+                                TirExpr {
+                                    kind: TirExprKind::Var(tuple_var.clone()),
+                                    ty: tuple_expr.ty.clone(),
+                                },
+                                TirExpr {
+                                    kind: TirExprKind::Var(idx_var.clone()),
+                                    ty: ValueType::Int,
+                                },
+                            ],
                         },
                         ty: elem_ty.clone(),
                     },

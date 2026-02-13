@@ -109,6 +109,7 @@ define_builtins! {
     ListLen            => "__tython_list_len",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
     ListGet            => "__tython_list_get",            params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: Some(ValueType::Int);
     ListSlice          => "__tython_list_slice",          params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int],      ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    TupleGetItem       => "__tython_tuple_getitem",       params: [ValueType::Tuple(vec![ValueType::Int]), ValueType::Int],                        ret: Some(ValueType::Int);
     ListRepeat         => "__tython_list_repeat",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ListAppend         => "__tython_list_append",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: None;
     ListPop            => "__tython_list_pop",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
