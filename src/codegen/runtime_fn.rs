@@ -38,8 +38,6 @@ macro_rules! define_runtime_fns {
 
 define_runtime_fns! {
     Malloc         => "__tython_malloc",          llvm: [LlvmTy::I64]                               -> Some(LlvmTy::Ptr);
-    StrNew         => "__tython_str_new",         llvm: [LlvmTy::Ptr, LlvmTy::I64]                 -> Some(LlvmTy::Ptr);
-    BytesNew       => "__tython_bytes_new",       llvm: [LlvmTy::Ptr, LlvmTy::I64]                 -> Some(LlvmTy::Ptr);
     ListNew        => "__tython_list_new",        llvm: [LlvmTy::Ptr, LlvmTy::I64]                 -> Some(LlvmTy::Ptr);
     ListSet        => "__tython_list_set",        llvm: [LlvmTy::Ptr, LlvmTy::I64, LlvmTy::I64]   -> None;
     Personality    => "__gxx_personality_v0",      llvm: []                                          -> Some(LlvmTy::I32);
