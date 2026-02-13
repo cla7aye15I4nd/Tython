@@ -50,5 +50,4 @@ define_runtime_fns! {
     CaughtTypeTag  => "__tython_caught_type_tag", llvm: [LlvmTy::Ptr]                               -> Some(LlvmTy::I64);
     CaughtMessage  => "__tython_caught_message",  llvm: [LlvmTy::Ptr]                               -> Some(LlvmTy::Ptr);
     CaughtMatches  => "__tython_caught_matches",  llvm: [LlvmTy::Ptr, LlvmTy::I64]                 -> Some(LlvmTy::I64);
-    PrintUnhandled => "__tython_print_unhandled",  llvm: [LlvmTy::I64, LlvmTy::Ptr]                 -> None;
 }

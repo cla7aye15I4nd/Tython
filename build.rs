@@ -13,6 +13,7 @@ const RUNTIME_SOURCES: &[&str] = &[
     "runtime/dict/dict.cpp",
     "runtime/set/set.cpp",
     "runtime/exception.cpp",
+    "runtime/main.cpp",
 ];
 const RUNTIME_HEADERS: &[&str] = &[
     "runtime/tython.h",

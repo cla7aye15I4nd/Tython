@@ -14,6 +14,9 @@ extern "C" {
     /* typeinfo for void* — mangled C++ symbol from libstdc++/libc++.
        All Tython exceptions use this single typeinfo; dispatch is by type_tag. */
     extern void* _ZTIPv;
+
+    /* Thread-local storage for exception tracking (used by main's catch handler) */
+    thread_local void* __tython_last_exception = nullptr;
 }
 
 void TYTHON_FN(raise)(int64_t type_tag, void* message) {
@@ -21,6 +24,10 @@ void TYTHON_FN(raise)(int64_t type_tag, void* message) {
         __cxa_allocate_exception(sizeof(TythonException)));
     exc->type_tag = type_tag;
     exc->message  = static_cast<TythonStr*>(message);
+
+    // Store for main's catch handler
+    __tython_last_exception = exc;
+
     __cxa_throw(exc, &_ZTIPv, nullptr);
     __builtin_unreachable();
 }

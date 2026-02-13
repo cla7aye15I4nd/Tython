@@ -44,7 +44,7 @@ impl Compiler {
 
         let entry_main_mangled = self.resolver.mangle_synthetic_main(&self.entry_point);
 
-        codegen.add_c_main_wrapper(&entry_main_mangled);
+        codegen.create_runtime_entry_point(&entry_main_mangled);
 
         codegen.link(&output_path);
 
