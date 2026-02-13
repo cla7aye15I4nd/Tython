@@ -415,8 +415,30 @@ impl Lowering {
                     functions.insert(tir_func.name.clone(), tir_func);
                 }
                 "Import" | "ImportFrom" => {}
+                "If" => {
+                    // Check if this is the `if __name__ == '__main__':` pattern
+                    if Self::is_main_guard(&node) {
+                        // Extract and lower the body of the if statement
+                        let body = ast_get_list!(node, "body");
+                        for stmt in body.iter() {
+                            module_level_stmts.extend(self.lower_stmt(&stmt)?);
+                        }
+                    } else {
+                        // Disallow other if statements at module level
+                        let line = Self::get_line(&node);
+                        return Err(self.syntax_error(
+                            line,
+                            "Module-level executable code must be inside 'if __name__ == \"__main__\":' block"
+                        ));
+                    }
+                }
                 _ => {
-                    module_level_stmts.extend(self.lower_stmt(&node)?);
+                    // Disallow any other executable code at module level
+                    let line = Self::get_line(&node);
+                    return Err(self.syntax_error(
+                        line,
+                        "Module-level executable code must be inside 'if __name__ == \"__main__\":' block"
+                    ));
                 }
             }
         }
@@ -456,6 +478,70 @@ impl Lowering {
         ast_getattr!(node, "lineno")
             .extract::<usize>()
             .unwrap_or_default()
+    }
+
+    /// Check if an If statement is the `if __name__ == '__main__':` pattern
+    fn is_main_guard(node: &Bound<PyAny>) -> bool {
+        if ast_type_name!(node) != "If" {
+            return false;
+        }
+
+        // Get the test expression
+        let test = ast_getattr!(node, "test");
+
+        // Check if it's a Compare node
+        if ast_type_name!(test) != "Compare" {
+            return false;
+        }
+
+        // Get left side - should be Name node with id='__name__'
+        let left = ast_getattr!(test, "left");
+
+        if ast_type_name!(left) != "Name" {
+            return false;
+        }
+
+        let left_id = ast_get_string!(left, "id");
+
+        if left_id != "__name__" {
+            return false;
+        }
+
+        // Get ops - should be [Eq]
+        let ops = ast_get_list!(test, "ops");
+
+        if ops.len() != 1 {
+            return false;
+        }
+
+        let op_type = ast_type_name!(ops.get_item(0).unwrap());
+        if op_type != "Eq" {
+            return false;
+        }
+
+        // Get comparators - should be a list with one Constant/Str with value '__main__'
+        let comparators = ast_get_list!(test, "comparators");
+
+        if comparators.len() != 1 {
+            return false;
+        }
+
+        let comp = comparators.get_item(0).unwrap();
+        let comp_type = ast_type_name!(comp);
+
+        // Handle both Constant (Python 3.8+) and Str (older versions)
+        let value = if comp_type == "Constant" {
+            ast_getattr!(comp, "value")
+        } else if comp_type == "Str" {
+            ast_getattr!(comp, "s")
+        } else {
+            return false;
+        };
+
+        match value.extract::<String>() {
+            Ok(v) => v == "__main__",
+            Err(_) => false,
+        }
     }
 
     fn mangle_name(&self, name: &str) -> String {

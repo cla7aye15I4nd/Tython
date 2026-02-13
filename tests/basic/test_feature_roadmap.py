@@ -1,11 +1,3 @@
-"""
-Roadmap feature specs.
-
-This file defines expected behavior for features that are planned but not yet
-fully implemented in Tython.
-"""
-
-
 def test_while_else_runs_only_without_break() -> None:
     i: int = 0
     out: list[int] = []

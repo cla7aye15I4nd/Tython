@@ -1,1 +1,2 @@
-it = iter(123)
+if __name__ == '__main__':
+    it = iter(123)

@@ -1,3 +1,4 @@
 import provider
 
-m = provider.Model()
+if __name__ == '__main__':
+    m = provider.Model()
