@@ -39,17 +39,7 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     pub(crate) fn codegen_var_load(&mut self, name: &str, ty: &ValueType) -> BasicValueEnum<'ctx> {
-        let ptr = if let Some(ptr) = self.variables.get(name).copied() {
-            ptr
-        } else if let Some(ptr) = self.global_variables.get(name).copied() {
-            ptr
-        } else {
-            let g = self.module.add_global(self.get_llvm_type(ty), None, name);
-            g.set_initializer(&self.get_llvm_type(ty).const_zero());
-            let p = g.as_pointer_value();
-            self.global_variables.insert(name.to_string(), p);
-            p
-        };
+        let ptr = self.variables[name];
         emit!(self.build_load(self.get_llvm_type(ty), ptr, name))
     }
 }

@@ -161,6 +161,14 @@ impl Lowering {
                 if seen.contains(k) || explicit_param_name_set.contains(k) || k == &name {
                     continue;
                 }
+                // Skip function and class types - these are not runtime values that need capturing
+                if matches!(
+                    v,
+                    crate::ast::Type::Function { .. } | crate::ast::Type::Class(_)
+                ) {
+                    continue;
+                }
+                // Only capture actual runtime variables
                 if ValueType::from_type(v).is_some() {
                     seen.insert(k.clone());
                     captures.push((k.clone(), v.clone()));

@@ -17,15 +17,6 @@ impl<'ctx> Codegen<'ctx> {
         terminated
     }
 
-    pub(crate) fn is_current_function_module_main(&self) -> bool {
-        let function = emit!(self.get_insert_block()).get_parent().unwrap();
-        function
-            .get_name()
-            .to_str()
-            .map(|n| n.contains("$$main$"))
-            .unwrap_or(false)
-    }
-
     /// Create an alloca in the entry basic block of the current function.
     /// Entry-block allocas are promoted to registers by LLVM's mem2reg pass
     /// and ensure stable stack offsets.

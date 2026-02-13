@@ -418,11 +418,14 @@ impl Lowering {
                 "If" => {
                     // Check if this is the `if __name__ == '__main__':` pattern
                     if Self::is_main_guard(&node) {
-                        // Extract and lower the body of the if statement
+                        // Lower module-level statements in a separate scope so variables
+                        // declared here are not visible to functions
+                        self.push_scope();
                         let body = ast_get_list!(node, "body");
                         for stmt in body.iter() {
                             module_level_stmts.extend(self.lower_stmt(&stmt)?);
                         }
+                        self.pop_scope();
                     } else {
                         // Disallow other if statements at module level
                         let line = Self::get_line(&node);

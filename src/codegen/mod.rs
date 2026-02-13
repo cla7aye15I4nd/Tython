@@ -60,7 +60,6 @@ pub struct Codegen<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     variables: HashMap<String, PointerValue<'ctx>>,
-    global_variables: HashMap<String, PointerValue<'ctx>>,
     loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
     struct_types: HashMap<String, StructType<'ctx>>,
     /// > 0 when inside a try/except or ForIter — calls use `invoke` instead of `call`.
@@ -100,7 +99,6 @@ impl<'ctx> Codegen<'ctx> {
             module,
             builder,
             variables: HashMap::new(),
-            global_variables: HashMap::new(),
             loop_stack: Vec::new(),
             struct_types: HashMap::new(),
             try_depth: 0,
