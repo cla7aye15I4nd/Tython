@@ -41,7 +41,7 @@ impl Lowering {
                 if value.is_instance_of::<pyo3::types::PyBool>() {
                     let bool_val = value.extract::<bool>()?;
                     Ok(TirExpr {
-                        kind: TirExprKind::IntLiteral(if bool_val { 1 } else { 0 }),
+                        kind: TirExprKind::BoolLiteral(bool_val),
                         ty: ValueType::Bool,
                     })
                 } else if value.is_instance_of::<pyo3::types::PyBytes>() {
@@ -1915,7 +1915,7 @@ impl Lowering {
                 name: result_var.clone(),
                 ty: ValueType::Bool,
                 value: TirExpr {
-                    kind: TirExprKind::IntLiteral(1),
+                    kind: TirExprKind::BoolLiteral(true),
                     ty: ValueType::Bool,
                 },
             },
@@ -2032,7 +2032,7 @@ impl Lowering {
                     name: result_var.clone(),
                     ty: ValueType::Bool,
                     value: TirExpr {
-                        kind: TirExprKind::IntLiteral(0),
+                        kind: TirExprKind::BoolLiteral(false),
                         ty: ValueType::Bool,
                     },
                 },
@@ -2061,7 +2061,7 @@ impl Lowering {
                 name: result_var.clone(),
                 ty: ValueType::Bool,
                 value: TirExpr {
-                    kind: TirExprKind::IntLiteral(0),
+                    kind: TirExprKind::BoolLiteral(false),
                     ty: ValueType::Bool,
                 },
             }],
@@ -2119,7 +2119,7 @@ impl Lowering {
 
         if elements.is_empty() {
             return TirExpr {
-                kind: TirExprKind::IntLiteral(1),
+                kind: TirExprKind::BoolLiteral(true),
                 ty: ValueType::Bool,
             };
         }

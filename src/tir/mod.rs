@@ -526,6 +526,7 @@ pub enum TirExprKind {
     // ── Literals ────────────────────────────────────────────────────
     IntLiteral(i64),
     FloatLiteral(f64),
+    BoolLiteral(bool),
     StrLiteral(String),
     BytesLiteral(Vec<u8>),
     Var(String),

@@ -1,10 +1,68 @@
-use inkwell::values::BasicValueEnum;
-use inkwell::IntPredicate;
+use inkwell::{values::BasicValueEnum, IntPredicate};
 
 use crate::tir::builtin::BuiltinFn;
 use crate::tir::{CastKind, LogicalOp, TirExpr, ValueType};
 
 use super::super::Codegen;
+
+// Unified macro for generating binary operation functions
+macro_rules! binop_fn {
+    // Integer binary operations: add, sub, mul, etc.
+    (int $fn_name:ident, $op:ident, $name:expr) => {
+        pub(crate) fn $fn_name(&mut self, left: &TirExpr, right: &TirExpr) -> BasicValueEnum<'ctx> {
+            let l = self.codegen_expr(left).into_int_value();
+            let r = self.codegen_expr(right).into_int_value();
+            emit!(self.$op(l, r, $name)).into()
+        }
+    };
+
+    // Float binary operations: add, sub, mul, etc.
+    (float $fn_name:ident, $op:ident, $name:expr) => {
+        pub(crate) fn $fn_name(&mut self, left: &TirExpr, right: &TirExpr) -> BasicValueEnum<'ctx> {
+            let l = self.codegen_expr(left).into_float_value();
+            let r = self.codegen_expr(right).into_float_value();
+            emit!(self.$op(l, r, $name)).into()
+        }
+    };
+
+    // Integer comparisons: lt, le, gt, ge
+    (int_cmp $fn_name:ident, $pred:expr, $name:expr) => {
+        pub(crate) fn $fn_name(&mut self, left: &TirExpr, right: &TirExpr) -> BasicValueEnum<'ctx> {
+            let l = self.codegen_expr(left).into_int_value();
+            let r = self.codegen_expr(right).into_int_value();
+            emit!(self.build_int_compare($pred, l, r, $name)).into()
+        }
+    };
+
+    // Float comparisons: eq, ne, lt, le, gt, ge
+    (float_cmp $fn_name:ident, $pred:expr, $name:expr) => {
+        pub(crate) fn $fn_name(&mut self, left: &TirExpr, right: &TirExpr) -> BasicValueEnum<'ctx> {
+            let l = self.codegen_expr(left).into_float_value();
+            let r = self.codegen_expr(right).into_float_value();
+            emit!(self.build_float_compare($pred, l, r, $name)).into()
+        }
+    };
+
+    // Bool comparisons (extends to i64 first): eq, ne
+    (bool_cmp $fn_name:ident, $pred:expr, $name:expr) => {
+        pub(crate) fn $fn_name(&mut self, left: &TirExpr, right: &TirExpr) -> BasicValueEnum<'ctx> {
+            let l = self.codegen_expr(left).into_int_value();
+            let r = self.codegen_expr(right).into_int_value();
+            let left_i64 = emit!(self.build_int_z_extend(l, self.i64_type(), "b_l_i64"));
+            let right_i64 = emit!(self.build_int_z_extend(r, self.i64_type(), "b_r_i64"));
+            emit!(self.build_int_compare($pred, left_i64, right_i64, $name)).into()
+        }
+    };
+
+    // Shift operations with extra parameter
+    (shift $fn_name:ident, $op:ident, $signed:expr, $name:expr) => {
+        pub(crate) fn $fn_name(&mut self, left: &TirExpr, right: &TirExpr) -> BasicValueEnum<'ctx> {
+            let l = self.codegen_expr(left).into_int_value();
+            let r = self.codegen_expr(right).into_int_value();
+            emit!(self.$op(l, r, $signed, $name)).into()
+        }
+    };
+}
 
 impl<'ctx> Codegen<'ctx> {
     pub(crate) fn codegen_cast(&mut self, kind: &CastKind, arg: &TirExpr) -> BasicValueEnum<'ctx> {
@@ -117,38 +175,10 @@ impl<'ctx> Codegen<'ctx> {
         phi.as_basic_value()
     }
 
-    // Individual typed operation functions
-
     // Integer arithmetic
-    pub(crate) fn codegen_int_add(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_int_add(l, r, "add")).into()
-    }
-
-    pub(crate) fn codegen_int_sub(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_int_sub(l, r, "sub")).into()
-    }
-
-    pub(crate) fn codegen_int_mul(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_int_mul(l, r, "mul")).into()
-    }
+    binop_fn!(int codegen_int_add, build_int_add, "add");
+    binop_fn!(int codegen_int_sub, build_int_sub, "sub");
+    binop_fn!(int codegen_int_mul, build_int_mul, "mul");
 
     pub(crate) fn codegen_int_floor_div(
         &mut self,
@@ -169,15 +199,7 @@ impl<'ctx> Codegen<'ctx> {
         emit!(self.build_int_sub(div, adjust, "floordiv")).into()
     }
 
-    pub(crate) fn codegen_int_mod(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_int_signed_rem(l, r, "mod")).into()
-    }
+    binop_fn!(int codegen_int_mod, build_int_signed_rem, "mod");
 
     pub(crate) fn codegen_int_pow(
         &mut self,
@@ -192,45 +214,10 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     // Float arithmetic
-    pub(crate) fn codegen_float_add(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_add(l, r, "fadd")).into()
-    }
-
-    pub(crate) fn codegen_float_sub(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_sub(l, r, "fsub")).into()
-    }
-
-    pub(crate) fn codegen_float_mul(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_mul(l, r, "fmul")).into()
-    }
-
-    pub(crate) fn codegen_float_div(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_div(l, r, "fdiv")).into()
-    }
+    binop_fn!(float codegen_float_add, build_float_add, "fadd");
+    binop_fn!(float codegen_float_sub, build_float_sub, "fsub");
+    binop_fn!(float codegen_float_mul, build_float_mul, "fmul");
+    binop_fn!(float codegen_float_div, build_float_div, "fdiv");
 
     pub(crate) fn codegen_float_floor_div(
         &mut self,
@@ -247,15 +234,7 @@ impl<'ctx> Codegen<'ctx> {
         self.extract_call_value(call).into_float_value().into()
     }
 
-    pub(crate) fn codegen_float_mod(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_rem(l, r, "fmod")).into()
-    }
+    binop_fn!(float codegen_float_mod, build_float_rem, "fmod");
 
     pub(crate) fn codegen_float_pow(
         &mut self,
@@ -274,55 +253,11 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     // Bitwise operations
-    pub(crate) fn codegen_bitwise_and(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_and(l, r, "bitand")).into()
-    }
-
-    pub(crate) fn codegen_bitwise_or(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_or(l, r, "bitor")).into()
-    }
-
-    pub(crate) fn codegen_bitwise_xor(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_xor(l, r, "bitxor")).into()
-    }
-
-    pub(crate) fn codegen_left_shift(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_left_shift(l, r, "lshift")).into()
-    }
-
-    pub(crate) fn codegen_right_shift(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_right_shift(l, r, true, "rshift")).into()
-    }
+    binop_fn!(int codegen_bitwise_and, build_and, "bitand");
+    binop_fn!(int codegen_bitwise_or, build_or, "bitor");
+    binop_fn!(int codegen_bitwise_xor, build_xor, "bitxor");
+    binop_fn!(int codegen_left_shift, build_left_shift, "lshift");
+    binop_fn!(shift codegen_right_shift, build_right_shift, true, "rshift");
 
     // Unary operations
     pub(crate) fn codegen_int_neg(&mut self, operand: &TirExpr) -> BasicValueEnum<'ctx> {
@@ -409,131 +344,22 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
-    pub(crate) fn codegen_int_lt(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_int_compare(IntPredicate::SLT, l, r, "icmp_lt")).into()
-    }
-
-    pub(crate) fn codegen_int_le(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_int_compare(IntPredicate::SLE, l, r, "icmp_le")).into()
-    }
-
-    pub(crate) fn codegen_int_gt(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_int_compare(IntPredicate::SGT, l, r, "icmp_gt")).into()
-    }
-
-    pub(crate) fn codegen_int_ge(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        emit!(self.build_int_compare(IntPredicate::SGE, l, r, "icmp_ge")).into()
-    }
+    binop_fn!(int_cmp codegen_int_lt, IntPredicate::SLT, "icmp_lt");
+    binop_fn!(int_cmp codegen_int_le, IntPredicate::SLE, "icmp_le");
+    binop_fn!(int_cmp codegen_int_gt, IntPredicate::SGT, "icmp_gt");
+    binop_fn!(int_cmp codegen_int_ge, IntPredicate::SGE, "icmp_ge");
 
     // Float comparisons
-    pub(crate) fn codegen_float_eq(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_compare(inkwell::FloatPredicate::OEQ, l, r, "fcmp_eq")).into()
-    }
-
-    pub(crate) fn codegen_float_ne(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_compare(inkwell::FloatPredicate::ONE, l, r, "fcmp_ne")).into()
-    }
-
-    pub(crate) fn codegen_float_lt(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_compare(inkwell::FloatPredicate::OLT, l, r, "fcmp_lt")).into()
-    }
-
-    pub(crate) fn codegen_float_le(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_compare(inkwell::FloatPredicate::OLE, l, r, "fcmp_le")).into()
-    }
-
-    pub(crate) fn codegen_float_gt(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_compare(inkwell::FloatPredicate::OGT, l, r, "fcmp_gt")).into()
-    }
-
-    pub(crate) fn codegen_float_ge(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_float_value();
-        let r = self.codegen_expr(right).into_float_value();
-        emit!(self.build_float_compare(inkwell::FloatPredicate::OGE, l, r, "fcmp_ge")).into()
-    }
+    binop_fn!(float_cmp codegen_float_eq, inkwell::FloatPredicate::OEQ, "fcmp_eq");
+    binop_fn!(float_cmp codegen_float_ne, inkwell::FloatPredicate::ONE, "fcmp_ne");
+    binop_fn!(float_cmp codegen_float_lt, inkwell::FloatPredicate::OLT, "fcmp_lt");
+    binop_fn!(float_cmp codegen_float_le, inkwell::FloatPredicate::OLE, "fcmp_le");
+    binop_fn!(float_cmp codegen_float_gt, inkwell::FloatPredicate::OGT, "fcmp_gt");
+    binop_fn!(float_cmp codegen_float_ge, inkwell::FloatPredicate::OGE, "fcmp_ge");
 
     // Bool comparisons
-    pub(crate) fn codegen_bool_eq(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        let left_i64 = emit!(self.build_int_z_extend(l, self.i64_type(), "b_l_i64"));
-        let right_i64 = emit!(self.build_int_z_extend(r, self.i64_type(), "b_r_i64"));
-        emit!(self.build_int_compare(IntPredicate::EQ, left_i64, right_i64, "bcmp_eq")).into()
-    }
-
-    pub(crate) fn codegen_bool_ne(
-        &mut self,
-        left: &TirExpr,
-        right: &TirExpr,
-    ) -> BasicValueEnum<'ctx> {
-        let l = self.codegen_expr(left).into_int_value();
-        let r = self.codegen_expr(right).into_int_value();
-        let left_i64 = emit!(self.build_int_z_extend(l, self.i64_type(), "b_l_i64"));
-        let right_i64 = emit!(self.build_int_z_extend(r, self.i64_type(), "b_r_i64"));
-        emit!(self.build_int_compare(IntPredicate::NE, left_i64, right_i64, "bcmp_ne")).into()
-    }
+    binop_fn!(bool_cmp codegen_bool_eq, IntPredicate::EQ, "bcmp_eq");
+    binop_fn!(bool_cmp codegen_bool_ne, IntPredicate::NE, "bcmp_ne");
 
     // Logical operations
     pub(crate) fn codegen_logical_and(

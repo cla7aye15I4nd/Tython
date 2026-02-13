@@ -7,17 +7,9 @@ use super::super::Codegen;
 impl<'ctx> Codegen<'ctx> {
     pub(crate) fn codegen_expr(&mut self, expr: &TirExpr) -> BasicValueEnum<'ctx> {
         match &expr.kind {
-            TirExprKind::IntLiteral(val) => {
-                if expr.ty == crate::tir::ValueType::Bool {
-                    self.context
-                        .bool_type()
-                        .const_int((*val != 0) as u64, false)
-                        .into()
-                } else {
-                    self.i64_type().const_int(*val as u64, false).into()
-                }
-            }
+            TirExprKind::IntLiteral(val) => self.i64_type().const_int(*val as u64, false).into(),
             TirExprKind::FloatLiteral(val) => self.f64_type().const_float(*val).into(),
+            TirExprKind::BoolLiteral(val) => self.bool_type().const_int(*val as u64, false).into(),
             TirExprKind::StrLiteral(s) => self.codegen_str_literal(s),
             TirExprKind::BytesLiteral(bytes) => self.codegen_bytes_literal(bytes),
             TirExprKind::Var(name) => self.codegen_var_load(name, &expr.ty),

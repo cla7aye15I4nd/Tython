@@ -273,11 +273,11 @@ impl Lowering {
                 })
             }
             ValueType::Tuple(elements) => Ok(TirExpr {
-                kind: TirExprKind::IntLiteral((!elements.is_empty()) as i64),
+                kind: TirExprKind::BoolLiteral(!elements.is_empty()),
                 ty: ValueType::Bool,
             }),
             ValueType::Class(_) => Ok(TirExpr {
-                kind: TirExprKind::IntLiteral(1),
+                kind: TirExprKind::BoolLiteral(true),
                 ty: ValueType::Bool,
             }),
             ValueType::Function { .. } => {

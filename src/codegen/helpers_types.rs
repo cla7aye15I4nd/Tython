@@ -76,6 +76,10 @@ impl<'ctx> Codegen<'ctx> {
         self.context.f64_type()
     }
 
+    pub(crate) fn bool_type(&self) -> IntType<'ctx> {
+        self.context.bool_type()
+    }
+
     // Note: float_predicate and int_predicate removed - we now use TypedCompare
     // which encodes both the comparison operator and operand type, eliminating
     // the need for runtime type dispatch in codegen.
