@@ -4,7 +4,7 @@ from . import test_bytes
 # from . import test_set
 # from . import test_tuple
 # from . import test_str
-# from . import test_bytearray
+from . import test_bytearray
 
 
 def run_all_tests() -> None:
@@ -14,4 +14,4 @@ def run_all_tests() -> None:
     # test_set.run_tests()
     # test_tuple.run_tests()
     # test_str.run_tests()
-    # test_bytearray.run_tests()
+    test_bytearray.run_tests()

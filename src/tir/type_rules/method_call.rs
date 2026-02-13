@@ -214,6 +214,322 @@ pub fn lookup_bytearray_method(name: &str) -> Option<Result<MethodCallRule, Stri
             params: vec![],
             result: MethodCallResult::Void(BuiltinFn::ByteArrayReverse),
         })),
+        "copy" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayCopy,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "pop" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayPop,
+                return_type: ValueType::Int,
+            },
+        })),
+        "capitalize" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayCapitalize,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "center" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Int, ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayCenter,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "count" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayCount,
+                return_type: ValueType::Int,
+            },
+        })),
+        "decode" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayDecode,
+                return_type: ValueType::Str,
+            },
+        })),
+        "endswith" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayEndsWith,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "expandtabs" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Int],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayExpandTabs,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "find" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayFind,
+                return_type: ValueType::Int,
+            },
+        })),
+        "fromhex" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Str],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayFromHex,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "hex" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayHex,
+                return_type: ValueType::Str,
+            },
+        })),
+        "index" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayIndex,
+                return_type: ValueType::Int,
+            },
+        })),
+        "isalnum" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayIsAlnum,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "isalpha" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayIsAlpha,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "isascii" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayIsAscii,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "isdigit" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayIsDigit,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "islower" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayIsLower,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "isspace" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayIsSpace,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "istitle" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayIsTitle,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "isupper" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayIsUpper,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "join" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::List(Box::new(ValueType::ByteArray))],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayJoin,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "ljust" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Int, ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayLJust,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "lower" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayLower,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "lstrip" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayLStrip,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "maketrans" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes, ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayMakeTrans,
+                return_type: ValueType::Bytes,
+            },
+        })),
+        "partition" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayPartition,
+                return_type: ValueType::Tuple(vec![
+                    ValueType::ByteArray,
+                    ValueType::ByteArray,
+                    ValueType::ByteArray,
+                ]),
+            },
+        })),
+        "removeprefix" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayRemovePrefix,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "removesuffix" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayRemoveSuffix,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "replace" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes, ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayReplace,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "rfind" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayRFind,
+                return_type: ValueType::Int,
+            },
+        })),
+        "rindex" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayRIndex,
+                return_type: ValueType::Int,
+            },
+        })),
+        "rjust" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Int, ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayRJust,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "rpartition" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayRPartition,
+                return_type: ValueType::Tuple(vec![
+                    ValueType::ByteArray,
+                    ValueType::ByteArray,
+                    ValueType::ByteArray,
+                ]),
+            },
+        })),
+        "rsplit" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayRSplit,
+                return_type: ValueType::List(Box::new(ValueType::ByteArray)),
+            },
+        })),
+        "rstrip" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayRStrip,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "split" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArraySplit,
+                return_type: ValueType::List(Box::new(ValueType::ByteArray)),
+            },
+        })),
+        "splitlines" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArraySplitLines,
+                return_type: ValueType::List(Box::new(ValueType::ByteArray)),
+            },
+        })),
+        "startswith" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayStartsWith,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "strip" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayStrip,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "swapcase" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArraySwapCase,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "title" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayTitle,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "translate" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Bytes],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayTranslate,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "upper" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayUpper,
+                return_type: ValueType::ByteArray,
+            },
+        })),
+        "zfill" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Int],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ByteArrayZFill,
+                return_type: ValueType::ByteArray,
+            },
+        })),
         _ => None,
     }
 }

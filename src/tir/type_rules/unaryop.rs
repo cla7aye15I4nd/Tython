@@ -56,6 +56,13 @@ pub fn lookup_unaryop(op: UnaryOpKind, operand: &Type) -> Option<UnaryOpRule> {
         (Not, Int) => Some(UnaryOpRule { result_type: Bool }),
         (Not, Float) => Some(UnaryOpRule { result_type: Bool }),
         (Not, Bool) => Some(UnaryOpRule { result_type: Bool }),
+        (Not, Str) => Some(UnaryOpRule { result_type: Bool }),
+        (Not, Bytes) => Some(UnaryOpRule { result_type: Bool }),
+        (Not, ByteArray) => Some(UnaryOpRule { result_type: Bool }),
+        (Not, List(_)) => Some(UnaryOpRule { result_type: Bool }),
+        (Not, Dict(_, _)) => Some(UnaryOpRule { result_type: Bool }),
+        (Not, Set(_)) => Some(UnaryOpRule { result_type: Bool }),
+        (Not, Tuple(_)) => Some(UnaryOpRule { result_type: Bool }),
 
         // ── Bitwise not: Int only → Int ──────────────────────────────
         (BitNot, Int) => Some(UnaryOpRule { result_type: Int }),

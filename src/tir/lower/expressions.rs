@@ -184,24 +184,32 @@ impl Lowering {
                     return Ok(expr);
                 }
 
-                let rule =
+                // Handle Pos (unary +) as a no-op after validating operand type.
+                if op == crate::tir::UnaryOpKind::Pos {
                     type_rules::lookup_unaryop(op, &operand.ty.to_type()).ok_or_else(|| {
                         self.type_error(
                             line,
                             type_rules::unaryop_type_error_message(op, &operand.ty.to_type()),
                         )
                     })?;
-
-                // Handle Pos (unary +) as a no-op
-                if op == crate::tir::UnaryOpKind::Pos {
                     return Ok(operand);
                 }
 
                 let lowered_operand = if op == crate::tir::UnaryOpKind::Not {
+                    // `not` works on truthiness, so validate after truthy-to-bool lowering.
                     self.lower_truthy_to_bool(line, operand, "unary `not` operand")?
                 } else {
+                    type_rules::lookup_unaryop(op, &operand.ty.to_type()).ok_or_else(|| {
+                        self.type_error(
+                            line,
+                            type_rules::unaryop_type_error_message(op, &operand.ty.to_type()),
+                        )
+                    })?;
                     operand
                 };
+
+                let rule = type_rules::lookup_unaryop(op, &lowered_operand.ty.to_type())
+                    .expect("ICE: unary op should be valid after operand lowering");
 
                 // Resolve to typed operation
                 let typed_op = type_rules::resolve_typed_unaryop(op, &lowered_operand.ty.to_type())

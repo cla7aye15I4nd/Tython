@@ -459,9 +459,6 @@ impl Lowering {
             "Name" => {
                 let target = ast_get_string!(target_node, "id");
                 let value_node = ast_getattr!(node, "value");
-                if ast_type_name!(value_node) == "Lambda" {
-                    return self.handle_lambda_assign(&target, &value_node, line);
-                }
                 let saved_empty_list_hint = self.empty_list_hint.clone();
                 if let Some(Type::List(inner)) = self.lookup(&target).cloned() {
                     self.empty_list_hint = Some(Self::to_value_type(&inner));
@@ -484,92 +481,6 @@ impl Lowering {
                 "only variable, attribute, or subscript assignments are supported",
             )),
         }
-    }
-
-    fn handle_lambda_assign(
-        &mut self,
-        target: &str,
-        lambda_node: &Bound<PyAny>,
-        line: usize,
-    ) -> Result<Vec<TirStmt>> {
-        let args_node = ast_getattr!(lambda_node, "args");
-        let py_args = ast_get_list!(&args_node, "args");
-        let default_values = self.lower_defaults_for_params(&args_node, line, target)?;
-
-        let mut param_types: Vec<Type> = Vec::with_capacity(py_args.len());
-        let mut params = Vec::with_capacity(py_args.len());
-        let mut param_names = Vec::with_capacity(py_args.len());
-
-        for (idx, arg) in py_args.iter().enumerate() {
-            let param_name = ast_get_string!(arg, "arg");
-            let annotation = ast_getattr!(arg, "annotation");
-            let param_ty = if !annotation.is_none() {
-                self.convert_type_annotation(&annotation)?
-            } else if let Some(default_expr) = &default_values[idx] {
-                default_expr.ty.to_type()
-            } else {
-                Type::Int
-            };
-            param_types.push(param_ty.clone());
-            param_names.push(param_name.clone());
-            params.push(crate::tir::FunctionParam::new(
-                param_name,
-                Self::to_value_type(&param_ty),
-            ));
-        }
-
-        let enclosing = self
-            .current_function_name
-            .as_deref()
-            .unwrap_or("_")
-            .to_string();
-        let mangled_name = format!("{}${}${}", self.current_module_name, enclosing, target);
-
-        let func_type_placeholder = Type::Function {
-            params: param_types.clone(),
-            return_type: Box::new(Type::Int),
-        };
-        self.declare(target.to_string(), func_type_placeholder);
-        self.function_mangled_names
-            .insert(target.to_string(), mangled_name.clone());
-
-        let saved_return_type = self.current_return_type.take();
-        let saved_function_name = self.current_function_name.take();
-        self.current_function_name = Some(format!("{}.{}", enclosing, target));
-        self.push_scope();
-        for param in &params {
-            self.declare(param.name.clone(), param.ty.to_type());
-        }
-
-        let saved_pre_stmts = std::mem::take(&mut self.pre_stmts);
-        let body_expr = self.lower_expr(&ast_getattr!(lambda_node, "body"))?;
-        let lambda_pre_stmts = std::mem::take(&mut self.pre_stmts);
-        self.pre_stmts = saved_pre_stmts;
-        let return_ty = body_expr.ty.to_type();
-
-        self.pop_scope();
-        self.current_return_type = saved_return_type;
-        self.current_function_name = saved_function_name;
-
-        let func_type = Type::Function {
-            params: param_types,
-            return_type: Box::new(return_ty.clone()),
-        };
-        self.declare(target.to_string(), func_type);
-
-        self.deferred_functions.push(crate::tir::TirFunction {
-            name: mangled_name.clone(),
-            params,
-            return_type: Some(body_expr.ty.clone()),
-            body: {
-                let mut stmts = lambda_pre_stmts;
-                stmts.push(TirStmt::Return(Some(body_expr)));
-                stmts
-            },
-        });
-        self.register_function_signature(mangled_name, param_names, default_values);
-
-        Ok(vec![])
     }
 
     fn handle_aug_assign(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {

@@ -91,7 +91,8 @@ if __name__ == '__main__':
     n_layer: int = 1     # number of layers
     block_size: int = 16 # maximum sequence length
     head_dim: int = n_embd // n_head # dimension of each head
-    matrix = lambda nout, nin, std=0.08: [[Value(random.gauss(0, std)) for _ in range(nin)] for _ in range(nout)]
+    def matrix(nout: int, nin: int, std: float = 0.08) -> list[list[Value]]:
+        return [[Value(random.gauss(0, std)) for _ in range(nin)] for _ in range(nout)]
     state_dict: dict[str, list[list[Value]]] = {'wte': matrix(vocab_size, n_embd), 'wpe': matrix(block_size, n_embd), 'lm_head': matrix(vocab_size, n_embd)}
     for i in range(n_layer):
         state_dict[f'layer{i}.attn_wq'] = matrix(n_embd, n_embd)
