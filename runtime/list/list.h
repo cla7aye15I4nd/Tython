@@ -16,8 +16,11 @@ typedef struct {
 
 TythonList* TYTHON_FN(list_new)(const int64_t* data, int64_t len);
 TythonList* TYTHON_FN(list_empty)(void);
+TythonList* TYTHON_FN(list_concat)(TythonList* a, TythonList* b);
 int64_t TYTHON_FN(list_len)(TythonList* lst);
 int64_t TYTHON_FN(list_get)(TythonList* lst, int64_t index);
+TythonList* TYTHON_FN(list_slice)(TythonList* lst, int64_t start, int64_t stop);
+TythonList* TYTHON_FN(list_repeat)(TythonList* lst, int64_t n);
 void TYTHON_FN(list_set)(TythonList* lst, int64_t index, int64_t value);
 void TYTHON_FN(list_append)(TythonList* lst, int64_t value);
 int64_t TYTHON_FN(list_pop)(TythonList* lst);
@@ -38,14 +41,20 @@ TythonList* TYTHON_FN(sorted_float)(TythonList* lst);
 TythonList* TYTHON_FN(sorted_str)(TythonList* lst);
 TythonList* TYTHON_FN(sorted_bytes)(TythonList* lst);
 TythonList* TYTHON_FN(sorted_bytearray)(TythonList* lst);
+TythonList* TYTHON_FN(reversed_list)(TythonList* lst);
 void TYTHON_FN(list_extend)(TythonList* lst, TythonList* other);
 TythonList* TYTHON_FN(list_copy)(TythonList* lst);
+TythonList* TYTHON_FN(range_1)(int64_t stop);
+TythonList* TYTHON_FN(range_2)(int64_t start, int64_t stop);
+TythonList* TYTHON_FN(range_3)(int64_t start, int64_t stop, int64_t step);
 int64_t TYTHON_FN(sum_int)(TythonList* lst);
 double TYTHON_FN(sum_float)(TythonList* lst);
 int64_t TYTHON_FN(sum_int_start)(TythonList* lst, int64_t start);
 double TYTHON_FN(sum_float_start)(TythonList* lst, double start);
 int64_t TYTHON_FN(all_list)(TythonList* lst);
 int64_t TYTHON_FN(any_list)(TythonList* lst);
+int64_t TYTHON_FN(max_list_int)(TythonList* lst);
+double TYTHON_FN(max_list_float)(TythonList* lst);
 int64_t TYTHON_FN(list_eq_shallow)(TythonList* a, TythonList* b);
 int64_t TYTHON_FN(list_eq_deep)(TythonList* a, TythonList* b, int64_t depth);
 

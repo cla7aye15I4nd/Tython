@@ -1,6 +1,7 @@
 use anyhow::Result;
 use pyo3::prelude::*;
 
+use crate::ast::Type;
 use crate::tir::{FunctionParam, TirExpr, TirExprKind, TirFunction, TirStmt, ValueType};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -67,7 +68,38 @@ impl Lowering {
         for i in 0..n_defaults {
             let idx = start + i;
             let def_node = defaults.get_item(i)?;
-            let default_expr = self.lower_expr(&def_node)?;
+            let default_expr = if ast_type_name!(def_node) == "List"
+                && ast_get_list!(&def_node, "elts").is_empty()
+            {
+                let param_node = py_args.get_item(idx)?;
+                let annotation = ast_getattr!(param_node, "annotation");
+                let param_ty = self.convert_type_annotation(&annotation)?;
+                match param_ty {
+                    Type::List(inner) => {
+                        let elem_ty = ValueType::from_type(&inner).expect(
+                            "ICE: list default annotation should contain a value element type",
+                        );
+                        TirExpr {
+                            kind: TirExprKind::ListLiteral {
+                                element_type: elem_ty.clone(),
+                                elements: vec![],
+                            },
+                            ty: ValueType::List(Box::new(elem_ty)),
+                        }
+                    }
+                    other => {
+                        return Err(self.syntax_error(
+                            line,
+                            format!(
+                                "empty list default for `{}` requires list annotation, got `{}`",
+                                fn_name, other
+                            ),
+                        ))
+                    }
+                }
+            } else {
+                self.lower_expr(&def_node)?
+            };
             self.ensure_supported_default_expr(line, &default_expr)?;
             out[idx] = Some(default_expr);
         }

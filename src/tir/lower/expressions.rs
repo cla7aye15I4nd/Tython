@@ -259,6 +259,17 @@ impl Lowering {
             "List" => {
                 let elts_list = ast_get_list!(node, "elts");
                 if elts_list.is_empty() {
+                    if let Some(ValueType::List(inner)) = self.empty_list_hint.clone() {
+                        let elem_ty = (*inner).clone();
+                        let ty = ValueType::List(Box::new(elem_ty.clone()));
+                        return Ok(TirExpr {
+                            kind: TirExprKind::ListLiteral {
+                                element_type: elem_ty,
+                                elements: vec![],
+                            },
+                            ty,
+                        });
+                    }
                     return Err(self
                         .syntax_error(line, "empty list literal `[]` requires a type annotation"));
                 }
@@ -435,6 +446,7 @@ impl Lowering {
             }
 
             "ListComp" => self.lower_list_comprehension(node, line),
+            "GeneratorExp" => self.lower_list_comprehension(node, line),
 
             "JoinedStr" => self.lower_joined_str(node, line),
 
@@ -447,21 +459,74 @@ impl Lowering {
 
                 match obj_expr.ty.clone() {
                     ValueType::List(inner) => {
-                        let index_expr = self.lower_expr(&slice_node)?;
-                        if index_expr.ty != ValueType::Int {
-                            return Err(self.type_error(
-                                line,
-                                format!("list index must be `int`, got `{}`", index_expr.ty),
-                            ));
+                        if ast_type_name!(slice_node) == "Slice" {
+                            let step_node = ast_getattr!(slice_node, "step");
+                            if !step_node.is_none() {
+                                let step_expr = self.lower_expr(&step_node)?;
+                                if step_expr.ty != ValueType::Int
+                                    || !matches!(step_expr.kind, TirExprKind::IntLiteral(1))
+                                {
+                                    return Err(self
+                                        .syntax_error(line, "list slicing step is not supported"));
+                                }
+                            }
+                            let lower_node = ast_getattr!(slice_node, "lower");
+                            let upper_node = ast_getattr!(slice_node, "upper");
+                            let lower_expr = if lower_node.is_none() {
+                                TirExpr {
+                                    kind: TirExprKind::IntLiteral(0),
+                                    ty: ValueType::Int,
+                                }
+                            } else {
+                                let e = self.lower_expr(&lower_node)?;
+                                if e.ty != ValueType::Int {
+                                    return Err(self.type_error(
+                                        line,
+                                        format!("list slice start must be `int`, got `{}`", e.ty),
+                                    ));
+                                }
+                                e
+                            };
+                            let upper_expr = if upper_node.is_none() {
+                                TirExpr {
+                                    kind: TirExprKind::IntLiteral(i64::MAX),
+                                    ty: ValueType::Int,
+                                }
+                            } else {
+                                let e = self.lower_expr(&upper_node)?;
+                                if e.ty != ValueType::Int {
+                                    return Err(self.type_error(
+                                        line,
+                                        format!("list slice end must be `int`, got `{}`", e.ty),
+                                    ));
+                                }
+                                e
+                            };
+                            let out_ty = ValueType::List(inner.clone());
+                            Ok(TirExpr {
+                                kind: TirExprKind::ExternalCall {
+                                    func: builtin::BuiltinFn::ListSlice,
+                                    args: vec![obj_expr, lower_expr, upper_expr],
+                                },
+                                ty: out_ty,
+                            })
+                        } else {
+                            let index_expr = self.lower_expr(&slice_node)?;
+                            if index_expr.ty != ValueType::Int {
+                                return Err(self.type_error(
+                                    line,
+                                    format!("list index must be `int`, got `{}`", index_expr.ty),
+                                ));
+                            }
+                            let elem_ty = (*inner).clone();
+                            Ok(TirExpr {
+                                kind: TirExprKind::ExternalCall {
+                                    func: builtin::BuiltinFn::ListGet,
+                                    args: vec![obj_expr, index_expr],
+                                },
+                                ty: elem_ty,
+                            })
                         }
-                        let elem_ty = (*inner).clone();
-                        Ok(TirExpr {
-                            kind: TirExprKind::ExternalCall {
-                                func: builtin::BuiltinFn::ListGet,
-                                args: vec![obj_expr, index_expr],
-                            },
-                            ty: elem_ty,
-                        })
                     }
                     ValueType::Dict(key_ty, value_ty) => {
                         let index_expr = self.lower_expr(&slice_node)?;
@@ -1310,6 +1375,9 @@ impl Lowering {
             (RawBinOp::Arith(ArithBinOp::Add), ValueType::ByteArray) => {
                 Some(builtin::BuiltinFn::ByteArrayConcat)
             }
+            (RawBinOp::Arith(ArithBinOp::Add), ValueType::List(_)) => {
+                Some(builtin::BuiltinFn::ListConcat)
+            }
             (RawBinOp::Arith(ArithBinOp::Mul), ValueType::Str) => {
                 Some(builtin::BuiltinFn::StrRepeat)
             }
@@ -1318,6 +1386,9 @@ impl Lowering {
             }
             (RawBinOp::Arith(ArithBinOp::Mul), ValueType::ByteArray) => {
                 Some(builtin::BuiltinFn::ByteArrayRepeat)
+            }
+            (RawBinOp::Arith(ArithBinOp::Mul), ValueType::List(_)) => {
+                Some(builtin::BuiltinFn::ListRepeat)
             }
             _ => None,
         }
@@ -2211,30 +2282,134 @@ impl Lowering {
         let mut gen_infos = Vec::new();
         for gen in generators.iter() {
             let target = ast_getattr!(gen, "target");
-            if ast_type_name!(target) != "Name" {
-                return Err(
-                    self.syntax_error(line, "comprehension target must be a simple variable")
-                );
-            }
-            let var_name = ast_get_string!(target, "id");
             let iter_node = ast_getattr!(gen, "iter");
+            let target_type = ast_type_name!(target);
 
-            let gen_kind = if ast_type_name!(iter_node) == "Call" {
-                let func_node = ast_getattr!(iter_node, "func");
-                if ast_type_name!(func_node) == "Name"
-                    && ast_get_string!(func_node, "id") == "range"
-                {
-                    let args_list = ast_get_list!(iter_node, "args");
-                    let (start, stop, step) = self.parse_range_args(&args_list, line)?;
-                    self.declare(var_name.clone(), Type::Int);
-                    GenKind::Range { start, stop, step }
+            let (var_name, gen_kind) = if target_type == "Name" {
+                let var_name = ast_get_string!(target, "id");
+                let gen_kind = if ast_type_name!(iter_node) == "Call" {
+                    let func_node = ast_getattr!(iter_node, "func");
+                    if ast_type_name!(func_node) == "Name"
+                        && ast_get_string!(func_node, "id") == "range"
+                    {
+                        let args_list = ast_get_list!(iter_node, "args");
+                        let (start, stop, step) = self.parse_range_args(&args_list, line)?;
+                        self.declare(var_name.clone(), Type::Int);
+                        GenKind::Range { start, stop, step }
+                    } else {
+                        let iter_expr = self.lower_expr(&iter_node)?;
+                        self.gen_kind_from_expr(line, &var_name, iter_expr)?
+                    }
                 } else {
                     let iter_expr = self.lower_expr(&iter_node)?;
                     self.gen_kind_from_expr(line, &var_name, iter_expr)?
+                };
+                (var_name, gen_kind)
+            } else if target_type == "Tuple" && ast_type_name!(iter_node) == "Call" {
+                let names = {
+                    let elts = ast_get_list!(target, "elts");
+                    let mut names = Vec::with_capacity(elts.len());
+                    for elt in elts.iter() {
+                        if ast_type_name!(elt) != "Name" {
+                            return Err(self.syntax_error(
+                                line,
+                                "comprehension tuple target must contain only variable names",
+                            ));
+                        }
+                        names.push(ast_get_string!(elt, "id"));
+                    }
+                    names
+                };
+                if names.len() != 2 {
+                    return Err(self.syntax_error(
+                        line,
+                        "comprehension tuple target currently requires exactly two variables",
+                    ));
+                }
+                let func_node = ast_getattr!(iter_node, "func");
+                if ast_type_name!(func_node) != "Name" {
+                    return Err(self.syntax_error(
+                        line,
+                        "comprehension tuple target is only supported with zip(...) or enumerate(...)",
+                    ));
+                }
+                let func_name = ast_get_string!(func_node, "id");
+                let args = ast_get_list!(iter_node, "args");
+                match func_name.as_str() {
+                    "zip" => {
+                        if args.len() != 2 {
+                            return Err(self.type_error(
+                                line,
+                                format!("zip() expects 2 arguments, got {}", args.len()),
+                            ));
+                        }
+                        let left_expr = self.lower_expr(&args.get_item(0)?)?;
+                        let right_expr = self.lower_expr(&args.get_item(1)?)?;
+                        let (left_elem, right_elem) = match (&left_expr.ty, &right_expr.ty) {
+                            (ValueType::List(a), ValueType::List(b)) => {
+                                ((**a).clone(), (**b).clone())
+                            }
+                            _ => {
+                                return Err(self.type_error(
+                                    line,
+                                    "zip() in comprehension requires list arguments",
+                                ))
+                            }
+                        };
+                        self.declare(names[0].clone(), left_elem.to_type());
+                        self.declare(names[1].clone(), right_elem.to_type());
+                        (
+                            names[0].clone(),
+                            GenKind::Zip2 {
+                                left_name: names[0].clone(),
+                                right_name: names[1].clone(),
+                                left_expr,
+                                right_expr,
+                                left_elem,
+                                right_elem,
+                            },
+                        )
+                    }
+                    "enumerate" => {
+                        if args.len() != 1 {
+                            return Err(self.type_error(
+                                line,
+                                format!("enumerate() expects 1 argument, got {}", args.len()),
+                            ));
+                        }
+                        let list_expr = self.lower_expr(&args.get_item(0)?)?;
+                        let elem_ty = match &list_expr.ty {
+                            ValueType::List(inner) => (**inner).clone(),
+                            _ => {
+                                return Err(self.type_error(
+                                    line,
+                                    "enumerate() in comprehension requires a list argument",
+                                ))
+                            }
+                        };
+                        self.declare(names[0].clone(), Type::Int);
+                        self.declare(names[1].clone(), elem_ty.to_type());
+                        (
+                            names[0].clone(),
+                            GenKind::Enumerate {
+                                idx_name: names[0].clone(),
+                                value_name: names[1].clone(),
+                                list_expr,
+                                elem_ty,
+                            },
+                        )
+                    }
+                    _ => {
+                        return Err(self.syntax_error(
+                            line,
+                            "comprehension tuple target is only supported with zip(...) or enumerate(...)",
+                        ))
+                    }
                 }
             } else {
-                let iter_expr = self.lower_expr(&iter_node)?;
-                self.gen_kind_from_expr(line, &var_name, iter_expr)?
+                return Err(
+                    self.syntax_error(line, "comprehension target must be a variable or tuple")
+                );
             };
 
             // Lower if conditions
@@ -2398,6 +2573,13 @@ impl Lowering {
                     elem_ty,
                 })
             }
+            ValueType::Str => {
+                self.declare(var_name.to_string(), Type::Str);
+                Ok(GenKind::Str {
+                    str_expr: iter_expr,
+                    elem_ty: ValueType::Str,
+                })
+            }
             ValueType::Class(class_name) => {
                 let class_info = self.lookup_class(line, class_name)?;
                 let iter_method = class_info.methods.get("__iter__").ok_or_else(|| {
@@ -2523,6 +2705,90 @@ impl Lowering {
                     },
                 ]
             }
+            GenKind::Str { str_expr, elem_ty } => {
+                let str_var = self.fresh_internal("comp_str");
+                let idx_var = self.fresh_internal("comp_str_idx");
+                let len_var = self.fresh_internal("comp_str_len");
+                let start_var = self.fresh_internal("comp_str_start");
+                let stop_var = self.fresh_internal("comp_str_stop");
+                let step_var = self.fresh_internal("comp_str_step");
+
+                let mut full_body = vec![TirStmt::Let {
+                    name: var_name.to_string(),
+                    ty: elem_ty.clone(),
+                    value: TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::StrGetChar,
+                            args: vec![
+                                TirExpr {
+                                    kind: TirExprKind::Var(str_var.clone()),
+                                    ty: ValueType::Str,
+                                },
+                                TirExpr {
+                                    kind: TirExprKind::Var(idx_var.clone()),
+                                    ty: ValueType::Int,
+                                },
+                            ],
+                        },
+                        ty: elem_ty.clone(),
+                    },
+                }];
+                full_body.extend(body);
+
+                vec![
+                    TirStmt::Let {
+                        name: str_var.clone(),
+                        ty: ValueType::Str,
+                        value: str_expr.clone(),
+                    },
+                    TirStmt::Let {
+                        name: len_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::StrLen,
+                                args: vec![TirExpr {
+                                    kind: TirExprKind::Var(str_var),
+                                    ty: ValueType::Str,
+                                }],
+                            },
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: start_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(0),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: stop_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::Var(len_var),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: step_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(1),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::ForRange {
+                        loop_var: idx_var,
+                        start_var,
+                        stop_var,
+                        step_var,
+                        body: full_body,
+                        else_body: vec![],
+                    },
+                ]
+            }
             GenKind::ClassIter {
                 obj_expr,
                 iter_mangled,
@@ -2642,6 +2908,254 @@ impl Lowering {
                     },
                 ]
             }
+            GenKind::Zip2 {
+                left_name,
+                right_name,
+                left_expr,
+                right_expr,
+                left_elem,
+                right_elem,
+            } => {
+                let left_var = self.fresh_internal("comp_zip_left");
+                let right_var = self.fresh_internal("comp_zip_right");
+                let len_left_var = self.fresh_internal("comp_zip_len_left");
+                let len_right_var = self.fresh_internal("comp_zip_len_right");
+                let start_var = self.fresh_internal("comp_zip_start");
+                let stop_var = self.fresh_internal("comp_zip_stop");
+                let step_var = self.fresh_internal("comp_zip_step");
+                let idx_var = self.fresh_internal("comp_zip_idx");
+
+                let left_ty = left_expr.ty.clone();
+                let right_ty = right_expr.ty.clone();
+                let mut full_body = vec![
+                    TirStmt::Let {
+                        name: left_name.clone(),
+                        ty: left_elem.clone(),
+                        value: TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::ListGet,
+                                args: vec![
+                                    TirExpr {
+                                        kind: TirExprKind::Var(left_var.clone()),
+                                        ty: left_ty.clone(),
+                                    },
+                                    TirExpr {
+                                        kind: TirExprKind::Var(idx_var.clone()),
+                                        ty: ValueType::Int,
+                                    },
+                                ],
+                            },
+                            ty: left_elem.clone(),
+                        },
+                    },
+                    TirStmt::Let {
+                        name: right_name.clone(),
+                        ty: right_elem.clone(),
+                        value: TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::ListGet,
+                                args: vec![
+                                    TirExpr {
+                                        kind: TirExprKind::Var(right_var.clone()),
+                                        ty: right_ty.clone(),
+                                    },
+                                    TirExpr {
+                                        kind: TirExprKind::Var(idx_var.clone()),
+                                        ty: ValueType::Int,
+                                    },
+                                ],
+                            },
+                            ty: right_elem.clone(),
+                        },
+                    },
+                ];
+                full_body.extend(body);
+
+                vec![
+                    TirStmt::Let {
+                        name: left_var.clone(),
+                        ty: left_ty.clone(),
+                        value: left_expr.clone(),
+                    },
+                    TirStmt::Let {
+                        name: right_var.clone(),
+                        ty: right_ty.clone(),
+                        value: right_expr.clone(),
+                    },
+                    TirStmt::Let {
+                        name: len_left_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::ListLen,
+                                args: vec![TirExpr {
+                                    kind: TirExprKind::Var(left_var),
+                                    ty: left_ty,
+                                }],
+                            },
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: len_right_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::ListLen,
+                                args: vec![TirExpr {
+                                    kind: TirExprKind::Var(right_var),
+                                    ty: right_ty,
+                                }],
+                            },
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: start_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(0),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: stop_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::MinInt,
+                                args: vec![
+                                    TirExpr {
+                                        kind: TirExprKind::Var(len_left_var),
+                                        ty: ValueType::Int,
+                                    },
+                                    TirExpr {
+                                        kind: TirExprKind::Var(len_right_var),
+                                        ty: ValueType::Int,
+                                    },
+                                ],
+                            },
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: step_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(1),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::ForRange {
+                        loop_var: idx_var,
+                        start_var,
+                        stop_var,
+                        step_var,
+                        body: full_body,
+                        else_body: vec![],
+                    },
+                ]
+            }
+            GenKind::Enumerate {
+                idx_name,
+                value_name,
+                list_expr,
+                elem_ty,
+            } => {
+                let list_var = self.fresh_internal("comp_enum_list");
+                let len_var = self.fresh_internal("comp_enum_len");
+                let start_var = self.fresh_internal("comp_enum_start");
+                let stop_var = self.fresh_internal("comp_enum_stop");
+                let step_var = self.fresh_internal("comp_enum_step");
+                let idx_var = self.fresh_internal("comp_enum_idx");
+
+                let list_ty = list_expr.ty.clone();
+                let mut full_body = vec![
+                    TirStmt::Let {
+                        name: idx_name.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::Var(idx_var.clone()),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: value_name.clone(),
+                        ty: elem_ty.clone(),
+                        value: TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::ListGet,
+                                args: vec![
+                                    TirExpr {
+                                        kind: TirExprKind::Var(list_var.clone()),
+                                        ty: list_ty.clone(),
+                                    },
+                                    TirExpr {
+                                        kind: TirExprKind::Var(idx_var.clone()),
+                                        ty: ValueType::Int,
+                                    },
+                                ],
+                            },
+                            ty: elem_ty.clone(),
+                        },
+                    },
+                ];
+                full_body.extend(body);
+
+                vec![
+                    TirStmt::Let {
+                        name: list_var.clone(),
+                        ty: list_ty.clone(),
+                        value: list_expr.clone(),
+                    },
+                    TirStmt::Let {
+                        name: len_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: builtin::BuiltinFn::ListLen,
+                                args: vec![TirExpr {
+                                    kind: TirExprKind::Var(list_var),
+                                    ty: list_ty,
+                                }],
+                            },
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: start_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(0),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: stop_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::Var(len_var),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: step_var.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(1),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::ForRange {
+                        loop_var: idx_var,
+                        start_var,
+                        stop_var,
+                        step_var,
+                        body: full_body,
+                        else_body: vec![],
+                    },
+                ]
+            }
         }
     }
 }
@@ -2662,6 +3176,10 @@ enum GenKind {
         list_expr: TirExpr,
         elem_ty: ValueType,
     },
+    Str {
+        str_expr: TirExpr,
+        elem_ty: ValueType,
+    },
     ClassIter {
         obj_expr: TirExpr,
         iter_mangled: String,
@@ -2673,5 +3191,19 @@ enum GenKind {
         tuple_expr: TirExpr,
         elem_ty: ValueType,
         len: usize,
+    },
+    Zip2 {
+        left_name: String,
+        right_name: String,
+        left_expr: TirExpr,
+        right_expr: TirExpr,
+        left_elem: ValueType,
+        right_elem: ValueType,
+    },
+    Enumerate {
+        idx_name: String,
+        value_name: String,
+        list_expr: TirExpr,
+        elem_ty: ValueType,
     },
 }

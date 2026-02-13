@@ -68,7 +68,9 @@ impl Resolver {
             let local_name = ast_get_string_or!(alias, "asname", name);
 
             symbols.insert(local_name, Type::Module(mod_path));
-            dependencies.push(path);
+            if !Self::is_native_module_path(&path) {
+                dependencies.push(path);
+            }
         }
         Ok(())
     }
@@ -87,7 +89,9 @@ impl Resolver {
         if let Some(ref mod_name) = module_name {
             if let Ok(module_file) = self.resolve_module(file_dir, level, mod_name) {
                 let mod_path = self.compute_module_path(&module_file);
-                dependencies.push(module_file);
+                if !Self::is_native_module_path(&module_file) {
+                    dependencies.push(module_file);
+                }
 
                 for alias in ast_get_list!(node, "names").iter() {
                     let name = ast_get_string!(alias, "name");
@@ -112,7 +116,9 @@ impl Resolver {
             let local_name = ast_get_string_or!(alias, "asname", name);
 
             symbols.insert(local_name, Type::Module(mod_path));
-            dependencies.push(path);
+            if !Self::is_native_module_path(&path) {
+                dependencies.push(path);
+            }
         }
 
         Ok(())
@@ -132,12 +138,23 @@ impl Resolver {
     }
 
     fn resolve_absolute_import(&self, import: &str) -> Result<PathBuf> {
+        if Self::is_native_module(import) {
+            return Ok(PathBuf::from(format!("__native__/{}.py", import)));
+        }
         let module_file = Self::module_to_file_path(&self.base_dir, import);
         if module_file.exists() && module_file.is_file() {
             Ok(module_file)
         } else {
             anyhow::bail!("failed to resolve import `{}`", import)
         }
+    }
+
+    fn is_native_module(import: &str) -> bool {
+        matches!(import, "math" | "random")
+    }
+
+    fn is_native_module_path(path: &Path) -> bool {
+        path.to_string_lossy().starts_with("__native__/")
     }
 
     fn resolve_relative_import(
@@ -164,6 +181,11 @@ impl Resolver {
     }
 
     pub fn compute_module_path(&self, file_path: &Path) -> String {
+        if let Some(s) = file_path.to_str() {
+            if let Some(stripped) = s.strip_prefix("__native__/") {
+                return stripped.strip_suffix(".py").unwrap_or(stripped).to_string();
+            }
+        }
         let relative = file_path.strip_prefix(&self.base_dir).unwrap();
         let without_ext = relative.with_extension("");
         without_ext.to_string_lossy().replace('/', ".")

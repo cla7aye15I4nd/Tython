@@ -76,6 +76,7 @@ pub struct Codegen<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     variables: HashMap<String, PointerValue<'ctx>>,
+    global_variables: HashMap<String, PointerValue<'ctx>>,
     loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
     struct_types: HashMap<String, StructType<'ctx>>,
     /// > 0 when inside a try/except or ForIter — calls use `invoke` instead of `call`.
@@ -115,6 +116,7 @@ impl<'ctx> Codegen<'ctx> {
             module,
             builder,
             variables: HashMap::new(),
+            global_variables: HashMap::new(),
             loop_stack: Vec::new(),
             struct_types: HashMap::new(),
             try_depth: 0,
@@ -129,6 +131,9 @@ impl<'ctx> Codegen<'ctx> {
     const TCMALLOC_LIB: Option<&'static str> = option_env!("TCMALLOC_LIB");
 
     pub fn link(&self, output_path: &Path) {
+        if let Err(e) = self.module.verify() {
+            panic!("module verification failed:\n{}", e.to_string());
+        }
         let bc_path = output_path.with_extension("o");
 
         self.module.write_bitcode_to_path(&bc_path);
@@ -323,6 +328,15 @@ impl<'ctx> Codegen<'ctx> {
         terminated
     }
 
+    fn is_current_function_module_main(&self) -> bool {
+        let function = emit!(self.get_insert_block()).get_parent().unwrap();
+        function
+            .get_name()
+            .to_str()
+            .map(|n| n.contains("$$main$"))
+            .unwrap_or(false)
+    }
+
     fn get_or_declare_function(
         &self,
         name: &str,
@@ -482,14 +496,28 @@ impl<'ctx> Codegen<'ctx> {
     ) -> Option<BasicValueEnum<'ctx>> {
         let function = self.get_builtin(func);
 
+        // DictGet/DictPop need both:
+        // - key (arg1) bitcasted to i64
+        // - returned slot bitcasted from i64 to the value type
+        if matches!(func, BuiltinFn::DictGet | BuiltinFn::DictPop) {
+            let mut call_args: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
+            for (i, arg) in args.iter().enumerate() {
+                let val = self.codegen_expr(arg);
+                if i == 1 {
+                    call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
+                } else {
+                    call_args.push(val.into());
+                }
+            }
+            let call = emit!(self.build_call(function, &call_args, "builtin_call"));
+            let i64_val = self.extract_call_value(call).into_int_value();
+            return Some(self.bitcast_from_i64(i64_val, result_ty.unwrap()));
+        }
+
         // List ops returning an element stored as i64 — bitcast result
         if matches!(
             func,
-            BuiltinFn::ListPop
-                | BuiltinFn::ListGet
-                | BuiltinFn::DictGet
-                | BuiltinFn::DictPop
-                | BuiltinFn::SetPop
+            BuiltinFn::ListPop | BuiltinFn::ListGet | BuiltinFn::SetPop
         ) {
             let arg_values = self.codegen_call_args(args);
             let call =

@@ -2,6 +2,7 @@
 #include "internal/buf.h"
 
 #include <cstdio>
+#include <cstdint>
 #include <cstring>
 
 using StrBuf = tython::Buf<char>;
@@ -27,6 +28,15 @@ TythonStr* TYTHON_FN(str_repeat)(TythonStr* s, int64_t n) {
 }
 
 int64_t TYTHON_FN(str_len)(TythonStr* s)                          { return b(s)->len; }
+TythonStr* TYTHON_FN(str_get_char)(TythonStr* s, int64_t index) {
+    int64_t i = index;
+    if (i < 0) i += b(s)->len;
+    if (i < 0 || i >= b(s)->len) {
+        TYTHON_FN(raise)(TYTHON_EXC_INDEX_ERROR, TYTHON_FN(str_new)("string index out of range", 25));
+        __builtin_unreachable();
+    }
+    return TYTHON_FN(str_new)(b(s)->data + i, 1);
+}
 int64_t TYTHON_FN(str_cmp)(TythonStr* a, TythonStr* other)        { return b(a)->cmp(b(other)); }
 int64_t TYTHON_FN(str_eq)(TythonStr* a, TythonStr* other)         { return b(a)->eq(b(other)); }
 int64_t TYTHON_FN(str_contains)(TythonStr* hay, TythonStr* needle){ return b(hay)->contains_sub(b(needle)); }
@@ -113,5 +123,94 @@ TythonStr* TYTHON_FN(repr_str)(TythonStr* s) {
         }
     }
     *p = quote;
+    return out;
+}
+
+/* ── convenience string methods used by stdlib-like patterns ─────── */
+
+TythonStr* TYTHON_FN(str_read)(TythonStr* s) {
+    return s;
+}
+
+TythonStr* TYTHON_FN(str_strip)(TythonStr* s) {
+    int64_t start = 0;
+    int64_t end = b(s)->len;
+    while (start < end) {
+        char c = b(s)->data[start];
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f' && c != '\v') break;
+        start++;
+    }
+    while (end > start) {
+        char c = b(s)->data[end - 1];
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f' && c != '\v') break;
+        end--;
+    }
+    return TYTHON_FN(str_new)(b(s)->data + start, end - start);
+}
+
+void* TYTHON_FN(str_split)(TythonStr* s, TythonStr* sep) {
+    if (b(sep)->len == 0) {
+        TYTHON_FN(raise)(TYTHON_EXC_VALUE_ERROR, TYTHON_FN(str_new)("empty separator", 15));
+        __builtin_unreachable();
+    }
+    auto* out = TYTHON_FN(list_empty)();
+    int64_t i = 0;
+    int64_t last = 0;
+    while (i + b(sep)->len <= b(s)->len) {
+        if (std::memcmp(b(s)->data + i, b(sep)->data, static_cast<size_t>(b(sep)->len)) == 0) {
+            auto* piece = TYTHON_FN(str_new)(b(s)->data + last, i - last);
+            TYTHON_FN(list_append)(out, static_cast<int64_t>(reinterpret_cast<uintptr_t>(piece)));
+            i += b(sep)->len;
+            last = i;
+        } else {
+            i++;
+        }
+    }
+    auto* tail = TYTHON_FN(str_new)(b(s)->data + last, b(s)->len - last);
+    TYTHON_FN(list_append)(out, static_cast<int64_t>(reinterpret_cast<uintptr_t>(tail)));
+    return out;
+}
+
+TythonStr* TYTHON_FN(str_join)(TythonStr* sep, void* parts_ptr) {
+    auto* parts = static_cast<TythonList*>(parts_ptr);
+    if (!parts || parts->len == 0) {
+        return TYTHON_FN(str_new)("", 0);
+    }
+
+    int64_t total = 0;
+    for (int64_t i = 0; i < parts->len; i++) {
+        auto* part = reinterpret_cast<TythonStr*>(static_cast<uintptr_t>(parts->data[i]));
+        total += part->len;
+        if (i > 0) total += sep->len;
+    }
+
+    auto* out = reinterpret_cast<TythonStr*>(
+        __tython_malloc(static_cast<int64_t>(sizeof(TythonStr)) + total));
+    out->len = total;
+    char* dst = out->data;
+    for (int64_t i = 0; i < parts->len; i++) {
+        if (i > 0) {
+            std::memcpy(dst, sep->data, static_cast<size_t>(sep->len));
+            dst += sep->len;
+        }
+        auto* part = reinterpret_cast<TythonStr*>(static_cast<uintptr_t>(parts->data[i]));
+        std::memcpy(dst, part->data, static_cast<size_t>(part->len));
+        dst += part->len;
+    }
+    return out;
+}
+
+void* TYTHON_FN(set_from_str)(TythonStr* s) {
+    bool seen[256] = {false};
+    auto* out = TYTHON_FN(list_empty)();
+    for (int64_t i = 0; i < b(s)->len; i++) {
+        uint8_t ch = static_cast<uint8_t>(b(s)->data[i]);
+        if (!seen[ch]) {
+            seen[ch] = true;
+            char one = static_cast<char>(ch);
+            auto* piece = TYTHON_FN(str_new)(&one, 1);
+            TYTHON_FN(list_append)(out, static_cast<int64_t>(reinterpret_cast<uintptr_t>(piece)));
+        }
+    }
     return out;
 }

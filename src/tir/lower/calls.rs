@@ -1,10 +1,11 @@
 use anyhow::Result;
 use pyo3::prelude::*;
+use std::path::Path;
 
 use crate::ast::{ClassInfo, Type};
 use crate::tir::{
-    type_rules, CallResult, CallTarget, FloatArithOp, TirExpr, TirExprKind, TirStmt, TypedBinOp,
-    ValueType,
+    type_rules, ArithBinOp, CallResult, CallTarget, FloatArithOp, RawBinOp, TirExpr, TirExprKind,
+    TirStmt, TypedBinOp, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -130,6 +131,84 @@ impl Lowering {
             .collect())
     }
 
+    fn coerce_args_to_param_types(&self, mut args: Vec<TirExpr>, params: &[Type]) -> Vec<TirExpr> {
+        for (arg, expected) in args.iter_mut().zip(params.iter()) {
+            if arg.ty.to_type() == *expected {
+                continue;
+            }
+            let target = match expected {
+                Type::Float => Some(ValueType::Float),
+                Type::Int => Some(ValueType::Int),
+                Type::Bool => Some(ValueType::Bool),
+                _ => None,
+            };
+            let Some(target_ty) = target else {
+                continue;
+            };
+            let from = arg.ty.clone();
+            if matches!(
+                (&from, &target_ty),
+                (ValueType::Int, ValueType::Float)
+                    | (ValueType::Bool, ValueType::Float)
+                    | (ValueType::Bool, ValueType::Int)
+                    | (ValueType::Int, ValueType::Bool)
+                    | (ValueType::Float, ValueType::Bool)
+            ) {
+                let old = std::mem::replace(
+                    arg,
+                    TirExpr {
+                        kind: TirExprKind::IntLiteral(0),
+                        ty: ValueType::Int,
+                    },
+                );
+                *arg = TirExpr {
+                    kind: TirExprKind::Cast {
+                        kind: Self::compute_cast_kind(&from, &target_ty),
+                        arg: Box::new(old),
+                    },
+                    ty: target_ty,
+                };
+            }
+        }
+        args
+    }
+
+    fn append_nested_captures_if_needed(
+        &self,
+        line: usize,
+        mangled: &str,
+        args: &mut Vec<TirExpr>,
+    ) -> Result<()> {
+        let Some(captures) = self.nested_function_captures.get(mangled) else {
+            return Ok(());
+        };
+        for (name, ty) in captures {
+            let resolved = self.lookup(name).cloned().ok_or_else(|| {
+                self.name_error(
+                    line,
+                    format!(
+                        "captured variable `{}` not found at call to `{}`",
+                        name, mangled
+                    ),
+                )
+            })?;
+            if &resolved != ty {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "captured variable `{}` type mismatch at call to `{}`: expected `{}`, got `{}`",
+                        name, mangled, ty, resolved
+                    ),
+                ));
+            }
+            args.push(TirExpr {
+                kind: TirExprKind::Var(name.clone()),
+                ty: Self::to_value_type(ty),
+            });
+        }
+        Ok(())
+    }
+
     pub(super) fn lower_call(&mut self, node: &Bound<PyAny>, line: usize) -> Result<CallResult> {
         let func_node = ast_getattr!(node, "func");
         let args_list = ast_get_list!(node, "args");
@@ -162,6 +241,46 @@ impl Lowering {
                 if func_name == "print" {
                     return Err(self.syntax_error(line, "print() can only be used as a statement"));
                 }
+                if func_name == "open" {
+                    if !keyword_args.is_empty() {
+                        return Err(self.syntax_error(line, "open() does not accept keywords"));
+                    }
+                    if positional_args.len() != 1 {
+                        return Err(self.type_error(
+                            line,
+                            format!("open() expects 1 argument, got {}", positional_args.len()),
+                        ));
+                    }
+                    let mut path_arg = positional_args.remove(0);
+                    if path_arg.ty != ValueType::Str {
+                        return Err(self.type_error(
+                            line,
+                            format!("open() path must be `str`, got `{}`", path_arg.ty),
+                        ));
+                    }
+
+                    if let TirExprKind::StrLiteral(path) = &path_arg.kind {
+                        let p = Path::new(path);
+                        if p.is_relative() {
+                            let base = Path::new(&self.current_file)
+                                .parent()
+                                .expect("source file should have a parent directory");
+                            let abs = base.join(p);
+                            path_arg = TirExpr {
+                                kind: TirExprKind::StrLiteral(abs.to_string_lossy().into_owned()),
+                                ty: ValueType::Str,
+                            };
+                        }
+                    }
+
+                    return Ok(CallResult::Expr(TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: crate::tir::builtin::BuiltinFn::OpenReadAll,
+                            args: vec![path_arg],
+                        },
+                        ty: ValueType::Str,
+                    }));
+                }
 
                 if type_rules::is_builtin_call(&func_name) {
                     if !keyword_args.is_empty() {
@@ -169,6 +288,29 @@ impl Lowering {
                             line,
                             format!("builtin `{}` does not support keyword arguments", func_name),
                         ));
+                    }
+                    if (func_name == "min" || func_name == "max")
+                        && positional_args
+                            .iter()
+                            .all(|a| matches!(a.ty, ValueType::Int | ValueType::Float))
+                        && positional_args.iter().any(|a| a.ty == ValueType::Float)
+                    {
+                        positional_args = positional_args
+                            .into_iter()
+                            .map(|arg| self.cast_to_float_if_needed(arg))
+                            .collect();
+                    }
+                    if func_name == "sum" && positional_args.len() == 2 {
+                        let list_expr = positional_args[0].clone();
+                        let start_expr = positional_args[1].clone();
+                        if let ValueType::List(inner) = &list_expr.ty {
+                            let elem_ty = (**inner).clone();
+                            if elem_ty == start_expr.ty && matches!(elem_ty, ValueType::Class(_)) {
+                                return Ok(CallResult::Expr(self.lower_sum_class_list(
+                                    line, list_expr, start_expr, elem_ty,
+                                )?));
+                            }
+                        }
                     }
                     let arg_types: Vec<&ValueType> =
                         positional_args.iter().map(|a| &a.ty).collect();
@@ -235,8 +377,15 @@ impl Lowering {
                             positional_args,
                             keyword_args,
                         )?;
+                        let mut bound_args = match &scope_type {
+                            Type::Function { params, .. } => {
+                                self.coerce_args_to_param_types(bound_args, params)
+                            }
+                            _ => bound_args,
+                        };
                         let return_type_resolved =
                             self.check_call_args(line, &func_name, &scope_type, &bound_args)?;
+                        self.append_nested_captures_if_needed(line, &mangled, &mut bound_args)?;
 
                         // Direct call to a known function definition
                         if return_type_resolved == Type::Unit {
@@ -292,8 +441,15 @@ impl Lowering {
                             positional_args,
                             keyword_args,
                         )?;
+                        let mut bound_args = match &func_type {
+                            Type::Function { params, .. } => {
+                                self.coerce_args_to_param_types(bound_args, params)
+                            }
+                            _ => bound_args,
+                        };
                         let return_type =
                             self.check_call_args(line, &func_name, &func_type, &bound_args)?;
+                        self.append_nested_captures_if_needed(line, mangled, &mut bound_args)?;
                         if return_type == Type::Unit {
                             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                                 target: CallTarget::Named(mangled.clone()),
@@ -339,6 +495,15 @@ impl Lowering {
                 if ast_type_name!(value_node) == "Name" {
                     let name = ast_get_string!(value_node, "id");
                     if let Some(Type::Module(mod_path)) = self.lookup(&name).cloned() {
+                        if mod_path == "math" || mod_path == "random" {
+                            return self.lower_native_module_call(
+                                line,
+                                &mod_path,
+                                &attr,
+                                positional_args,
+                                keyword_args,
+                            );
+                        }
                         let resolved = format!("{}${}", mod_path, attr);
 
                         // Check for class constructor first
@@ -373,10 +538,17 @@ impl Lowering {
                             positional_args,
                             keyword_args,
                         )?;
+                        let mut bound_args = match &func_type {
+                            Type::Function { params, .. } => {
+                                self.coerce_args_to_param_types(bound_args, params)
+                            }
+                            _ => bound_args,
+                        };
                         let return_type = {
                             let label = attr.to_string();
                             self.check_call_args(line, &label, &func_type, &bound_args)?
                         };
+                        self.append_nested_captures_if_needed(line, &resolved, &mut bound_args)?;
 
                         return if return_type == Type::Unit {
                             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
@@ -592,6 +764,237 @@ impl Lowering {
         }
     }
 
+    fn cast_to_float_if_needed(&self, arg: TirExpr) -> TirExpr {
+        if arg.ty == ValueType::Float {
+            return arg;
+        }
+        let kind = Self::compute_cast_kind(&arg.ty, &ValueType::Float);
+        TirExpr {
+            kind: TirExprKind::Cast {
+                kind,
+                arg: Box::new(arg),
+            },
+            ty: ValueType::Float,
+        }
+    }
+
+    fn lower_sum_class_list(
+        &mut self,
+        line: usize,
+        list_expr: TirExpr,
+        start_expr: TirExpr,
+        elem_ty: ValueType,
+    ) -> Result<TirExpr> {
+        let list_var = self.fresh_internal("sum_list");
+        let acc_var = self.fresh_internal("sum_acc");
+        let loop_var = self.fresh_internal("sum_item");
+        let idx_var = self.fresh_internal("sum_idx");
+        let len_var = self.fresh_internal("sum_len");
+
+        self.declare(list_var.clone(), list_expr.ty.to_type());
+        self.declare(acc_var.clone(), elem_ty.to_type());
+        self.declare(loop_var.clone(), elem_ty.to_type());
+        self.declare(idx_var.clone(), Type::Int);
+        self.declare(len_var.clone(), Type::Int);
+
+        let lhs = TirExpr {
+            kind: TirExprKind::Var(acc_var.clone()),
+            ty: elem_ty.clone(),
+        };
+        let rhs = TirExpr {
+            kind: TirExprKind::Var(loop_var.clone()),
+            ty: elem_ty.clone(),
+        };
+        let add_expr = self.resolve_binop(line, RawBinOp::Arith(ArithBinOp::Add), lhs, rhs)?;
+
+        self.pre_stmts.push(TirStmt::Let {
+            name: list_var.clone(),
+            ty: list_expr.ty.clone(),
+            value: list_expr,
+        });
+        self.pre_stmts.push(TirStmt::Let {
+            name: acc_var.clone(),
+            ty: elem_ty.clone(),
+            value: start_expr,
+        });
+        self.pre_stmts.push(TirStmt::ForList {
+            loop_var: loop_var.clone(),
+            loop_var_ty: elem_ty.clone(),
+            list_var,
+            index_var: idx_var,
+            len_var,
+            body: vec![TirStmt::Let {
+                name: acc_var.clone(),
+                ty: elem_ty.clone(),
+                value: add_expr,
+            }],
+            else_body: vec![],
+        });
+
+        Ok(TirExpr {
+            kind: TirExprKind::Var(acc_var),
+            ty: elem_ty,
+        })
+    }
+
+    fn lower_native_module_call(
+        &self,
+        line: usize,
+        module: &str,
+        attr: &str,
+        mut positional_args: Vec<TirExpr>,
+        keyword_args: Vec<(String, TirExpr)>,
+    ) -> Result<CallResult> {
+        match (module, attr) {
+            ("math", "log") | ("math", "exp") => {
+                if !keyword_args.is_empty() {
+                    return Err(self.syntax_error(
+                        line,
+                        format!("{}.{}() does not accept keywords", module, attr),
+                    ));
+                }
+                if positional_args.len() != 1 {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "{}.{}() expects 1 argument, got {}",
+                            module,
+                            attr,
+                            positional_args.len()
+                        ),
+                    ));
+                }
+                let arg = self.cast_to_float_if_needed(positional_args.remove(0));
+                let func = if attr == "log" {
+                    crate::tir::builtin::BuiltinFn::MathLog
+                } else {
+                    crate::tir::builtin::BuiltinFn::MathExp
+                };
+                Ok(CallResult::Expr(TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func,
+                        args: vec![arg],
+                    },
+                    ty: ValueType::Float,
+                }))
+            }
+            ("random", "seed") => {
+                if !keyword_args.is_empty() {
+                    return Err(self.syntax_error(line, "random.seed() does not accept keywords"));
+                }
+                if positional_args.len() != 1 || positional_args[0].ty != ValueType::Int {
+                    return Err(
+                        self.type_error(line, "random.seed() expects exactly one `int` argument")
+                    );
+                }
+                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                    target: CallTarget::Builtin(crate::tir::builtin::BuiltinFn::RandomSeed),
+                    args: positional_args,
+                })))
+            }
+            ("random", "gauss") => {
+                if !keyword_args.is_empty() {
+                    return Err(self.syntax_error(line, "random.gauss() does not accept keywords"));
+                }
+                if positional_args.len() != 2 {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "random.gauss() expects 2 arguments, got {}",
+                            positional_args.len()
+                        ),
+                    ));
+                }
+                let mu = self.cast_to_float_if_needed(positional_args.remove(0));
+                let sigma = self.cast_to_float_if_needed(positional_args.remove(0));
+                Ok(CallResult::Expr(TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: crate::tir::builtin::BuiltinFn::RandomGauss,
+                        args: vec![mu, sigma],
+                    },
+                    ty: ValueType::Float,
+                }))
+            }
+            ("random", "shuffle") => {
+                if !keyword_args.is_empty() {
+                    return Err(
+                        self.syntax_error(line, "random.shuffle() does not accept keywords")
+                    );
+                }
+                if positional_args.len() != 1 {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "random.shuffle() expects 1 argument, got {}",
+                            positional_args.len()
+                        ),
+                    ));
+                }
+                let list_arg = positional_args.remove(0);
+                if !matches!(list_arg.ty, ValueType::List(_)) {
+                    return Err(self.type_error(
+                        line,
+                        format!("random.shuffle() expects `list`, got `{}`", list_arg.ty),
+                    ));
+                }
+                Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                    target: CallTarget::Builtin(crate::tir::builtin::BuiltinFn::RandomShuffle),
+                    args: vec![list_arg],
+                })))
+            }
+            ("random", "choices") => {
+                if positional_args.len() != 1 {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "random.choices() expects population as 1 positional argument, got {}",
+                            positional_args.len()
+                        ),
+                    ));
+                }
+                let population = positional_args.remove(0);
+                if population.ty != ValueType::List(Box::new(ValueType::Int)) {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "random.choices() population must be `list[int]`, got `{}`",
+                            population.ty
+                        ),
+                    ));
+                }
+
+                if keyword_args.len() != 1 || keyword_args[0].0 != "weights" {
+                    return Err(self.type_error(
+                        line,
+                        "random.choices() currently requires exactly keyword argument `weights=`",
+                    ));
+                }
+                let weights = keyword_args[0].1.clone();
+                if weights.ty != ValueType::List(Box::new(ValueType::Float)) {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "random.choices() weights must be `list[float]`, got `{}`",
+                            weights.ty
+                        ),
+                    ));
+                }
+
+                Ok(CallResult::Expr(TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: crate::tir::builtin::BuiltinFn::RandomChoicesInt,
+                        args: vec![population, weights],
+                    },
+                    ty: ValueType::List(Box::new(ValueType::Int)),
+                }))
+            }
+            _ => Err(self.name_error(
+                line,
+                format!("unsupported native module function {}.{}", module, attr),
+            )),
+        }
+    }
+
     fn check_call_args(
         &self,
         line: usize,
@@ -646,40 +1049,26 @@ impl Lowering {
                 format!("class `{}` has no __init__ method", qualified_name),
             )
         })?;
-
-        if tir_args.len() != init_method.params.len() {
-            return Err(self.type_error(
-                line,
-                format!(
-                    "{}() expects {} argument{}, got {}",
-                    qualified_name,
-                    init_method.params.len(),
-                    if init_method.params.len() == 1 {
-                        ""
-                    } else {
-                        "s"
-                    },
-                    tir_args.len()
-                ),
-            ));
-        }
-        for (i, (arg, expected)) in tir_args.iter().zip(init_method.params.iter()).enumerate() {
-            if arg.ty.to_type() != *expected {
-                return Err(self.type_error(
-                    line,
-                    format!(
-                        "argument {} type mismatch in {}(): expected `{}`, got `{}`",
-                        i, qualified_name, expected, arg.ty
-                    ),
-                ));
-            }
-        }
+        let init_type = Type::Function {
+            params: init_method.params.clone(),
+            return_type: Box::new(Type::Unit),
+        };
+        let bound_args = self.bind_user_function_args(
+            line,
+            qualified_name,
+            &init_method.mangled_name,
+            &init_type,
+            tir_args,
+            vec![],
+        )?;
+        let bound_args = self.coerce_args_to_param_types(bound_args, &init_method.params);
+        self.check_call_args(line, qualified_name, &init_type, &bound_args)?;
 
         Ok(CallResult::Expr(TirExpr {
             kind: TirExprKind::Construct {
                 class_name: qualified_name.to_string(),
                 init_mangled_name: init_method.mangled_name.clone(),
-                args: tir_args,
+                args: bound_args,
             },
             ty: ValueType::Class(qualified_name.to_string()),
         }))

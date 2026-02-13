@@ -280,8 +280,11 @@ impl Lowering {
 
         let args_node = ast_getattr!(node, "args");
         let py_args = ast_get_list!(&args_node, "args");
+        let all_defaults =
+            self.lower_defaults_for_params(&args_node, Self::get_line(node), &method_name)?;
 
         let mut params = Vec::new();
+        let mut param_names = Vec::new();
         // self parameter
         params.push(FunctionParam::new(
             "self".to_string(),
@@ -294,8 +297,10 @@ impl Lowering {
             let param_name = ast_get_string!(arg, "arg");
             let annotation = ast_getattr!(arg, "annotation");
             let ty = self.convert_type_annotation(&annotation)?;
+            param_names.push(param_name.clone());
             params.push(FunctionParam::new(param_name, Self::to_value_type(&ty)));
         }
+        let default_values = all_defaults.into_iter().skip(1).collect();
 
         let return_type = Self::to_opt_value_type(&method_info.return_type);
 
@@ -322,6 +327,7 @@ impl Lowering {
         self.pop_scope();
         self.current_return_type = None;
         self.current_function_name = None;
+        self.register_function_signature(mangled_name.clone(), param_names, default_values);
 
         Ok(TirFunction {
             name: mangled_name,

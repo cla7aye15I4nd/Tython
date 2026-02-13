@@ -50,11 +50,20 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             TirExprKind::Var(name) => {
-                emit!(self.build_load(
-                    self.get_llvm_type(&expr.ty),
-                    self.variables[name.as_str()],
-                    name
-                ))
+                let ptr = if let Some(ptr) = self.variables.get(name.as_str()).copied() {
+                    ptr
+                } else if let Some(ptr) = self.global_variables.get(name.as_str()).copied() {
+                    ptr
+                } else {
+                    let g =
+                        self.module
+                            .add_global(self.get_llvm_type(&expr.ty), None, name.as_str());
+                    g.set_initializer(&self.get_llvm_type(&expr.ty).const_zero());
+                    let p = g.as_pointer_value();
+                    self.global_variables.insert(name.clone(), p);
+                    p
+                };
+                emit!(self.build_load(self.get_llvm_type(&expr.ty), ptr, name))
             }
 
             TirExprKind::BinOp { op, left, right } => {

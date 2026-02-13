@@ -114,3 +114,6 @@ TythonDict* TYTHON_FN(dict_copy)(TythonDict* d) {
     return out;
 }
 
+void* TYTHON_FN(dict_values)(TythonDict* d) {
+    return TYTHON_FN(list_new)(d->values, d->len);
+}

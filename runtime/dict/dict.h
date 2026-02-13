@@ -24,10 +24,10 @@ void TYTHON_FN(dict_clear)(TythonDict* d);
 int64_t TYTHON_FN(dict_pop)(TythonDict* d, int64_t key);
 int64_t TYTHON_FN(dict_eq)(TythonDict* a, TythonDict* b);
 TythonDict* TYTHON_FN(dict_copy)(TythonDict* d);
+void* TYTHON_FN(dict_values)(TythonDict* d);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* TYTHON_DATASTRUCTURES_DICT_H */
-

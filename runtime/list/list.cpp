@@ -32,10 +32,32 @@ TythonList* TYTHON_FN(list_empty)(void) {
     return L(ListVec::empty());
 }
 
+TythonList* TYTHON_FN(list_concat)(TythonList* a, TythonList* b) {
+    return L(v(a)->concat(v(b)));
+}
+
 int64_t TYTHON_FN(list_len)(TythonList* lst) { return v(lst)->len; }
 
 int64_t TYTHON_FN(list_get)(TythonList* lst, int64_t index) {
     return v(lst)->data[resolve_index(v(lst)->len, index)];
+}
+
+TythonList* TYTHON_FN(list_slice)(TythonList* lst, int64_t start, int64_t stop) {
+    int64_t len = v(lst)->len;
+    int64_t s = start;
+    int64_t e = stop;
+    if (s < 0) s += len;
+    if (e < 0) e += len;
+    if (s < 0) s = 0;
+    if (s > len) s = len;
+    if (e < 0) e = 0;
+    if (e > len) e = len;
+    if (e < s) e = s;
+    return L(ListVec::create(v(lst)->data + s, e - s));
+}
+
+TythonList* TYTHON_FN(list_repeat)(TythonList* lst, int64_t n) {
+    return L(v(lst)->repeat(n));
 }
 
 void TYTHON_FN(list_set)(TythonList* lst, int64_t index, int64_t value) {
@@ -157,6 +179,12 @@ TythonList* TYTHON_FN(sorted_bytearray)(TythonList* lst) {
     return out;
 }
 
+TythonList* TYTHON_FN(reversed_list)(TythonList* lst) {
+    auto* out = L(v(lst)->copy());
+    TYTHON_FN(list_reverse)(out);
+    return out;
+}
+
 /* ── bulk operations ─────────────────────────────────────────────── */
 
 void TYTHON_FN(list_extend)(TythonList* lst, TythonList* other) {
@@ -165,6 +193,34 @@ void TYTHON_FN(list_extend)(TythonList* lst, TythonList* other) {
 
 TythonList* TYTHON_FN(list_copy)(TythonList* lst) {
     return L(v(lst)->copy());
+}
+
+/* ── range(...) expression builtin ───────────────────────────────── */
+
+static TythonList* range_impl(int64_t start, int64_t stop, int64_t step) {
+    if (step == 0) {
+        TYTHON_FN(raise)(TYTHON_EXC_VALUE_ERROR, TYTHON_FN(str_new)("range() arg 3 must not be zero", 31));
+        __builtin_unreachable();
+    }
+    auto* out = ListVec::empty();
+    if (step > 0) {
+        for (int64_t i = start; i < stop; i += step) out->push(i);
+    } else {
+        for (int64_t i = start; i > stop; i += step) out->push(i);
+    }
+    return L(out);
+}
+
+TythonList* TYTHON_FN(range_1)(int64_t stop) {
+    return range_impl(0, stop, 1);
+}
+
+TythonList* TYTHON_FN(range_2)(int64_t start, int64_t stop) {
+    return range_impl(start, stop, 1);
+}
+
+TythonList* TYTHON_FN(range_3)(int64_t start, int64_t stop, int64_t step) {
+    return range_impl(start, stop, step);
 }
 
 /* ── aggregate builtins ──────────────────────────────────────────── */
@@ -209,6 +265,33 @@ int64_t TYTHON_FN(any_list)(TythonList* lst) {
     return 0;
 }
 
+int64_t TYTHON_FN(max_list_int)(TythonList* lst) {
+    auto* p = v(lst);
+    if (p->len <= 0) {
+        TYTHON_FN(raise)(TYTHON_EXC_VALUE_ERROR, TYTHON_FN(str_new)("max() arg is an empty sequence", 30));
+        __builtin_unreachable();
+    }
+    int64_t m = p->data[0];
+    for (int64_t i = 1; i < p->len; i++) if (p->data[i] > m) m = p->data[i];
+    return m;
+}
+
+double TYTHON_FN(max_list_float)(TythonList* lst) {
+    auto* p = v(lst);
+    if (p->len <= 0) {
+        TYTHON_FN(raise)(TYTHON_EXC_VALUE_ERROR, TYTHON_FN(str_new)("max() arg is an empty sequence", 30));
+        __builtin_unreachable();
+    }
+    double m;
+    std::memcpy(&m, &p->data[0], sizeof(double));
+    for (int64_t i = 1; i < p->len; i++) {
+        double val;
+        std::memcpy(&val, &p->data[i], sizeof(double));
+        if (val > m) m = val;
+    }
+    return m;
+}
+
 /* ── equality ────────────────────────────────────────────────────── */
 
 int64_t TYTHON_FN(list_eq_shallow)(TythonList* a, TythonList* b) {
@@ -226,4 +309,3 @@ int64_t TYTHON_FN(list_eq_deep)(TythonList* a, TythonList* b, int64_t depth) {
     }
     return 1;
 }
-

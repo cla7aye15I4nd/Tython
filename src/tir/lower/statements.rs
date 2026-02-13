@@ -117,6 +117,7 @@ impl Lowering {
         let mut param_types = Vec::new();
         let mut params = Vec::new();
         let mut param_names = Vec::new();
+        let mut explicit_param_name_set = std::collections::HashSet::new();
         for arg in py_args.iter() {
             let param_name = ast_get_string!(arg, "arg");
             let annotation = ast_getattr!(arg, "annotation");
@@ -133,6 +134,7 @@ impl Lowering {
             let vty = Self::to_value_type(&ty);
             param_types.push(ty);
             param_names.push(param_name.clone());
+            explicit_param_name_set.insert(param_name.clone());
             params.push(FunctionParam::new(param_name, vty));
         }
 
@@ -147,6 +149,29 @@ impl Lowering {
         self.declare(name.clone(), func_type);
         self.function_mangled_names
             .insert(name.clone(), mangled_name.clone());
+
+        // Capture visible outer variables as hidden parameters for this lifted function.
+        let mut captures: Vec<(String, Type)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for scope in self.scopes.iter().rev() {
+            for (k, v) in scope {
+                if seen.contains(k) || explicit_param_name_set.contains(k) || k == &name {
+                    continue;
+                }
+                if ValueType::from_type(v).is_some() {
+                    seen.insert(k.clone());
+                    captures.push((k.clone(), v.clone()));
+                }
+            }
+        }
+        for (cap_name, cap_ty) in &captures {
+            params.push(FunctionParam::new(
+                cap_name.clone(),
+                Self::to_value_type(cap_ty),
+            ));
+        }
+        self.nested_function_captures
+            .insert(mangled_name.clone(), captures.clone());
 
         // Save enclosing function context
         let saved_return_type = self.current_return_type.take();
@@ -381,7 +406,12 @@ impl Lowering {
             }
         }
 
+        let saved_empty_list_hint = self.empty_list_hint.clone();
+        if let Some(Type::List(inner)) = &annotated_ty {
+            self.empty_list_hint = Some(Self::to_value_type(inner));
+        }
         let tir_value = self.lower_expr(&value_node)?;
+        self.empty_list_hint = saved_empty_list_hint;
 
         let tir_value_ast_ty = tir_value.ty.to_type();
         if let Some(ref ann_ty) = annotated_ty {
@@ -417,7 +447,15 @@ impl Lowering {
             "Name" => {
                 let target = ast_get_string!(target_node, "id");
                 let value_node = ast_getattr!(node, "value");
+                if ast_type_name!(value_node) == "Lambda" {
+                    return self.handle_lambda_assign(&target, &value_node, line);
+                }
+                let saved_empty_list_hint = self.empty_list_hint.clone();
+                if let Some(Type::List(inner)) = self.lookup(&target).cloned() {
+                    self.empty_list_hint = Some(Self::to_value_type(&inner));
+                }
                 let tir_value = self.lower_expr(&value_node)?;
+                self.empty_list_hint = saved_empty_list_hint;
                 let var_type = tir_value.ty.to_type();
                 self.declare(target.clone(), var_type);
 
@@ -434,6 +472,92 @@ impl Lowering {
                 "only variable, attribute, or subscript assignments are supported",
             )),
         }
+    }
+
+    fn handle_lambda_assign(
+        &mut self,
+        target: &str,
+        lambda_node: &Bound<PyAny>,
+        line: usize,
+    ) -> Result<Vec<TirStmt>> {
+        let args_node = ast_getattr!(lambda_node, "args");
+        let py_args = ast_get_list!(&args_node, "args");
+        let default_values = self.lower_defaults_for_params(&args_node, line, target)?;
+
+        let mut param_types: Vec<Type> = Vec::with_capacity(py_args.len());
+        let mut params = Vec::with_capacity(py_args.len());
+        let mut param_names = Vec::with_capacity(py_args.len());
+
+        for (idx, arg) in py_args.iter().enumerate() {
+            let param_name = ast_get_string!(arg, "arg");
+            let annotation = ast_getattr!(arg, "annotation");
+            let param_ty = if !annotation.is_none() {
+                self.convert_type_annotation(&annotation)?
+            } else if let Some(default_expr) = &default_values[idx] {
+                default_expr.ty.to_type()
+            } else {
+                Type::Int
+            };
+            param_types.push(param_ty.clone());
+            param_names.push(param_name.clone());
+            params.push(crate::tir::FunctionParam::new(
+                param_name,
+                Self::to_value_type(&param_ty),
+            ));
+        }
+
+        let enclosing = self
+            .current_function_name
+            .as_deref()
+            .unwrap_or("_")
+            .to_string();
+        let mangled_name = format!("{}${}${}", self.current_module_name, enclosing, target);
+
+        let func_type_placeholder = Type::Function {
+            params: param_types.clone(),
+            return_type: Box::new(Type::Int),
+        };
+        self.declare(target.to_string(), func_type_placeholder);
+        self.function_mangled_names
+            .insert(target.to_string(), mangled_name.clone());
+
+        let saved_return_type = self.current_return_type.take();
+        let saved_function_name = self.current_function_name.take();
+        self.current_function_name = Some(format!("{}.{}", enclosing, target));
+        self.push_scope();
+        for param in &params {
+            self.declare(param.name.clone(), param.ty.to_type());
+        }
+
+        let saved_pre_stmts = std::mem::take(&mut self.pre_stmts);
+        let body_expr = self.lower_expr(&ast_getattr!(lambda_node, "body"))?;
+        let lambda_pre_stmts = std::mem::take(&mut self.pre_stmts);
+        self.pre_stmts = saved_pre_stmts;
+        let return_ty = body_expr.ty.to_type();
+
+        self.pop_scope();
+        self.current_return_type = saved_return_type;
+        self.current_function_name = saved_function_name;
+
+        let func_type = Type::Function {
+            params: param_types,
+            return_type: Box::new(return_ty.clone()),
+        };
+        self.declare(target.to_string(), func_type);
+
+        self.deferred_functions.push(crate::tir::TirFunction {
+            name: mangled_name.clone(),
+            params,
+            return_type: Some(body_expr.ty.clone()),
+            body: {
+                let mut stmts = lambda_pre_stmts;
+                stmts.push(TirStmt::Return(Some(body_expr)));
+                stmts
+            },
+        });
+        self.register_function_signature(mangled_name, param_names, default_values);
+
+        Ok(vec![])
     }
 
     fn handle_aug_assign(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
@@ -614,8 +738,34 @@ impl Lowering {
 
     fn handle_for(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
         let target_node = ast_getattr!(node, "target");
-        if ast_type_name!(target_node) != "Name" {
-            return Err(self.syntax_error(line, "for-loop target must be a simple variable name"));
+        let target_type = ast_type_name!(target_node);
+        if target_type == "Tuple" {
+            let target_names = self.extract_for_target_tuple_names(line, &target_node)?;
+            let iter_node = ast_getattr!(node, "iter");
+            if ast_type_name!(iter_node) == "Call" {
+                let func_node = ast_getattr!(iter_node, "func");
+                if ast_type_name!(func_node) == "Name" {
+                    let func_name = ast_get_string!(func_node, "id");
+                    if func_name == "zip" {
+                        return self.handle_for_zip_unpack(node, line, &target_names, &iter_node);
+                    }
+                    if func_name == "enumerate" {
+                        return self.handle_for_enumerate_unpack(
+                            node,
+                            line,
+                            &target_names,
+                            &iter_node,
+                        );
+                    }
+                }
+            }
+            return Err(self.syntax_error(
+                line,
+                "tuple-unpack for-loop target is only supported with zip(...) or enumerate(...)",
+            ));
+        }
+        if target_type != "Name" {
+            return Err(self.syntax_error(line, "for-loop target must be a variable or tuple"));
         }
         let loop_var = ast_get_string!(target_node, "id");
 
@@ -655,6 +805,329 @@ impl Lowering {
             }
             other => Err(self.type_error(line, format!("cannot iterate over `{}`", other))),
         }
+    }
+
+    fn extract_for_target_tuple_names(
+        &self,
+        line: usize,
+        target_node: &Bound<PyAny>,
+    ) -> Result<Vec<String>> {
+        let elts = ast_get_list!(target_node, "elts");
+        if elts.is_empty() {
+            return Err(self.syntax_error(line, "empty tuple target in for-loop is invalid"));
+        }
+        let mut names = Vec::with_capacity(elts.len());
+        for elt in elts.iter() {
+            if ast_type_name!(elt) != "Name" {
+                return Err(self.syntax_error(
+                    line,
+                    "for-loop tuple target must contain only simple variable names",
+                ));
+            }
+            names.push(ast_get_string!(elt, "id"));
+        }
+        Ok(names)
+    }
+
+    fn make_list_get_expr(
+        &self,
+        list_var: &str,
+        list_ty: ValueType,
+        idx_var: &str,
+        elem_ty: ValueType,
+    ) -> TirExpr {
+        TirExpr {
+            kind: TirExprKind::ExternalCall {
+                func: builtin::BuiltinFn::ListGet,
+                args: vec![
+                    TirExpr {
+                        kind: TirExprKind::Var(list_var.to_string()),
+                        ty: list_ty,
+                    },
+                    TirExpr {
+                        kind: TirExprKind::Var(idx_var.to_string()),
+                        ty: ValueType::Int,
+                    },
+                ],
+            },
+            ty: elem_ty,
+        }
+    }
+
+    fn handle_for_zip_unpack(
+        &mut self,
+        node: &Bound<PyAny>,
+        line: usize,
+        target_names: &[String],
+        iter_node: &Bound<PyAny>,
+    ) -> Result<Vec<TirStmt>> {
+        if target_names.len() != 2 {
+            return Err(self.syntax_error(
+                line,
+                "zip(...) unpack currently requires exactly two target variables",
+            ));
+        }
+        let args = ast_get_list!(iter_node, "args");
+        if args.len() != 2 {
+            return Err(self.type_error(
+                line,
+                format!("zip() expects 2 arguments, got {}", args.len()),
+            ));
+        }
+
+        let left = self.lower_expr(&args.get_item(0)?)?;
+        let right = self.lower_expr(&args.get_item(1)?)?;
+        let left_ty = left.ty.clone();
+        let right_ty = right.ty.clone();
+        let (left_elem, right_elem) = match (&left.ty, &right.ty) {
+            (ValueType::List(a), ValueType::List(b)) => ((**a).clone(), (**b).clone()),
+            _ => {
+                return Err(self.type_error(
+                    line,
+                    "zip() in for-loop unpack currently requires list arguments",
+                ))
+            }
+        };
+
+        let left_var = self.fresh_internal("zip_left");
+        let right_var = self.fresh_internal("zip_right");
+        let len_left_var = self.fresh_internal("zip_len_left");
+        let len_right_var = self.fresh_internal("zip_len_right");
+        let start_var = self.fresh_internal("zip_start");
+        let stop_var = self.fresh_internal("zip_stop");
+        let step_var = self.fresh_internal("zip_step");
+        let idx_var = self.fresh_internal("zip_idx");
+
+        self.declare(left_var.clone(), left.ty.to_type());
+        self.declare(right_var.clone(), right.ty.to_type());
+        self.declare(len_left_var.clone(), Type::Int);
+        self.declare(len_right_var.clone(), Type::Int);
+        self.declare(start_var.clone(), Type::Int);
+        self.declare(stop_var.clone(), Type::Int);
+        self.declare(step_var.clone(), Type::Int);
+        self.declare(idx_var.clone(), Type::Int);
+        self.declare(target_names[0].clone(), left_elem.to_type());
+        self.declare(target_names[1].clone(), right_elem.to_type());
+
+        let mut body = vec![
+            TirStmt::Let {
+                name: target_names[0].clone(),
+                ty: left_elem.clone(),
+                value: self.make_list_get_expr(&left_var, left.ty.clone(), &idx_var, left_elem),
+            },
+            TirStmt::Let {
+                name: target_names[1].clone(),
+                ty: right_elem.clone(),
+                value: self.make_list_get_expr(&right_var, right.ty.clone(), &idx_var, right_elem),
+            },
+        ];
+        body.extend(self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?);
+        let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
+
+        Ok(vec![
+            TirStmt::Let {
+                name: left_var.clone(),
+                ty: left_ty.clone(),
+                value: left,
+            },
+            TirStmt::Let {
+                name: right_var.clone(),
+                ty: right_ty.clone(),
+                value: right,
+            },
+            TirStmt::Let {
+                name: len_left_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::ListLen,
+                        args: vec![TirExpr {
+                            kind: TirExprKind::Var(left_var),
+                            ty: left_ty,
+                        }],
+                    },
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::Let {
+                name: len_right_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::ListLen,
+                        args: vec![TirExpr {
+                            kind: TirExprKind::Var(right_var),
+                            ty: right_ty,
+                        }],
+                    },
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::Let {
+                name: start_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::IntLiteral(0),
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::Let {
+                name: stop_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::MinInt,
+                        args: vec![
+                            TirExpr {
+                                kind: TirExprKind::Var(len_left_var),
+                                ty: ValueType::Int,
+                            },
+                            TirExpr {
+                                kind: TirExprKind::Var(len_right_var),
+                                ty: ValueType::Int,
+                            },
+                        ],
+                    },
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::Let {
+                name: step_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::IntLiteral(1),
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::ForRange {
+                loop_var: idx_var,
+                start_var,
+                stop_var,
+                step_var,
+                body,
+                else_body,
+            },
+        ])
+    }
+
+    fn handle_for_enumerate_unpack(
+        &mut self,
+        node: &Bound<PyAny>,
+        line: usize,
+        target_names: &[String],
+        iter_node: &Bound<PyAny>,
+    ) -> Result<Vec<TirStmt>> {
+        if target_names.len() != 2 {
+            return Err(self.syntax_error(
+                line,
+                "enumerate(...) unpack currently requires exactly two target variables",
+            ));
+        }
+        let args = ast_get_list!(iter_node, "args");
+        if args.len() != 1 {
+            return Err(self.type_error(
+                line,
+                format!("enumerate() expects 1 argument, got {}", args.len()),
+            ));
+        }
+        let list_expr = self.lower_expr(&args.get_item(0)?)?;
+        let elem_ty = match &list_expr.ty {
+            ValueType::List(inner) => (**inner).clone(),
+            _ => {
+                return Err(self.type_error(
+                    line,
+                    "enumerate() in for-loop unpack requires a list argument",
+                ))
+            }
+        };
+
+        let list_var = self.fresh_internal("enum_list");
+        let len_var = self.fresh_internal("enum_len");
+        let start_var = self.fresh_internal("enum_start");
+        let stop_var = self.fresh_internal("enum_stop");
+        let step_var = self.fresh_internal("enum_step");
+        let idx_var = self.fresh_internal("enum_idx");
+
+        self.declare(list_var.clone(), list_expr.ty.to_type());
+        self.declare(len_var.clone(), Type::Int);
+        self.declare(start_var.clone(), Type::Int);
+        self.declare(stop_var.clone(), Type::Int);
+        self.declare(step_var.clone(), Type::Int);
+        self.declare(idx_var.clone(), Type::Int);
+        self.declare(target_names[0].clone(), Type::Int);
+        self.declare(target_names[1].clone(), elem_ty.to_type());
+
+        let mut body = vec![
+            TirStmt::Let {
+                name: target_names[0].clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::Var(idx_var.clone()),
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::Let {
+                name: target_names[1].clone(),
+                ty: elem_ty.clone(),
+                value: self.make_list_get_expr(&list_var, list_expr.ty.clone(), &idx_var, elem_ty),
+            },
+        ];
+        body.extend(self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?);
+        let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
+
+        Ok(vec![
+            TirStmt::Let {
+                name: list_var.clone(),
+                ty: list_expr.ty.clone(),
+                value: list_expr.clone(),
+            },
+            TirStmt::Let {
+                name: len_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: builtin::BuiltinFn::ListLen,
+                        args: vec![TirExpr {
+                            kind: TirExprKind::Var(list_var),
+                            ty: list_expr.ty.clone(),
+                        }],
+                    },
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::Let {
+                name: start_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::IntLiteral(0),
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::Let {
+                name: stop_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::Var(len_var),
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::Let {
+                name: step_var.clone(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: TirExprKind::IntLiteral(1),
+                    ty: ValueType::Int,
+                },
+            },
+            TirStmt::ForRange {
+                loop_var: idx_var,
+                start_var,
+                stop_var,
+                step_var,
+                body,
+                else_body,
+            },
+        ])
     }
 
     fn handle_for_range(
@@ -717,8 +1190,8 @@ impl Lowering {
         self.declare(step_name.clone(), Type::Int);
         self.declare(loop_var.to_string(), Type::Int);
 
-        let body = self.lower_block(&ast_get_list!(node, "body"))?;
-        let else_body = self.lower_block(&ast_get_list!(node, "orelse"))?;
+        let body = self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?;
+        let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
 
         Ok(vec![
             TirStmt::Let {
@@ -764,8 +1237,8 @@ impl Lowering {
         self.declare(len_var.clone(), Type::Int);
         self.declare(loop_var.to_string(), elem_ty.to_type());
 
-        let body = self.lower_block(&ast_get_list!(node, "body"))?;
-        let else_body = self.lower_block(&ast_get_list!(node, "orelse"))?;
+        let body = self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?;
+        let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
 
         Ok(vec![
             TirStmt::Let {
@@ -836,8 +1309,8 @@ impl Lowering {
         self.declare(iter_var.clone(), Type::Class(iter_class_name.clone()));
         self.declare(loop_var.to_string(), next_method.return_type.clone());
 
-        let body = self.lower_block(&ast_get_list!(node, "body"))?;
-        let else_body = self.lower_block(&ast_get_list!(node, "orelse"))?;
+        let body = self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?;
+        let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
 
         Ok(vec![
             TirStmt::Let {
@@ -894,8 +1367,8 @@ impl Lowering {
         self.declare(idx_var.clone(), Type::Int);
         self.declare(loop_var.to_string(), elem_ty.to_type());
 
-        let body = self.lower_block(&ast_get_list!(node, "body"))?;
-        let else_body = self.lower_block(&ast_get_list!(node, "orelse"))?;
+        let body = self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?;
+        let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
 
         // Prepend: loop_var = tuple[idx_var]
         let tuple_element_types = match &tuple_expr.ty {

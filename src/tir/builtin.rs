@@ -39,6 +39,7 @@ define_builtins! {
     PrintSpace    => "__tython_print_space",    params: [],                                        ret: None;
     PrintNewline  => "__tython_print_newline",  params: [],                                        ret: None;
     Assert        => "__tython_assert",         params: [ValueType::Bool],                         ret: None;
+    OpenReadAll   => "__tython_open_read_all",  params: [ValueType::Str],                          ret: Some(ValueType::Str);
     PowInt        => "__tython_pow_int",        params: [ValueType::Int, ValueType::Int],           ret: Some(ValueType::Int);
     AbsInt        => "__tython_abs_int",        params: [ValueType::Int],                          ret: Some(ValueType::Int);
     AbsFloat      => "__tython_abs_float",      params: [ValueType::Float],                        ret: Some(ValueType::Float);
@@ -46,7 +47,18 @@ define_builtins! {
     MinFloat      => "__tython_min_float",      params: [ValueType::Float, ValueType::Float],       ret: Some(ValueType::Float);
     MaxInt        => "__tython_max_int",        params: [ValueType::Int, ValueType::Int],           ret: Some(ValueType::Int);
     MaxFloat      => "__tython_max_float",      params: [ValueType::Float, ValueType::Float],       ret: Some(ValueType::Float);
+    MaxListInt    => "__tython_max_list_int",   params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
+    MaxListFloat  => "__tython_max_list_float", params: [ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::Float);
     RoundFloat    => "__tython_round_float",    params: [ValueType::Float],                        ret: Some(ValueType::Int);
+    MathLog       => "__tython_math_log",       params: [ValueType::Float],                        ret: Some(ValueType::Float);
+    MathExp       => "__tython_math_exp",       params: [ValueType::Float],                        ret: Some(ValueType::Float);
+    RandomSeed    => "__tython_random_seed",    params: [ValueType::Int],                          ret: None;
+    RandomGauss   => "__tython_random_gauss",   params: [ValueType::Float, ValueType::Float],      ret: Some(ValueType::Float);
+    RandomShuffle => "__tython_random_shuffle", params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
+    RandomChoicesInt => "__tython_random_choices_int", params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    Range1        => "__tython_range_1",        params: [ValueType::Int],                          ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    Range2        => "__tython_range_2",        params: [ValueType::Int, ValueType::Int],          ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    Range3        => "__tython_range_3",        params: [ValueType::Int, ValueType::Int, ValueType::Int], ret: Some(ValueType::List(Box::new(ValueType::Int)));
 
     // str builtins
     StrConcat     => "__tython_str_concat",     params: [ValueType::Str, ValueType::Str],           ret: Some(ValueType::Str);
@@ -54,12 +66,17 @@ define_builtins! {
     StrLen        => "__tython_str_len",        params: [ValueType::Str],                          ret: Some(ValueType::Int);
     StrCmp        => "__tython_str_cmp",        params: [ValueType::Str, ValueType::Str],           ret: Some(ValueType::Int);
     StrEq         => "__tython_str_eq",         params: [ValueType::Str, ValueType::Str],           ret: Some(ValueType::Int);
+    StrGetChar    => "__tython_str_get_char",   params: [ValueType::Str, ValueType::Int],            ret: Some(ValueType::Str);
     StrFromInt    => "__tython_str_from_int",   params: [ValueType::Int],                          ret: Some(ValueType::Str);
     StrFromFloat  => "__tython_str_from_float", params: [ValueType::Float],                        ret: Some(ValueType::Str);
     StrFromBool   => "__tython_str_from_bool",  params: [ValueType::Bool],                         ret: Some(ValueType::Str);
     StrFromBytes  => "__tython_str_from_bytes", params: [ValueType::Bytes],                        ret: Some(ValueType::Str);
     StrFromByteArray => "__tython_str_from_bytearray", params: [ValueType::ByteArray],             ret: Some(ValueType::Str);
     ReprStr       => "__tython_repr_str",       params: [ValueType::Str],                          ret: Some(ValueType::Str);
+    StrRead       => "__tython_str_read",       params: [ValueType::Str],                          ret: Some(ValueType::Str);
+    StrStrip      => "__tython_str_strip",      params: [ValueType::Str],                          ret: Some(ValueType::Str);
+    StrSplit      => "__tython_str_split",      params: [ValueType::Str, ValueType::Str],          ret: Some(ValueType::List(Box::new(ValueType::Str)));
+    StrJoin       => "__tython_str_join",       params: [ValueType::Str, ValueType::List(Box::new(ValueType::Str))], ret: Some(ValueType::Str);
 
     // bytes builtins
     BytesConcat   => "__tython_bytes_concat",   params: [ValueType::Bytes, ValueType::Bytes],       ret: Some(ValueType::Bytes);
@@ -88,8 +105,11 @@ define_builtins! {
 
     // list builtins (all List(...) map to ptr in LLVM; inner type is a sentinel)
     ListEmpty          => "__tython_list_empty",          params: [],                                                                                ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    ListConcat         => "__tython_list_concat",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ListLen            => "__tython_list_len",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
     ListGet            => "__tython_list_get",            params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: Some(ValueType::Int);
+    ListSlice          => "__tython_list_slice",          params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int],      ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    ListRepeat         => "__tython_list_repeat",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ListAppend         => "__tython_list_append",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: None;
     ListPop            => "__tython_list_pop",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
     ListClear          => "__tython_list_clear",          params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: None;
@@ -120,6 +140,7 @@ define_builtins! {
     SortedStr          => "__tython_sorted_str",          params: [ValueType::List(Box::new(ValueType::Str))], ret: Some(ValueType::List(Box::new(ValueType::Str)));
     SortedBytes        => "__tython_sorted_bytes",        params: [ValueType::List(Box::new(ValueType::Bytes))], ret: Some(ValueType::List(Box::new(ValueType::Bytes)));
     SortedByteArray    => "__tython_sorted_bytearray",    params: [ValueType::List(Box::new(ValueType::ByteArray))], ret: Some(ValueType::List(Box::new(ValueType::ByteArray)));
+    ReversedList       => "__tython_reversed_list",       params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ListExtend         => "__tython_list_extend",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListCopy           => "__tython_list_copy",           params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
 
@@ -133,9 +154,11 @@ define_builtins! {
     DictPop            => "__tython_dict_pop",            params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
     DictEq             => "__tython_dict_eq",             params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
     DictCopy           => "__tython_dict_copy",           params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
+    DictValues         => "__tython_dict_values",         params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
 
     // set builtins (all Set(...) map to ptr in LLVM; element type is a sentinel)
     SetEmpty           => "__tython_set_empty",           params: [], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+    SetFromStr         => "__tython_set_from_str",        params: [ValueType::Str], ret: Some(ValueType::List(Box::new(ValueType::Str)));
     SetLen             => "__tython_set_len",             params: [ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
     SetContains        => "__tython_set_contains",        params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
     SetAdd             => "__tython_set_add",             params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;

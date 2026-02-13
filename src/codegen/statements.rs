@@ -19,6 +19,21 @@ impl<'ctx> Codegen<'ctx> {
                     emit!(self.build_store(alloca, value_llvm));
                     self.variables.insert(name.clone(), alloca);
                 }
+
+                // Module-level bindings are also materialized as globals so
+                // user functions can read top-level state.
+                if self.is_current_function_module_main() {
+                    let global_ptr = if let Some(ptr) = self.global_variables.get(name.as_str()) {
+                        *ptr
+                    } else {
+                        let g = self.module.add_global(self.get_llvm_type(ty), None, name);
+                        g.set_initializer(&self.get_llvm_type(ty).const_zero());
+                        let p = g.as_pointer_value();
+                        self.global_variables.insert(name.clone(), p);
+                        p
+                    };
+                    emit!(self.build_store(global_ptr, value_llvm));
+                }
             }
 
             TirStmt::Return(expr_opt) => {

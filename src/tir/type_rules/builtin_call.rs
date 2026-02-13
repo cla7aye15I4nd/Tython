@@ -63,6 +63,8 @@ pub fn is_builtin_call(name: &str) -> bool {
             | "set"
             | "iter"
             | "next"
+            | "range"
+            | "reversed"
     )
 }
 
@@ -196,6 +198,10 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
             BuiltinFn::SetEmpty,
             ValueType::Set(Box::new(ValueType::Int)),
         )),
+        ("set", [ValueType::Str]) => Some(external_call(
+            BuiltinFn::SetFromStr,
+            ValueType::List(Box::new(ValueType::Str)),
+        )),
 
         ("int", [ValueType::Int]) => Some(BuiltinCallRule::Identity),
         ("int", [ValueType::Class(_)]) => Some(class_magic(&["__int__"], Some(ValueType::Int))),
@@ -225,6 +231,13 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
         ("abs", [ValueType::Class(_)]) => Some(class_magic(&["__abs__"], None)),
         ("abs", _) => numeric_unary_builtin(arg_types, BuiltinFn::AbsInt, BuiltinFn::AbsFloat),
         ("min", _) => numeric_variadic_builtin(arg_types, BuiltinFn::MinInt, BuiltinFn::MinFloat),
+        ("max", [ValueType::List(inner)]) => match inner.as_ref() {
+            ValueType::Int | ValueType::Bool => {
+                Some(external_call(BuiltinFn::MaxListInt, ValueType::Int))
+            }
+            ValueType::Float => Some(external_call(BuiltinFn::MaxListFloat, ValueType::Float)),
+            _ => None,
+        },
         ("max", _) => numeric_variadic_builtin(arg_types, BuiltinFn::MaxInt, BuiltinFn::MaxFloat),
 
         ("pow", [ValueType::Int, ValueType::Int]) => {
@@ -252,10 +265,26 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
             };
             Some(external_call(sorted_fn, ValueType::List(inner.clone())))
         }
+        ("reversed", [ValueType::List(inner)]) => Some(external_call(
+            BuiltinFn::ReversedList,
+            ValueType::List(inner.clone()),
+        )),
 
         // Class dunder-method dispatch for iter/next
         ("iter", [ValueType::Class(_)]) => Some(class_magic(&["__iter__"], None)),
         ("next", [ValueType::Class(_)]) => Some(class_magic(&["__next__"], None)),
+        ("range", [ValueType::Int]) => Some(external_call(
+            BuiltinFn::Range1,
+            ValueType::List(Box::new(ValueType::Int)),
+        )),
+        ("range", [ValueType::Int, ValueType::Int]) => Some(external_call(
+            BuiltinFn::Range2,
+            ValueType::List(Box::new(ValueType::Int)),
+        )),
+        ("range", [ValueType::Int, ValueType::Int, ValueType::Int]) => Some(external_call(
+            BuiltinFn::Range3,
+            ValueType::List(Box::new(ValueType::Int)),
+        )),
 
         _ => None,
     }

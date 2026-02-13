@@ -29,18 +29,10 @@ pub enum MethodCallResult {
 /// - `None` — method name is not a known list method
 pub fn lookup_list_method(inner: &ValueType, name: &str) -> Option<Result<MethodCallRule, String>> {
     match name {
-        "append" => {
-            if !inner.is_primitive() {
-                return Some(Err(format!(
-                    "list[{}].append() is not supported; only list[int], list[float], list[bool] support append",
-                    inner
-                )));
-            }
-            Some(Ok(MethodCallRule {
-                params: vec![inner.clone()],
-                result: MethodCallResult::Void(BuiltinFn::ListAppend),
-            }))
-        }
+        "append" => Some(Ok(MethodCallRule {
+            params: vec![inner.clone()],
+            result: MethodCallResult::Void(BuiltinFn::ListAppend),
+        })),
         "clear" => Some(Ok(MethodCallRule {
             params: vec![],
             result: MethodCallResult::Void(BuiltinFn::ListClear),
@@ -98,15 +90,7 @@ pub fn lookup_list_method(inner: &ValueType, name: &str) -> Option<Result<Method
             }))
         }
         "extend" => Some(Ok(MethodCallRule {
-            params: {
-                if !inner.is_primitive() {
-                    return Some(Err(format!(
-                        "list[{}].extend() is not supported; only list[int], list[float], list[bool] support extend",
-                        inner
-                    )));
-                }
-                vec![ValueType::List(Box::new(inner.clone()))]
-            },
+            params: vec![ValueType::List(Box::new(inner.clone()))],
             result: MethodCallResult::Void(BuiltinFn::ListExtend),
         })),
         "copy" => Some(Ok(MethodCallRule {
@@ -149,6 +133,13 @@ pub fn lookup_dict_method(
             result: MethodCallResult::Expr {
                 func: BuiltinFn::DictCopy,
                 return_type: ValueType::Dict(Box::new(key.clone()), Box::new(value.clone())),
+            },
+        })),
+        "values" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::DictValues,
+                return_type: ValueType::List(Box::new(value.clone())),
             },
         })),
         _ => None,
@@ -233,9 +224,39 @@ pub fn lookup_bytearray_method(name: &str) -> Option<Result<MethodCallRule, Stri
 /// - `Some(Ok(rule))` — method exists and is supported
 /// - `Some(Err(msg))` — method is recognized but unsupported
 /// - `None` — method name is not a known str method
-pub fn lookup_str_method(_name: &str) -> Option<Result<MethodCallRule, String>> {
-    // No str methods exposed yet; stub for unified dispatch.
-    None
+pub fn lookup_str_method(name: &str) -> Option<Result<MethodCallRule, String>> {
+    match name {
+        // Compatibility shim for open(...).read() lowering to plain str.
+        "read" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::StrRead,
+                return_type: ValueType::Str,
+            },
+        })),
+        "strip" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::StrStrip,
+                return_type: ValueType::Str,
+            },
+        })),
+        "split" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Str],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::StrSplit,
+                return_type: ValueType::List(Box::new(ValueType::Str)),
+            },
+        })),
+        "join" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::List(Box::new(ValueType::Str))],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::StrJoin,
+                return_type: ValueType::Str,
+            },
+        })),
+        _ => None,
+    }
 }
 
 /// Look up a method on `bytes`.

@@ -56,6 +56,10 @@ pub struct Lowering {
     // before the expression that uses the comprehension result.
     pre_stmts: Vec<TirStmt>,
 
+    // Optional contextual type hint for lowering empty list literals (`[]`).
+    // Used in typed contexts (e.g., annotated list comprehensions).
+    empty_list_hint: Option<ValueType>,
+
     // Depth counter: >0 when inside a try/except block that has a finally clause.
     // `return` is forbidden inside such blocks because the codegen cannot
     // guarantee that the finally block executes before the function exits.
@@ -68,6 +72,10 @@ pub struct Lowering {
     // Global map of lowered function signatures, keyed by mangled name.
     // Used for keyword/default argument binding at call sites.
     function_signatures: HashMap<String, FunctionSignature>,
+
+    // Hidden captured variables for lifted nested functions.
+    // Keyed by mangled function name, value is ordered (name, type) capture list.
+    nested_function_captures: HashMap<String, Vec<(String, Type)>>,
 }
 
 impl Default for Lowering {
@@ -92,8 +100,10 @@ impl Lowering {
             deferred_classes: Vec::new(),
             internal_tmp_counter: 0,
             pre_stmts: Vec::new(),
+            empty_list_hint: None,
             function_mangled_names: HashMap::new(),
             function_signatures: HashMap::new(),
+            nested_function_captures: HashMap::new(),
             in_try_finally_depth: 0,
         }
     }
@@ -157,6 +167,15 @@ impl Lowering {
             body.extend(self.lower_stmt(&stmt_node)?);
         }
         self.pop_scope();
+        Ok(body)
+    }
+
+    /// Lower a block of statements in the current scope (Python block semantics).
+    fn lower_block_in_current_scope(&mut self, stmts: &Bound<PyList>) -> Result<Vec<TirStmt>> {
+        let mut body = Vec::new();
+        for stmt_node in stmts.iter() {
+            body.extend(self.lower_stmt(&stmt_node)?);
+        }
         Ok(body)
     }
 
@@ -352,6 +371,12 @@ impl Lowering {
             }
             TirExprKind::Cast { arg, .. } => self.ensure_supported_default_expr(line, arg),
             TirExprKind::TupleLiteral { elements, .. } => {
+                for elt in elements {
+                    self.ensure_supported_default_expr(line, elt)?;
+                }
+                Ok(())
+            }
+            TirExprKind::ListLiteral { elements, .. } => {
                 for elt in elements {
                     self.ensure_supported_default_expr(line, elt)?;
                 }
