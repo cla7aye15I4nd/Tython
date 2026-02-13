@@ -95,11 +95,25 @@ impl Lowering {
                 let left = self.lower_expr(&ast_getattr!(node, "left"))?;
                 let ops_list = ast_get_list!(node, "ops");
                 let comparators_list = ast_get_list!(node, "comparators");
+                let is_empty_list_literal = |n: &Bound<PyAny>| -> bool {
+                    ast_type_name!(n) == "List" && ast_get_list!(n, "elts").is_empty()
+                };
 
                 if ops_list.len() == 1 {
                     let op_node = ops_list.get_item(0)?;
                     let cmp_op = Self::convert_cmpop(&op_node)?;
-                    let right = self.lower_expr(&comparators_list.get_item(0)?)?;
+                    let right_node = comparators_list.get_item(0)?;
+                    let right = if is_empty_list_literal(&right_node)
+                        && matches!(left.ty, ValueType::List(_))
+                    {
+                        let saved_empty_list_hint = self.empty_list_hint.clone();
+                        self.empty_list_hint = Some(left.ty.clone());
+                        let lowered = self.lower_expr(&right_node)?;
+                        self.empty_list_hint = saved_empty_list_hint;
+                        lowered
+                    } else {
+                        self.lower_expr(&right_node)?
+                    };
                     return self.lower_single_comparison(line, cmp_op, left, right);
                 }
 
@@ -109,7 +123,18 @@ impl Lowering {
                 for i in 0..ops_list.len() {
                     let op_node = ops_list.get_item(i)?;
                     let cmp_op = Self::convert_cmpop(&op_node)?;
-                    let right = self.lower_expr(&comparators_list.get_item(i)?)?;
+                    let right_node = comparators_list.get_item(i)?;
+                    let right = if is_empty_list_literal(&right_node)
+                        && matches!(current_left.ty, ValueType::List(_))
+                    {
+                        let saved_empty_list_hint = self.empty_list_hint.clone();
+                        self.empty_list_hint = Some(current_left.ty.clone());
+                        let lowered = self.lower_expr(&right_node)?;
+                        self.empty_list_hint = saved_empty_list_hint;
+                        lowered
+                    } else {
+                        self.lower_expr(&right_node)?
+                    };
 
                     comparisons.push(self.lower_single_comparison(
                         line,
@@ -2167,8 +2192,16 @@ impl Lowering {
         ty: &ValueType,
     ) -> TirExpr {
         match ty {
-            ValueType::Int | ValueType::Float | ValueType::Bool => TirExpr {
+            ValueType::Int => TirExpr {
                 kind: TirExprKind::IntEq(Box::new(left), Box::new(right)),
+                ty: ValueType::Bool,
+            },
+            ValueType::Float => TirExpr {
+                kind: TirExprKind::FloatEq(Box::new(left), Box::new(right)),
+                ty: ValueType::Bool,
+            },
+            ValueType::Bool => TirExpr {
+                kind: TirExprKind::BoolEq(Box::new(left), Box::new(right)),
                 ty: ValueType::Bool,
             },
             ValueType::Tuple(_) => self.generate_tuple_eq(left, right),
@@ -2176,6 +2209,20 @@ impl Lowering {
             ValueType::Str => TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: builtin::BuiltinFn::StrEq,
+                    args: vec![left, right],
+                },
+                ty: ValueType::Bool,
+            },
+            ValueType::Bytes => TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::BytesEq,
+                    args: vec![left, right],
+                },
+                ty: ValueType::Bool,
+            },
+            ValueType::ByteArray => TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::ByteArrayEq,
                     args: vec![left, right],
                 },
                 ty: ValueType::Bool,
