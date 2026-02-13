@@ -11,6 +11,44 @@ use super::runtime_fn::{LlvmTy, RuntimeFn};
 use super::Codegen;
 
 impl<'ctx> Codegen<'ctx> {
+    fn bool_to_runtime_abi(ty: &ValueType) -> ValueType {
+        if matches!(ty, ValueType::Bool) {
+            ValueType::Int
+        } else {
+            ty.clone()
+        }
+    }
+
+    fn bool_from_runtime_abi(
+        &self,
+        val: BasicValueEnum<'ctx>,
+        ty: &ValueType,
+    ) -> BasicValueEnum<'ctx> {
+        if matches!(ty, ValueType::Bool) {
+            emit!(self.build_int_truncate(
+                val.into_int_value(),
+                self.context.bool_type(),
+                "abi_i64_to_i1"
+            ))
+            .into()
+        } else {
+            val
+        }
+    }
+
+    fn bool_to_runtime_abi_arg(
+        &self,
+        val: BasicValueEnum<'ctx>,
+        ty: &ValueType,
+    ) -> BasicValueEnum<'ctx> {
+        if matches!(ty, ValueType::Bool) {
+            emit!(self.build_int_z_extend(val.into_int_value(), self.i64_type(), "abi_i1_to_i64"))
+                .into()
+        } else {
+            val
+        }
+    }
+
     /// Extract the return value from a call to a function known to return non-void.
     /// This is an LLVM API contract — the function has a non-void return type in IR.
     pub(crate) fn extract_call_value(
@@ -42,11 +80,13 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     pub(crate) fn get_builtin(&self, builtin: BuiltinFn) -> FunctionValue<'ctx> {
-        self.get_or_declare_function(
-            builtin.symbol(),
-            &builtin.param_types(),
-            builtin.return_type(),
-        )
+        let param_types: Vec<ValueType> = builtin
+            .param_types()
+            .iter()
+            .map(Self::bool_to_runtime_abi)
+            .collect();
+        let return_type = builtin.return_type().map(|t| Self::bool_to_runtime_abi(&t));
+        self.get_or_declare_function(builtin.symbol(), &param_types, return_type)
     }
 
     pub(crate) fn resolve_llvm_ty(&self, ty: &LlvmTy) -> inkwell::types::BasicTypeEnum<'ctx> {
@@ -118,7 +158,10 @@ impl<'ctx> Codegen<'ctx> {
         elem_ty: &ValueType,
     ) -> inkwell::values::IntValue<'ctx> {
         match elem_ty {
-            ValueType::Int | ValueType::Bool => val.into_int_value(),
+            ValueType::Int => val.into_int_value(),
+            ValueType::Bool => {
+                emit!(self.build_int_z_extend(val.into_int_value(), self.i64_type(), "b2i64"))
+            }
             ValueType::Float => {
                 emit!(self.build_bit_cast(val, self.i64_type(), "f2i")).into_int_value()
             }
@@ -132,7 +175,10 @@ impl<'ctx> Codegen<'ctx> {
         elem_ty: &ValueType,
     ) -> BasicValueEnum<'ctx> {
         match elem_ty {
-            ValueType::Int | ValueType::Bool => val.into(),
+            ValueType::Int => val.into(),
+            ValueType::Bool => {
+                emit!(self.build_int_truncate(val, self.context.bool_type(), "i64_to_b")).into()
+            }
             ValueType::Float => emit!(self.build_bit_cast(val, self.f64_type(), "i2f")),
             _ => emit!(self.build_int_to_ptr(
                 val,
@@ -187,7 +233,7 @@ impl<'ctx> Codegen<'ctx> {
                 if i == 1 {
                     call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
                 } else {
-                    call_args.push(val.into());
+                    call_args.push(self.bool_to_runtime_abi_arg(val, &arg.ty).into());
                 }
             }
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
@@ -224,11 +270,12 @@ impl<'ctx> Codegen<'ctx> {
                 if i == last {
                     call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
                 } else {
-                    call_args.push(val.into());
+                    call_args.push(self.bool_to_runtime_abi_arg(val, &arg.ty).into());
                 }
             }
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
-            return result_ty.map(|_| self.extract_call_value(call));
+            return result_ty
+                .map(|ty| self.bool_from_runtime_abi(self.extract_call_value(call), ty));
         }
 
         // Dict ops with key in position 1; set/get/pop bitcast that key.
@@ -242,11 +289,12 @@ impl<'ctx> Codegen<'ctx> {
                 if i == 1 {
                     call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
                 } else {
-                    call_args.push(val.into());
+                    call_args.push(self.bool_to_runtime_abi_arg(val, &arg.ty).into());
                 }
             }
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
-            return result_ty.map(|_| self.extract_call_value(call));
+            return result_ty
+                .map(|ty| self.bool_from_runtime_abi(self.extract_call_value(call), ty));
         }
 
         // DictSet bitcasts key (arg1) and value (arg2).
@@ -257,7 +305,7 @@ impl<'ctx> Codegen<'ctx> {
                 if i == 1 || i == 2 {
                     call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
                 } else {
-                    call_args.push(val.into());
+                    call_args.push(self.bool_to_runtime_abi_arg(val, &arg.ty).into());
                 }
             }
             emit!(self.build_call(function, &call_args, "builtin_call"));
@@ -278,17 +326,23 @@ impl<'ctx> Codegen<'ctx> {
                 if i == 1 {
                     call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
                 } else {
-                    call_args.push(val.into());
+                    call_args.push(self.bool_to_runtime_abi_arg(val, &arg.ty).into());
                 }
             }
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
-            return result_ty.map(|_| self.extract_call_value(call));
+            return result_ty
+                .map(|ty| self.bool_from_runtime_abi(self.extract_call_value(call), ty));
         }
 
         // General case — no bitcasting
-        let arg_values = self.codegen_call_args(args);
+        let mut arg_values = Vec::with_capacity(args.len());
+        let param_types = func.param_types();
+        for (i, arg) in args.iter().enumerate() {
+            let v = self.codegen_expr(arg);
+            arg_values.push(self.bool_to_runtime_abi_arg(v, &param_types[i]));
+        }
         let call =
             emit!(self.build_call(function, &Self::to_meta_args(&arg_values), "builtin_call"));
-        result_ty.map(|_| self.extract_call_value(call))
+        result_ty.map(|ty| self.bool_from_runtime_abi(self.extract_call_value(call), ty))
     }
 }

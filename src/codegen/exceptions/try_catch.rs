@@ -112,7 +112,12 @@ impl<'ctx> Codegen<'ctx> {
                     "exc_match",
                 ));
                 let matches_val = self.extract_call_value(matches).into_int_value();
-                let matches_bool = self.build_int_truthiness_check(matches_val, "exc_match_bool");
+                let matches_bool = emit!(self.build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    matches_val,
+                    self.i64_type().const_int(0, false),
+                    "exc_match_bool",
+                ));
 
                 if i + 1 < except_clauses.len() {
                     let next_check_bb = self
@@ -194,7 +199,12 @@ impl<'ctx> Codegen<'ctx> {
             let flag_val =
                 emit!(self.build_load(self.i64_type(), exc_flag.unwrap(), "exc_flag_val"))
                     .into_int_value();
-            let need_reraise = self.build_int_truthiness_check(flag_val, "need_reraise");
+            let need_reraise = emit!(self.build_int_compare(
+                inkwell::IntPredicate::NE,
+                flag_val,
+                self.i64_type().const_int(0, false),
+                "need_reraise",
+            ));
             emit!(self.build_conditional_branch(need_reraise, reraise_bb, after_bb));
 
             self.builder.position_at_end(reraise_bb);

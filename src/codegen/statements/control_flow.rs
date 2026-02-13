@@ -12,7 +12,7 @@ impl<'ctx> Codegen<'ctx> {
         else_body: &[TirStmt],
     ) {
         let cond_val = self.codegen_expr(condition);
-        let cond_bool = self.build_truthiness_check_for_value(cond_val, &condition.ty, "ifcond");
+        let cond_bool = cond_val.into_int_value();
 
         let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
@@ -61,7 +61,7 @@ impl<'ctx> Codegen<'ctx> {
 
         self.builder.position_at_end(header_bb);
         let cond_val = self.codegen_expr(condition);
-        let cond_bool = self.build_truthiness_check_for_value(cond_val, &condition.ty, "whilecond");
+        let cond_bool = cond_val.into_int_value();
         let false_dest = else_bb.unwrap_or(after_bb);
         emit!(self.build_conditional_branch(cond_bool, body_bb, false_dest));
 

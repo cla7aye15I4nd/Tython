@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::{
-    ArithBinOp, BitwiseBinOp, CmpOp, RawBinOp, TirFunction, TirModule, TirStmt, UnaryOpKind,
-    ValueType,
+    builtin, ArithBinOp, BitwiseBinOp, CastKind, CmpOp, RawBinOp, TirExpr, TirExprKind,
+    TirFunction, TirModule, TirStmt, UnaryOpKind, ValueType,
 };
 use crate::ast::{ClassInfo, Type};
 use crate::errors::{ErrorCategory, TythonError};
@@ -216,6 +216,73 @@ impl Lowering {
         match ty {
             Type::Unit => None,
             other => Some(Self::to_value_type(other)),
+        }
+    }
+
+    /// Lower Python truthiness into an explicit bool-producing TIR expression.
+    fn lower_truthy_to_bool(
+        &mut self,
+        line: usize,
+        expr: TirExpr,
+        context: &str,
+    ) -> Result<TirExpr> {
+        match expr.ty {
+            ValueType::Bool => Ok(expr),
+            ValueType::Int => Ok(TirExpr {
+                kind: TirExprKind::Cast {
+                    kind: CastKind::IntToBool,
+                    arg: Box::new(expr),
+                },
+                ty: ValueType::Bool,
+            }),
+            ValueType::Float => Ok(TirExpr {
+                kind: TirExprKind::Cast {
+                    kind: CastKind::FloatToBool,
+                    arg: Box::new(expr),
+                },
+                ty: ValueType::Bool,
+            }),
+            ValueType::Str
+            | ValueType::Bytes
+            | ValueType::ByteArray
+            | ValueType::List(_)
+            | ValueType::Dict(_, _)
+            | ValueType::Set(_) => {
+                let len_fn = match &expr.ty {
+                    ValueType::Str => builtin::BuiltinFn::StrLen,
+                    ValueType::Bytes => builtin::BuiltinFn::BytesLen,
+                    ValueType::ByteArray => builtin::BuiltinFn::ByteArrayLen,
+                    ValueType::List(_) => builtin::BuiltinFn::ListLen,
+                    ValueType::Dict(_, _) => builtin::BuiltinFn::DictLen,
+                    ValueType::Set(_) => builtin::BuiltinFn::SetLen,
+                    _ => unreachable!(),
+                };
+                let len_expr = TirExpr {
+                    kind: TirExprKind::ExternalCall {
+                        func: len_fn,
+                        args: vec![expr],
+                    },
+                    ty: ValueType::Int,
+                };
+                Ok(TirExpr {
+                    kind: TirExprKind::Cast {
+                        kind: CastKind::IntToBool,
+                        arg: Box::new(len_expr),
+                    },
+                    ty: ValueType::Bool,
+                })
+            }
+            ValueType::Tuple(elements) => Ok(TirExpr {
+                kind: TirExprKind::IntLiteral((!elements.is_empty()) as i64),
+                ty: ValueType::Bool,
+            }),
+            ValueType::Class(_) => Ok(TirExpr {
+                kind: TirExprKind::IntLiteral(1),
+                ty: ValueType::Bool,
+            }),
+            ValueType::Function { .. } => {
+                Err(self.type_error(line, format!("cannot use `{}` in {}", expr.ty, context)))
+            }
         }
     }
 

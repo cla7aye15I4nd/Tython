@@ -105,7 +105,8 @@ impl<'ctx> Codegen<'ctx> {
             self.build_entry_block_alloca(self.get_llvm_type(result_ty), "tuple_dyn_get_tmp");
 
         let default_val: BasicValueEnum<'ctx> = match result_ty {
-            ValueType::Int | ValueType::Bool => self.i64_type().const_zero().into(),
+            ValueType::Int => self.i64_type().const_zero().into(),
+            ValueType::Bool => self.context.bool_type().const_zero().into(),
             ValueType::Float => self.f64_type().const_float(0.0).into(),
             _ => self
                 .context

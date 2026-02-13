@@ -123,23 +123,36 @@ impl<'ctx> Codegen<'ctx> {
             .into(),
 
             CastKind::BoolToFloat => emit!(self.build_signed_int_to_float(
-                arg_val.into_int_value(),
+                emit!(self.build_int_z_extend(arg_val.into_int_value(), self.i64_type(), "b2i64")),
                 self.f64_type(),
                 "btof",
             ))
             .into(),
 
             CastKind::IntToBool => {
-                let cmp = self.build_int_truthiness_check(arg_val.into_int_value(), "itob");
-                emit!(self.build_int_z_extend(cmp, self.i64_type(), "zext_bool")).into()
+                let cmp = emit!(self.build_int_compare(
+                    IntPredicate::NE,
+                    arg_val.into_int_value(),
+                    self.i64_type().const_int(0, false),
+                    "itob",
+                ));
+                cmp.into()
             }
 
             CastKind::FloatToBool => {
-                let cmp = self.build_float_truthiness_check(arg_val.into_float_value(), "ftob");
-                emit!(self.build_int_z_extend(cmp, self.i64_type(), "zext_bool")).into()
+                let cmp = emit!(self.build_float_compare(
+                    inkwell::FloatPredicate::ONE,
+                    arg_val.into_float_value(),
+                    self.f64_type().const_float(0.0),
+                    "ftob",
+                ));
+                cmp.into()
             }
 
-            CastKind::BoolToInt => arg_val, // same representation
+            CastKind::BoolToInt => {
+                emit!(self.build_int_z_extend(arg_val.into_int_value(), self.i64_type(), "btoi"))
+                    .into()
+            }
         }
     }
 
@@ -172,6 +185,26 @@ impl<'ctx> Codegen<'ctx> {
                 "ptr_to_int_r",
             ));
             emit!(self.build_int_compare(Self::int_predicate(op), left_int, right_int, "ptrcmp"))
+        } else if left.ty == ValueType::Bool || right.ty == ValueType::Bool {
+            let left_int = if left.ty == ValueType::Bool {
+                emit!(self.build_int_z_extend(
+                    left_val.into_int_value(),
+                    self.i64_type(),
+                    "b_l_i64"
+                ))
+            } else {
+                left_val.into_int_value()
+            };
+            let right_int = if right.ty == ValueType::Bool {
+                emit!(self.build_int_z_extend(
+                    right_val.into_int_value(),
+                    self.i64_type(),
+                    "b_r_i64"
+                ))
+            } else {
+                right_val.into_int_value()
+            };
+            emit!(self.build_int_compare(Self::int_predicate(op), left_int, right_int, "cmp"))
         } else {
             emit!(self.build_int_compare(
                 Self::int_predicate(op),
@@ -181,7 +214,7 @@ impl<'ctx> Codegen<'ctx> {
             ))
         };
 
-        emit!(self.build_int_z_extend(cmp_result, self.i64_type(), "zext_bool")).into()
+        cmp_result.into()
     }
 
     pub(crate) fn codegen_unary(
@@ -201,12 +234,7 @@ impl<'ctx> Codegen<'ctx> {
                 }
             }
             UnaryOpKind::Pos => operand_val,
-            UnaryOpKind::Not => {
-                let truth =
-                    self.build_truthiness_check_for_value(operand_val, &operand.ty, "not_truth");
-                let inverted = emit!(self.build_not(truth, "not"));
-                emit!(self.build_int_z_extend(inverted, self.i64_type(), "not_zext")).into()
-            }
+            UnaryOpKind::Not => emit!(self.build_not(operand_val.into_int_value(), "not")).into(),
             UnaryOpKind::BitNot => {
                 let val = operand_val.into_int_value();
                 let all_ones = self.i64_type().const_all_ones();
@@ -226,7 +254,23 @@ impl<'ctx> Codegen<'ctx> {
 
         // Evaluate left side
         let left_val = self.codegen_expr(left);
-        let left_truth = self.build_truthiness_check_for_value(left_val, &left.ty, "log_left");
+        let left_truth = if left.ty == ValueType::Bool {
+            left_val.into_int_value()
+        } else if left.ty == ValueType::Float {
+            emit!(self.build_float_compare(
+                inkwell::FloatPredicate::ONE,
+                left_val.into_float_value(),
+                self.f64_type().const_float(0.0),
+                "log_left",
+            ))
+        } else {
+            emit!(self.build_int_compare(
+                IntPredicate::NE,
+                left_val.into_int_value(),
+                self.i64_type().const_int(0, false),
+                "log_left",
+            ))
+        };
         let left_bb = emit!(self.get_insert_block());
 
         let right_bb = self.context.append_basic_block(function, "log_right");

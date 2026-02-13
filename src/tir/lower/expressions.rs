@@ -152,11 +152,16 @@ impl Lowering {
                             type_rules::unaryop_type_error_message(op, &operand.ty.to_type()),
                         )
                     })?;
+                let lowered_operand = if op == crate::tir::UnaryOpKind::Not {
+                    self.lower_truthy_to_bool(line, operand, "unary `not` operand")?
+                } else {
+                    operand
+                };
 
                 Ok(TirExpr {
                     kind: TirExprKind::UnaryOp {
                         op,
-                        operand: Box::new(operand),
+                        operand: Box::new(lowered_operand),
                     },
                     ty: Self::to_value_type(&rule.result_type),
                 })
@@ -2416,7 +2421,12 @@ impl Lowering {
             let ifs_list = ast_get_list!(gen, "ifs");
             let mut if_conds = Vec::new();
             for if_node in ifs_list.iter() {
-                if_conds.push(self.lower_expr(&if_node)?);
+                let cond = self.lower_expr(&if_node)?;
+                if_conds.push(self.lower_truthy_to_bool(
+                    line,
+                    cond,
+                    "comprehension filter condition",
+                )?);
             }
 
             gen_infos.push(GenInfo {

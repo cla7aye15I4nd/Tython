@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use crate::ast::{ClassInfo, Type};
 use crate::tir::{
-    builtin, ArithBinOp, CallResult, CallTarget, CastKind, ExceptClause, RawBinOp, TirExpr,
-    TirExprKind, TirStmt, ValueType,
+    builtin, ArithBinOp, CallResult, CallTarget, ExceptClause, RawBinOp, TirExpr, TirExprKind,
+    TirStmt, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -25,7 +25,8 @@ impl Lowering {
             "Return" => self.handle_return(node, line),
             "Expr" => self.handle_expr_stmt(node, line),
             "If" => {
-                let condition = self.lower_expr(&ast_getattr!(node, "test"))?;
+                let raw_condition = self.lower_expr(&ast_getattr!(node, "test"))?;
+                let condition = self.lower_truthy_to_bool(line, raw_condition, "if condition")?;
                 let then_body = self.lower_block(&ast_get_list!(node, "body"))?;
                 let else_body = self.lower_block(&ast_get_list!(node, "orelse"))?;
                 Ok(vec![TirStmt::If {
@@ -35,7 +36,9 @@ impl Lowering {
                 }])
             }
             "While" => {
-                let condition = self.lower_expr(&ast_getattr!(node, "test"))?;
+                let raw_condition = self.lower_expr(&ast_getattr!(node, "test"))?;
+                let condition =
+                    self.lower_truthy_to_bool(line, raw_condition, "while condition")?;
                 let body = self.lower_block(&ast_get_list!(node, "body"))?;
                 let else_body = self.lower_block(&ast_get_list!(node, "orelse"))?;
                 Ok(vec![TirStmt::While {
@@ -660,75 +663,20 @@ impl Lowering {
     fn handle_assert(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
         let test_node = ast_getattr!(node, "test");
         let condition = self.lower_expr(&test_node)?;
-
-        let bool_condition = if condition.ty == ValueType::Bool {
-            condition
-        } else {
-            match &condition.ty {
-                ValueType::Int => TirExpr {
-                    kind: TirExprKind::Cast {
-                        kind: CastKind::IntToBool,
-                        arg: Box::new(condition),
-                    },
-                    ty: ValueType::Bool,
-                },
-                ValueType::Float => TirExpr {
-                    kind: TirExprKind::Cast {
-                        kind: CastKind::FloatToBool,
-                        arg: Box::new(condition),
-                    },
-                    ty: ValueType::Bool,
-                },
-                ValueType::Str
+        if !matches!(
+            condition.ty,
+            ValueType::Bool
+                | ValueType::Int
+                | ValueType::Float
+                | ValueType::Str
                 | ValueType::Bytes
                 | ValueType::ByteArray
                 | ValueType::List(_)
-                | ValueType::Tuple(_) => {
-                    let len_fn = match &condition.ty {
-                        ValueType::Str => builtin::BuiltinFn::StrLen,
-                        ValueType::Bytes => builtin::BuiltinFn::BytesLen,
-                        ValueType::ByteArray => builtin::BuiltinFn::ByteArrayLen,
-                        ValueType::List(_) => builtin::BuiltinFn::ListLen,
-                        ValueType::Tuple(elements) => {
-                            let len_expr = TirExpr {
-                                kind: TirExprKind::IntLiteral(elements.len() as i64),
-                                ty: ValueType::Int,
-                            };
-                            return Ok(vec![TirStmt::VoidCall {
-                                target: CallTarget::Builtin(builtin::BuiltinFn::Assert),
-                                args: vec![TirExpr {
-                                    kind: TirExprKind::Cast {
-                                        kind: CastKind::IntToBool,
-                                        arg: Box::new(len_expr),
-                                    },
-                                    ty: ValueType::Bool,
-                                }],
-                            }]);
-                        }
-                        _ => unreachable!(),
-                    };
-                    let len_expr = TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: len_fn,
-                            args: vec![condition],
-                        },
-                        ty: ValueType::Int,
-                    };
-                    TirExpr {
-                        kind: TirExprKind::Cast {
-                            kind: CastKind::IntToBool,
-                            arg: Box::new(len_expr),
-                        },
-                        ty: ValueType::Bool,
-                    }
-                }
-                _ => {
-                    return Err(
-                        self.type_error(line, format!("cannot use `{}` in assert", condition.ty))
-                    )
-                }
-            }
-        };
+                | ValueType::Tuple(_)
+        ) {
+            return Err(self.type_error(line, format!("cannot use `{}` in assert", condition.ty)));
+        }
+        let bool_condition = self.lower_truthy_to_bool(line, condition, "assert")?;
 
         Ok(vec![TirStmt::VoidCall {
             target: CallTarget::Builtin(builtin::BuiltinFn::Assert),
