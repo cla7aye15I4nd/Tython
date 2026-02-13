@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum LlvmTy {
+pub(crate) enum LlvmTy {
     I64,
     I32,
     Ptr,
@@ -10,7 +10,7 @@ macro_rules! define_runtime_fns {
         $($variant:ident => $symbol:literal, llvm: [$($param:expr),*] -> $ret:expr);* $(;)?
     ) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub(super) enum RuntimeFn {
+        pub(crate) enum RuntimeFn {
             $($variant,)*
         }
 

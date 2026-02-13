@@ -12,4 +12,4 @@ if ! cargo llvm-cov --version >/dev/null 2>&1; then
   exit 1
 fi
 
-exec cargo llvm-cov --ignore-filename-regex "$IGNORE_REGEX" "$@" --html
+exec cargo +nightly llvm-cov --ignore-filename-regex "$IGNORE_REGEX" "$@" --html --branch

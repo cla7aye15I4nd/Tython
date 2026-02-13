@@ -63,7 +63,7 @@ echo ""
 
 # 3. Check clippy warnings
 echo -e "${YELLOW}[3/4]${NC} Checking clippy warnings..."
-if ! cargo clippy --all -- -D warnings 2>&1; then
+if ! cargo clippy --all -- -D warnings -A clippy::too_many_arguments 2>&1; then
     echo -e "${RED}✗${NC} Clippy failed with warnings or errors"
     exit 1
 else

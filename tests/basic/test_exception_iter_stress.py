@@ -150,9 +150,17 @@ def test_comprehensions_with_pairs_and_filters() -> None:
     print('CHECK test_exception_iter_stress rhs:', ((1, 2), (2, 2), (3, 2), (4, 2)))
     assert tuple_summary == ((1, 2), (2, 2), (3, 2), (4, 2))
 
+def test_else_branch_with_stopiteration() -> None:
+    product: list[int] = [p[0] * p[1] for p in PairWalk(2, 2)]
+    if sum(product) != 30:
+        return
+    else:
+        for i in PairWalk(2, 2):
+            print(i)
 
 def run_tests() -> None:
     test_try_except_finally_ordering_stress()
     test_manual_next_loop_and_repeated_stopiteration()
     test_for_iterable_nested_control_flow()
     test_comprehensions_with_pairs_and_filters()
+    test_else_branch_with_stopiteration()

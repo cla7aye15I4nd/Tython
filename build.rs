@@ -78,21 +78,4 @@ fn main() {
     for header in RUNTIME_HEADERS {
         println!("cargo:rerun-if-changed={}", header);
     }
-
-    // ── optional tcmalloc integration ────────────────────────────────
-    // Set TCMALLOC_LIB to the path of the static archive (.a or .lo).
-    // Bazel produces .lo files; a manual build may produce .a files.
-    println!("cargo:rerun-if-env-changed=TCMALLOC_LIB");
-    if let Ok(lib) = env::var("TCMALLOC_LIB") {
-        let lib_path = Path::new(&lib);
-        assert!(
-            lib_path.exists(),
-            "TCMALLOC_LIB set but {} not found",
-            lib_path.display()
-        );
-        let canonical = lib_path
-            .canonicalize()
-            .expect("failed to canonicalize TCMALLOC_LIB");
-        println!("cargo:rustc-env=TCMALLOC_LIB={}", canonical.display());
-    }
 }
