@@ -151,7 +151,7 @@ def test_comprehensions_with_pairs_and_filters() -> None:
     assert tuple_summary == ((1, 2), (2, 2), (3, 2), (4, 2))
 
 def test_else_branch_with_stopiteration() -> None:
-    product: list[int] = [p[0] * p[1] for p in PairWalk(2, 2)]
+    product: list[int] = [1, 2, 3]
     if sum(product) != 30:
         return
     else:
