@@ -53,6 +53,7 @@ impl Lowering {
             "Assert" => self.handle_assert(node, line),
             "Try" => self.handle_try(node, line),
             "Raise" => self.handle_raise(node, line),
+            "Pass" => Ok(vec![]), // pass statement generates no code
             _ => {
                 Err(self.syntax_error(line, format!("unsupported statement type: `{}`", node_type)))
             }
@@ -651,6 +652,28 @@ impl Lowering {
 
     fn handle_expr_stmt(&mut self, node: &Bound<PyAny>, line: usize) -> Result<Vec<TirStmt>> {
         let value_node = ast_getattr!(node, "value");
+
+        // Skip Ellipsis (...) and docstrings (standalone string literals)
+        if ast_type_name!(value_node) == "Constant" {
+            let value = ast_getattr!(value_node, "value");
+
+            // Check if this is Ellipsis (...)
+            let type_name = value
+                .get_type()
+                .name()
+                .map_err(|_| self.syntax_error(line, "failed to get constant type name"))?;
+
+            if type_name == "ellipsis" {
+                // Ellipsis statement - skip code generation
+                return Ok(vec![]);
+            }
+
+            // Check if this is a standalone string literal (docstring)
+            if value.is_instance_of::<pyo3::types::PyString>() {
+                // Docstring - skip code generation
+                return Ok(vec![]);
+            }
+        }
 
         if ast_type_name!(value_node) == "Call" {
             let func_node = ast_getattr!(value_node, "func");

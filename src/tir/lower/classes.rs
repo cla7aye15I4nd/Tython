@@ -148,6 +148,33 @@ impl Lowering {
                     );
                 }
                 "Pass" | "ClassDef" => {}
+                "Expr" => {
+                    // Allow expression statements only if they are docstrings or ellipsis
+                    let value_node = ast_getattr!(item, "value");
+                    if ast_type_name!(value_node) == "Constant" {
+                        let value = ast_getattr!(value_node, "value");
+                        let type_name = value.get_type().name().map_err(|_| {
+                            self.syntax_error(
+                                Self::get_line(&item),
+                                "failed to get constant type name",
+                            )
+                        })?;
+
+                        // Allow ellipsis and string literals (docstrings) in class body
+                        if type_name == "ellipsis"
+                            || value.is_instance_of::<pyo3::types::PyString>()
+                        {
+                            // These are allowed in class body but don't generate code
+                            continue;
+                        }
+                    }
+
+                    // Other expression statements are not allowed in class body
+                    return Err(self.syntax_error(
+                        Self::get_line(&item),
+                        "only field declarations, method definitions, and nested classes are allowed in class body",
+                    ));
+                }
                 _ => {
                     return Err(self.syntax_error(
                         Self::get_line(&item),

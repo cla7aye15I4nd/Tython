@@ -415,6 +415,35 @@ impl Lowering {
                     functions.insert(tir_func.name.clone(), tir_func);
                 }
                 "Import" | "ImportFrom" => {}
+                "Pass" => {
+                    // Allow pass statements at module level (they are no-ops)
+                }
+                "Expr" => {
+                    // Allow expression statements only if they are docstrings or ellipsis
+                    let value_node = ast_getattr!(node, "value");
+                    if ast_type_name!(value_node) == "Constant" {
+                        let value = ast_getattr!(value_node, "value");
+                        let type_name = value.get_type().name().map_err(|_| {
+                            let line = Self::get_line(&node);
+                            self.syntax_error(line, "failed to get constant type name")
+                        })?;
+
+                        // Allow ellipsis and string literals (docstrings) at module level
+                        if type_name == "ellipsis"
+                            || value.is_instance_of::<pyo3::types::PyString>()
+                        {
+                            // These are allowed at module level but don't generate code
+                            continue;
+                        }
+                    }
+
+                    // Other expression statements are not allowed at module level
+                    let line = Self::get_line(&node);
+                    return Err(self.syntax_error(
+                        line,
+                        "Module-level executable code must be inside 'if __name__ == \"__main__\":' block"
+                    ));
+                }
                 "If" => {
                     // Check if this is the `if __name__ == '__main__':` pattern
                     if Self::is_main_guard(&node) {
