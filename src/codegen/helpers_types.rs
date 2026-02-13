@@ -1,5 +1,5 @@
 use inkwell::types::{FloatType, IntType, StructType};
-use inkwell::{AddressSpace, FloatPredicate, IntPredicate};
+use inkwell::AddressSpace;
 
 use crate::ast::ClassInfo;
 use crate::tir::ValueType;
@@ -76,15 +76,7 @@ impl<'ctx> Codegen<'ctx> {
         self.context.f64_type()
     }
 
-    predicate_map!(float_predicate -> FloatPredicate {
-        Eq => FloatPredicate::OEQ, NotEq => FloatPredicate::ONE,
-        Lt => FloatPredicate::OLT, LtEq => FloatPredicate::OLE,
-        Gt => FloatPredicate::OGT, GtEq => FloatPredicate::OGE,
-    });
-
-    predicate_map!(int_predicate -> IntPredicate {
-        Eq => IntPredicate::EQ,  NotEq => IntPredicate::NE,
-        Lt => IntPredicate::SLT, LtEq => IntPredicate::SLE,
-        Gt => IntPredicate::SGT, GtEq => IntPredicate::SGE,
-    });
+    // Note: float_predicate and int_predicate removed - we now use TypedCompare
+    // which encodes both the comparison operator and operand type, eliminating
+    // the need for runtime type dispatch in codegen.
 }

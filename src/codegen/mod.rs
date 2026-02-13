@@ -18,14 +18,9 @@ macro_rules! emit {
     };
 }
 
-/// Generate a function mapping `OrderedCmpOp` to an LLVM predicate type.
-macro_rules! predicate_map {
-    ($name:ident -> $pred_ty:ty { $($variant:ident => $pred:expr),+ $(,)? }) => {
-        pub(crate) fn $name(op: &crate::tir::OrderedCmpOp) -> $pred_ty {
-            match op { $(crate::tir::OrderedCmpOp::$variant => $pred,)+ }
-        }
-    };
-}
+// Note: predicate_map macro removed - we now use TypedCompare which encodes
+// both the comparison operator and operand type, eliminating the need for
+// runtime type dispatch in codegen.
 
 /// Push loop context, codegen body statements, pop, branch to continue target.
 macro_rules! loop_body {
@@ -49,14 +44,6 @@ macro_rules! else_body {
             }
             $self.branch_if_unterminated($after_bb);
         }
-    };
-}
-
-/// Generate a match dispatching enum variants to builder methods.
-/// Each arm specifies its own arguments: `Variant => method(arg1, arg2, ..., "label")`.
-macro_rules! dispatch {
-    ($self:ident, $op:expr, $($Variant:path => $method:ident($($arg:expr),+ $(,)?)),+ $(,)?) => {
-        match $op { $($Variant => emit!($self.$method($($arg),+)),)+ }
     };
 }
 

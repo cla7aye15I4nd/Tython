@@ -429,13 +429,52 @@ impl Lowering {
             | TirExprKind::FloatLiteral(_)
             | TirExprKind::StrLiteral(_)
             | TirExprKind::BytesLiteral(_) => Ok(()),
-            TirExprKind::UnaryOp { operand, .. } => {
-                self.ensure_supported_default_expr(line, operand)
-            }
-            TirExprKind::BinOp { left, right, .. } => {
+
+            // Unary operations
+            TirExprKind::IntNeg(operand)
+            | TirExprKind::FloatNeg(operand)
+            | TirExprKind::Not(operand)
+            | TirExprKind::BitNot(operand) => self.ensure_supported_default_expr(line, operand),
+
+            // Binary operations
+            TirExprKind::IntAdd(left, right)
+            | TirExprKind::IntSub(left, right)
+            | TirExprKind::IntMul(left, right)
+            | TirExprKind::IntFloorDiv(left, right)
+            | TirExprKind::IntMod(left, right)
+            | TirExprKind::IntPow(left, right)
+            | TirExprKind::FloatAdd(left, right)
+            | TirExprKind::FloatSub(left, right)
+            | TirExprKind::FloatMul(left, right)
+            | TirExprKind::FloatDiv(left, right)
+            | TirExprKind::FloatFloorDiv(left, right)
+            | TirExprKind::FloatMod(left, right)
+            | TirExprKind::FloatPow(left, right)
+            | TirExprKind::BitAnd(left, right)
+            | TirExprKind::BitOr(left, right)
+            | TirExprKind::BitXor(left, right)
+            | TirExprKind::LShift(left, right)
+            | TirExprKind::RShift(left, right)
+            | TirExprKind::IntEq(left, right)
+            | TirExprKind::IntNotEq(left, right)
+            | TirExprKind::IntLt(left, right)
+            | TirExprKind::IntLtEq(left, right)
+            | TirExprKind::IntGt(left, right)
+            | TirExprKind::IntGtEq(left, right)
+            | TirExprKind::FloatEq(left, right)
+            | TirExprKind::FloatNotEq(left, right)
+            | TirExprKind::FloatLt(left, right)
+            | TirExprKind::FloatLtEq(left, right)
+            | TirExprKind::FloatGt(left, right)
+            | TirExprKind::FloatGtEq(left, right)
+            | TirExprKind::BoolEq(left, right)
+            | TirExprKind::BoolNotEq(left, right)
+            | TirExprKind::LogicalAnd(left, right)
+            | TirExprKind::LogicalOr(left, right) => {
                 self.ensure_supported_default_expr(line, left)?;
                 self.ensure_supported_default_expr(line, right)
             }
+
             TirExprKind::Cast { arg, .. } => self.ensure_supported_default_expr(line, arg),
             TirExprKind::TupleLiteral { elements, .. } => {
                 for elt in elements {

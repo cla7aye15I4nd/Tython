@@ -1,5 +1,5 @@
 use crate::ast::Type;
-use crate::tir::{UnaryOpKind, ValueType};
+use crate::tir::{TypedUnaryOp, UnaryOpKind, ValueType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassUnaryOpMagicRule {
@@ -74,5 +74,25 @@ pub fn unaryop_type_error_message(op: UnaryOpKind, operand: &Type) -> String {
         Pos => format!("unary `+` requires a numeric operand, got `{}`", operand),
         Not => format!("unary `not` is not supported for `{}`", operand),
         BitNot => format!("bitwise `~` requires an `int` operand, got `{}`", operand),
+    }
+}
+
+/// Resolve a raw unary operation to a fully-typed operation.
+/// This must be called after `lookup_unaryop()` succeeds.
+/// Returns `None` for `Pos` (unary +), which is a no-op.
+pub fn resolve_typed_unaryop(op: UnaryOpKind, operand: &Type) -> Option<TypedUnaryOp> {
+    use Type::*;
+    use UnaryOpKind::*;
+
+    match (op, operand) {
+        (Neg, Int) => Some(TypedUnaryOp::IntNeg),
+        (Neg, Float) => Some(TypedUnaryOp::FloatNeg),
+        (Pos, _) => None, // Unary + is a no-op, handled during lowering
+        (Not, _) => Some(TypedUnaryOp::Not),
+        (BitNot, Int) => Some(TypedUnaryOp::BitNot),
+        _ => panic!(
+            "ICE: resolve_typed_unaryop called with invalid op/type combination: {:?}/{:?}",
+            op, operand
+        ),
     }
 }

@@ -2,12 +2,33 @@ use anyhow::Result;
 use pyo3::prelude::*;
 
 use crate::tir::{
-    builtin, type_rules, ArithBinOp, CallResult, CallTarget, CastKind, CmpOp, LogicalOp,
-    OrderedCmpOp, RawBinOp, TirExpr, TirExprKind, TirStmt, Type, ValueType,
+    builtin, type_rules, ArithBinOp, BitwiseBinOp, CallResult, CallTarget, CastKind, CmpOp,
+    FloatArithOp, IntArithOp, LogicalOp, OrderedCmpOp, RawBinOp, TirExpr, TirExprKind, TirStmt,
+    Type, TypedBinOp, TypedCompare, ValueType,
 };
 use crate::{ast_get_int, ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 use super::Lowering;
+
+/// Helper to convert TypedCompare to the appropriate TirExprKind variant
+fn typed_compare_to_kind(op: TypedCompare, left: TirExpr, right: TirExpr) -> TirExprKind {
+    match op {
+        TypedCompare::IntEq => TirExprKind::IntEq(Box::new(left), Box::new(right)),
+        TypedCompare::IntNotEq => TirExprKind::IntNotEq(Box::new(left), Box::new(right)),
+        TypedCompare::IntLt => TirExprKind::IntLt(Box::new(left), Box::new(right)),
+        TypedCompare::IntLtEq => TirExprKind::IntLtEq(Box::new(left), Box::new(right)),
+        TypedCompare::IntGt => TirExprKind::IntGt(Box::new(left), Box::new(right)),
+        TypedCompare::IntGtEq => TirExprKind::IntGtEq(Box::new(left), Box::new(right)),
+        TypedCompare::FloatEq => TirExprKind::FloatEq(Box::new(left), Box::new(right)),
+        TypedCompare::FloatNotEq => TirExprKind::FloatNotEq(Box::new(left), Box::new(right)),
+        TypedCompare::FloatLt => TirExprKind::FloatLt(Box::new(left), Box::new(right)),
+        TypedCompare::FloatLtEq => TirExprKind::FloatLtEq(Box::new(left), Box::new(right)),
+        TypedCompare::FloatGt => TirExprKind::FloatGt(Box::new(left), Box::new(right)),
+        TypedCompare::FloatGtEq => TirExprKind::FloatGtEq(Box::new(left), Box::new(right)),
+        TypedCompare::BoolEq => TirExprKind::BoolEq(Box::new(left), Box::new(right)),
+        TypedCompare::BoolNotEq => TirExprKind::BoolNotEq(Box::new(left), Box::new(right)),
+    }
+}
 
 impl Lowering {
     pub(super) fn lower_expr(&mut self, node: &Bound<PyAny>) -> Result<TirExpr> {
@@ -103,11 +124,7 @@ impl Lowering {
                 let mut result = comparisons.remove(0);
                 for cmp in comparisons {
                     result = TirExpr {
-                        kind: TirExprKind::LogicalOp {
-                            op: LogicalOp::And,
-                            left: Box::new(result),
-                            right: Box::new(cmp),
-                        },
+                        kind: TirExprKind::LogicalAnd(Box::new(result), Box::new(cmp)),
                         ty: ValueType::Bool,
                     };
                 }
@@ -135,10 +152,7 @@ impl Lowering {
                     )?;
                     if magic.negate_result {
                         expr = TirExpr {
-                            kind: TirExprKind::UnaryOp {
-                                op: crate::tir::UnaryOpKind::Not,
-                                operand: Box::new(expr),
-                            },
+                            kind: TirExprKind::Not(Box::new(expr)),
                             ty: ValueType::Bool,
                         };
                     }
@@ -152,17 +166,38 @@ impl Lowering {
                             type_rules::unaryop_type_error_message(op, &operand.ty.to_type()),
                         )
                     })?;
+
+                // Handle Pos (unary +) as a no-op
+                if op == crate::tir::UnaryOpKind::Pos {
+                    return Ok(operand);
+                }
+
                 let lowered_operand = if op == crate::tir::UnaryOpKind::Not {
                     self.lower_truthy_to_bool(line, operand, "unary `not` operand")?
                 } else {
                     operand
                 };
 
+                // Resolve to typed operation
+                let typed_op = type_rules::resolve_typed_unaryop(op, &lowered_operand.ty.to_type())
+                    .expect("ICE: resolve_typed_unaryop failed after successful lookup");
+
+                // Construct typed operation variant
+                let kind = match typed_op {
+                    crate::tir::TypedUnaryOp::IntNeg => {
+                        TirExprKind::IntNeg(Box::new(lowered_operand))
+                    }
+                    crate::tir::TypedUnaryOp::FloatNeg => {
+                        TirExprKind::FloatNeg(Box::new(lowered_operand))
+                    }
+                    crate::tir::TypedUnaryOp::Not => TirExprKind::Not(Box::new(lowered_operand)),
+                    crate::tir::TypedUnaryOp::BitNot => {
+                        TirExprKind::BitNot(Box::new(lowered_operand))
+                    }
+                };
+
                 Ok(TirExpr {
-                    kind: TirExprKind::UnaryOp {
-                        op,
-                        operand: Box::new(lowered_operand),
-                    },
+                    kind,
                     ty: Self::to_value_type(&rule.result_type),
                 })
             }
@@ -204,10 +239,13 @@ impl Lowering {
                 let mut result = exprs.remove(0);
                 for operand in exprs {
                     result = TirExpr {
-                        kind: TirExprKind::LogicalOp {
-                            op: logical_op,
-                            left: Box::new(result),
-                            right: Box::new(operand),
+                        kind: match logical_op {
+                            LogicalOp::And => {
+                                TirExprKind::LogicalAnd(Box::new(result), Box::new(operand))
+                            }
+                            LogicalOp::Or => {
+                                TirExprKind::LogicalOr(Box::new(result), Box::new(operand))
+                            }
                         },
                         ty: result_ty.clone(),
                     };
@@ -916,17 +954,16 @@ impl Lowering {
 
         let mut body = Vec::new();
         let idx_gt_zero = TirExpr {
-            kind: TirExprKind::Compare {
-                op: OrderedCmpOp::Gt,
-                left: Box::new(TirExpr {
+            kind: TirExprKind::IntGt(
+                Box::new(TirExpr {
                     kind: TirExprKind::Var(idx_var.clone()),
                     ty: ValueType::Int,
                 }),
-                right: Box::new(TirExpr {
+                Box::new(TirExpr {
                     kind: TirExprKind::IntLiteral(0),
                     ty: ValueType::Int,
                 }),
-            },
+            ),
             ty: ValueType::Bool,
         };
         body.push(TirStmt::If {
@@ -1038,17 +1075,16 @@ impl Lowering {
 
         // if idx > 0: result_var = result_var + ", "
         let idx_gt_zero = TirExpr {
-            kind: TirExprKind::Compare {
-                op: OrderedCmpOp::Gt,
-                left: Box::new(TirExpr {
+            kind: TirExprKind::IntGt(
+                Box::new(TirExpr {
                     kind: TirExprKind::Var(idx_var.clone()),
                     ty: ValueType::Int,
                 }),
-                right: Box::new(TirExpr {
+                Box::new(TirExpr {
                     kind: TirExprKind::IntLiteral(0),
                     ty: ValueType::Int,
                 }),
-            },
+            ),
             ty: ValueType::Bool,
         };
         body.push(TirStmt::If {
@@ -1359,12 +1395,65 @@ impl Lowering {
         let final_left = Self::apply_coercion(left, rule.left_coercion);
         let final_right = Self::apply_coercion(right, rule.right_coercion);
 
+        // Construct typed operation variant based on TypedBinOp
+        let kind = match typed_op {
+            TypedBinOp::IntArith(IntArithOp::Add) => {
+                TirExprKind::IntAdd(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::IntArith(IntArithOp::Sub) => {
+                TirExprKind::IntSub(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::IntArith(IntArithOp::Mul) => {
+                TirExprKind::IntMul(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::IntArith(IntArithOp::FloorDiv) => {
+                TirExprKind::IntFloorDiv(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::IntArith(IntArithOp::Mod) => {
+                TirExprKind::IntMod(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::IntArith(IntArithOp::Pow) => {
+                TirExprKind::IntPow(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::FloatArith(FloatArithOp::Add) => {
+                TirExprKind::FloatAdd(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::FloatArith(FloatArithOp::Sub) => {
+                TirExprKind::FloatSub(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::FloatArith(FloatArithOp::Mul) => {
+                TirExprKind::FloatMul(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::FloatArith(FloatArithOp::Div) => {
+                TirExprKind::FloatDiv(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::FloatArith(FloatArithOp::FloorDiv) => {
+                TirExprKind::FloatFloorDiv(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::FloatArith(FloatArithOp::Mod) => {
+                TirExprKind::FloatMod(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::FloatArith(FloatArithOp::Pow) => {
+                TirExprKind::FloatPow(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::Bitwise(BitwiseBinOp::BitAnd) => {
+                TirExprKind::BitAnd(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::Bitwise(BitwiseBinOp::BitOr) => {
+                TirExprKind::BitOr(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::Bitwise(BitwiseBinOp::BitXor) => {
+                TirExprKind::BitXor(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::Bitwise(BitwiseBinOp::LShift) => {
+                TirExprKind::LShift(Box::new(final_left), Box::new(final_right))
+            }
+            TypedBinOp::Bitwise(BitwiseBinOp::RShift) => {
+                TirExprKind::RShift(Box::new(final_left), Box::new(final_right))
+            }
+        };
         Ok(TirExpr {
-            kind: TirExprKind::BinOp {
-                op: typed_op,
-                left: Box::new(final_left),
-                right: Box::new(final_right),
-            },
+            kind,
             ty: result_vty,
         })
     }
@@ -1559,10 +1648,7 @@ impl Lowering {
             };
             if cmp_op == CmpOp::NotIn {
                 return Ok(TirExpr {
-                    kind: TirExprKind::UnaryOp {
-                        op: crate::tir::UnaryOpKind::Not,
-                        operand: Box::new(contains_expr),
-                    },
+                    kind: TirExprKind::Not(Box::new(contains_expr)),
                     ty: ValueType::Bool,
                 });
             }
@@ -1571,17 +1657,27 @@ impl Lowering {
 
         // `is` / `is not` — identity (pointer equality for ref types, value equality for primitives)
         if matches!(cmp_op, CmpOp::Is | CmpOp::IsNot) {
-            let eq_op = if cmp_op == CmpOp::Is {
+            let ordered_op = if cmp_op == CmpOp::Is {
                 OrderedCmpOp::Eq
             } else {
                 OrderedCmpOp::NotEq
             };
+
+            // For reference types, we'll compare pointers as integers in codegen
+            // For primitive types, use direct comparison
+            let typed_op = if left.ty.is_ref_type() {
+                // Pointer comparison - codegen will convert to int and compare
+                if cmp_op == CmpOp::Is {
+                    TypedCompare::IntEq
+                } else {
+                    TypedCompare::IntNotEq
+                }
+            } else {
+                type_rules::resolve_typed_compare(ordered_op, &left.ty)
+            };
+
             return Ok(TirExpr {
-                kind: TirExprKind::Compare {
-                    op: eq_op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                },
+                kind: typed_compare_to_kind(typed_op, left, right),
                 ty: ValueType::Bool,
             });
         }
@@ -1625,14 +1721,7 @@ impl Lowering {
             let eq_expr = self.generate_list_eq(left, right);
             if cmp_op == CmpOp::NotEq {
                 return Ok(TirExpr {
-                    kind: TirExprKind::Compare {
-                        op: OrderedCmpOp::Eq,
-                        left: Box::new(eq_expr),
-                        right: Box::new(TirExpr {
-                            kind: TirExprKind::IntLiteral(0),
-                            ty: ValueType::Int,
-                        }),
-                    },
+                    kind: TirExprKind::Not(Box::new(eq_expr)),
                     ty: ValueType::Bool,
                 });
             }
@@ -1664,14 +1753,7 @@ impl Lowering {
             };
             if cmp_op == CmpOp::NotEq {
                 return Ok(TirExpr {
-                    kind: TirExprKind::Compare {
-                        op: OrderedCmpOp::Eq,
-                        left: Box::new(eq_expr),
-                        right: Box::new(TirExpr {
-                            kind: TirExprKind::IntLiteral(0),
-                            ty: ValueType::Int,
-                        }),
-                    },
+                    kind: TirExprKind::Not(Box::new(eq_expr)),
                     ty: ValueType::Bool,
                 });
             }
@@ -1703,14 +1785,7 @@ impl Lowering {
             };
             if cmp_op == CmpOp::NotEq {
                 return Ok(TirExpr {
-                    kind: TirExprKind::Compare {
-                        op: OrderedCmpOp::Eq,
-                        left: Box::new(eq_expr),
-                        right: Box::new(TirExpr {
-                            kind: TirExprKind::IntLiteral(0),
-                            ty: ValueType::Int,
-                        }),
-                    },
+                    kind: TirExprKind::Not(Box::new(eq_expr)),
                     ty: ValueType::Bool,
                 });
             }
@@ -1737,14 +1812,7 @@ impl Lowering {
             let eq_expr = self.generate_tuple_eq(left, right);
             if cmp_op == CmpOp::NotEq {
                 return Ok(TirExpr {
-                    kind: TirExprKind::Compare {
-                        op: OrderedCmpOp::Eq,
-                        left: Box::new(eq_expr),
-                        right: Box::new(TirExpr {
-                            kind: TirExprKind::IntLiteral(0),
-                            ty: ValueType::Int,
-                        }),
-                    },
+                    kind: TirExprKind::Not(Box::new(eq_expr)),
                     ty: ValueType::Bool,
                 });
             }
@@ -1753,12 +1821,13 @@ impl Lowering {
 
         // Numeric comparison with optional promotion
         let (fl, fr) = self.promote_for_comparison(line, left, right)?;
+        let ordered_op = OrderedCmpOp::from_cmp_op(cmp_op);
+
+        // Resolve to typed comparison for primitive types
+        let typed_op = type_rules::resolve_typed_compare(ordered_op, &fl.ty);
+
         Ok(TirExpr {
-            kind: TirExprKind::Compare {
-                op: OrderedCmpOp::from_cmp_op(cmp_op),
-                left: Box::new(fl),
-                right: Box::new(fr),
-            },
+            kind: typed_compare_to_kind(typed_op, fl, fr),
             ty: ValueType::Bool,
         })
     }
@@ -1955,14 +2024,7 @@ impl Lowering {
         // if not eq: result = false; break
         loop_body.push(TirStmt::If {
             condition: TirExpr {
-                kind: TirExprKind::Compare {
-                    op: OrderedCmpOp::Eq,
-                    left: Box::new(elem_eq),
-                    right: Box::new(TirExpr {
-                        kind: TirExprKind::IntLiteral(0),
-                        ty: ValueType::Int,
-                    }),
-                },
+                kind: TirExprKind::Not(Box::new(elem_eq)),
                 ty: ValueType::Bool,
             },
             then_body: vec![
@@ -1983,17 +2045,16 @@ impl Lowering {
         // else: for loop
         stmts.push(TirStmt::If {
             condition: TirExpr {
-                kind: TirExprKind::Compare {
-                    op: OrderedCmpOp::NotEq,
-                    left: Box::new(TirExpr {
+                kind: TirExprKind::IntNotEq(
+                    Box::new(TirExpr {
                         kind: TirExprKind::Var(len_a_var),
                         ty: ValueType::Int,
                     }),
-                    right: Box::new(TirExpr {
+                    Box::new(TirExpr {
                         kind: TirExprKind::Var(len_b_var.clone()),
                         ty: ValueType::Int,
                     }),
-                },
+                ),
                 ty: ValueType::Bool,
             },
             then_body: vec![TirStmt::Let {
@@ -2089,11 +2150,7 @@ impl Lowering {
         let mut result = comparisons.remove(0);
         for cmp in comparisons {
             result = TirExpr {
-                kind: TirExprKind::LogicalOp {
-                    op: LogicalOp::And,
-                    left: Box::new(result),
-                    right: Box::new(cmp),
-                },
+                kind: TirExprKind::LogicalAnd(Box::new(result), Box::new(cmp)),
                 ty: ValueType::Bool,
             };
         }
@@ -2109,11 +2166,7 @@ impl Lowering {
     ) -> TirExpr {
         match ty {
             ValueType::Int | ValueType::Float | ValueType::Bool => TirExpr {
-                kind: TirExprKind::Compare {
-                    op: OrderedCmpOp::Eq,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                },
+                kind: TirExprKind::IntEq(Box::new(left), Box::new(right)),
                 ty: ValueType::Bool,
             },
             ValueType::Tuple(_) => self.generate_tuple_eq(left, right),
@@ -2128,11 +2181,7 @@ impl Lowering {
             _ => {
                 // Fallback: bitwise compare (works for primitives stored as i64)
                 TirExpr {
-                    kind: TirExprKind::Compare {
-                        op: OrderedCmpOp::Eq,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
+                    kind: TirExprKind::IntEq(Box::new(left), Box::new(right)),
                     ty: ValueType::Bool,
                 }
             }
@@ -2184,16 +2233,12 @@ impl Lowering {
                     ty: ValueType::Int,
                 };
                 TirExpr {
-                    kind: TirExprKind::Compare {
-                        op: OrderedCmpOp::Eq,
-                        left: Box::new(eq_call),
-                        right: Box::new(zero),
-                    },
+                    kind: TirExprKind::Not(Box::new(eq_call)),
                     ty: ValueType::Bool,
                 }
             }
             ordered => {
-                // str_cmp(a,b) <op> 0
+                // str_cmp(a,b) <op> 0 — all comparisons are on Int values
                 let cmp_call = TirExpr {
                     kind: TirExprKind::ExternalCall {
                         func: cmp_fn,
@@ -2201,12 +2246,9 @@ impl Lowering {
                     },
                     ty: ValueType::Int,
                 };
+                let typed_op = type_rules::resolve_typed_compare(ordered, &ValueType::Int);
                 TirExpr {
-                    kind: TirExprKind::Compare {
-                        op: ordered,
-                        left: Box::new(cmp_call),
-                        right: Box::new(zero),
-                    },
+                    kind: typed_compare_to_kind(typed_op, cmp_call, zero),
                     ty: ValueType::Bool,
                 }
             }
@@ -2471,11 +2513,7 @@ impl Lowering {
                     .iter()
                     .cloned()
                     .reduce(|a, b| TirExpr {
-                        kind: TirExprKind::LogicalOp {
-                            op: LogicalOp::And,
-                            left: Box::new(a),
-                            right: Box::new(b),
-                        },
+                        kind: TirExprKind::LogicalAnd(Box::new(a), Box::new(b)),
                         ty: ValueType::Bool,
                     })
                     .unwrap();

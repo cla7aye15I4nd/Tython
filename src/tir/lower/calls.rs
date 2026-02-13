@@ -4,8 +4,8 @@ use std::path::Path;
 
 use crate::ast::{ClassInfo, Type};
 use crate::tir::{
-    type_rules, ArithBinOp, CallResult, CallTarget, FloatArithOp, RawBinOp, TirExpr, TirExprKind,
-    TirStmt, TypedBinOp, ValueType,
+    type_rules, ArithBinOp, CallResult, CallTarget, RawBinOp, TirExpr, TirExprKind, TirStmt,
+    ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -744,11 +744,7 @@ impl Lowering {
                 let right = tir_args.remove(1);
                 let left = tir_args.remove(0);
                 CallResult::Expr(TirExpr {
-                    kind: TirExprKind::BinOp {
-                        op: TypedBinOp::FloatArith(FloatArithOp::Pow),
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
+                    kind: TirExprKind::FloatPow(Box::new(left), Box::new(right)),
                     ty: ValueType::Float,
                 })
             }

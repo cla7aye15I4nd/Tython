@@ -337,6 +337,27 @@ pub enum OrderedCmpOp {
     GtEq,
 }
 
+/// Fully-typed comparison operator stored in TIR nodes.
+/// Encodes both the comparison kind AND the operand types.
+/// This allows codegen to emit the right LLVM instruction without runtime type checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypedCompare {
+    IntEq,
+    IntNotEq,
+    IntLt,
+    IntLtEq,
+    IntGt,
+    IntGtEq,
+    FloatEq,
+    FloatNotEq,
+    FloatLt,
+    FloatLtEq,
+    FloatGt,
+    FloatGtEq,
+    BoolEq,
+    BoolNotEq,
+}
+
 impl OrderedCmpOp {
     /// Convert a raw `CmpOp` that is known to be an ordered comparison.
     /// Panics on `In`/`NotIn`/`Is`/`IsNot` — those must be desugared first.
@@ -360,6 +381,18 @@ impl OrderedCmpOp {
 pub enum UnaryOpKind {
     Neg,
     Pos,
+    Not,
+    BitNot,
+}
+
+/// Fully-typed unary operation stored in TIR nodes.
+/// Encodes both the operation kind AND the operand type.
+/// This allows codegen to emit the right LLVM instruction without runtime type checks.
+/// Note: Unary + (Pos) is NOT included — it's a no-op handled during lowering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypedUnaryOp {
+    IntNeg,
+    FloatNeg,
     Not,
     BitNot,
 }
@@ -490,16 +523,66 @@ pub struct TirExpr {
 
 #[derive(Debug, Clone)]
 pub enum TirExprKind {
+    // ── Literals ────────────────────────────────────────────────────
     IntLiteral(i64),
     FloatLiteral(f64),
     StrLiteral(String),
     BytesLiteral(Vec<u8>),
     Var(String),
-    BinOp {
-        op: TypedBinOp,
-        left: Box<TirExpr>,
-        right: Box<TirExpr>,
-    },
+
+    // ── Integer arithmetic (guaranteed Int operands) ────────────────
+    IntAdd(Box<TirExpr>, Box<TirExpr>),
+    IntSub(Box<TirExpr>, Box<TirExpr>),
+    IntMul(Box<TirExpr>, Box<TirExpr>),
+    IntFloorDiv(Box<TirExpr>, Box<TirExpr>),
+    IntMod(Box<TirExpr>, Box<TirExpr>),
+    IntPow(Box<TirExpr>, Box<TirExpr>),
+
+    // ── Float arithmetic (guaranteed Float operands) ────────────────
+    FloatAdd(Box<TirExpr>, Box<TirExpr>),
+    FloatSub(Box<TirExpr>, Box<TirExpr>),
+    FloatMul(Box<TirExpr>, Box<TirExpr>),
+    FloatDiv(Box<TirExpr>, Box<TirExpr>),
+    FloatFloorDiv(Box<TirExpr>, Box<TirExpr>),
+    FloatMod(Box<TirExpr>, Box<TirExpr>),
+    FloatPow(Box<TirExpr>, Box<TirExpr>),
+
+    // ── Bitwise operations (guaranteed Int operands) ────────────────
+    BitAnd(Box<TirExpr>, Box<TirExpr>),
+    BitOr(Box<TirExpr>, Box<TirExpr>),
+    BitXor(Box<TirExpr>, Box<TirExpr>),
+    LShift(Box<TirExpr>, Box<TirExpr>),
+    RShift(Box<TirExpr>, Box<TirExpr>),
+
+    // ── Unary operations (operand type encoded in variant) ──────────
+    IntNeg(Box<TirExpr>),
+    FloatNeg(Box<TirExpr>),
+    Not(Box<TirExpr>),
+    BitNot(Box<TirExpr>),
+
+    // ── Typed comparisons (operand types encoded in variant) ────────
+    IntEq(Box<TirExpr>, Box<TirExpr>),
+    IntNotEq(Box<TirExpr>, Box<TirExpr>),
+    IntLt(Box<TirExpr>, Box<TirExpr>),
+    IntLtEq(Box<TirExpr>, Box<TirExpr>),
+    IntGt(Box<TirExpr>, Box<TirExpr>),
+    IntGtEq(Box<TirExpr>, Box<TirExpr>),
+
+    FloatEq(Box<TirExpr>, Box<TirExpr>),
+    FloatNotEq(Box<TirExpr>, Box<TirExpr>),
+    FloatLt(Box<TirExpr>, Box<TirExpr>),
+    FloatLtEq(Box<TirExpr>, Box<TirExpr>),
+    FloatGt(Box<TirExpr>, Box<TirExpr>),
+    FloatGtEq(Box<TirExpr>, Box<TirExpr>),
+
+    BoolEq(Box<TirExpr>, Box<TirExpr>),
+    BoolNotEq(Box<TirExpr>, Box<TirExpr>),
+
+    // ── Logical operations (short-circuiting) ───────────────────────
+    LogicalAnd(Box<TirExpr>, Box<TirExpr>),
+    LogicalOr(Box<TirExpr>, Box<TirExpr>),
+
+    // ── Function calls and external operations ──────────────────────
     Call {
         func: String,
         args: Vec<TirExpr>,
@@ -508,24 +591,13 @@ pub enum TirExprKind {
         func: builtin::BuiltinFn,
         args: Vec<TirExpr>,
     },
+
+    // ── Type casts ──────────────────────────────────────────────────
     Cast {
         kind: CastKind,
         arg: Box<TirExpr>,
     },
-    Compare {
-        op: OrderedCmpOp,
-        left: Box<TirExpr>,
-        right: Box<TirExpr>,
-    },
-    UnaryOp {
-        op: UnaryOpKind,
-        operand: Box<TirExpr>,
-    },
-    LogicalOp {
-        op: LogicalOp,
-        left: Box<TirExpr>,
-        right: Box<TirExpr>,
-    },
+    // ── Class and field access ──────────────────────────────────────
     GetField {
         object: Box<TirExpr>,
         class_name: String,
@@ -536,6 +608,8 @@ pub enum TirExprKind {
         init_mangled_name: String,
         args: Vec<TirExpr>,
     },
+
+    // ── Tuple operations ────────────────────────────────────────────
     TupleLiteral {
         elements: Vec<TirExpr>,
         element_types: Vec<ValueType>,
@@ -551,6 +625,8 @@ pub enum TirExprKind {
         len: usize,
         element_types: Vec<ValueType>,
     },
+
+    // ── List operations ─────────────────────────────────────────────
     ListLiteral {
         element_type: ValueType,
         elements: Vec<TirExpr>,
