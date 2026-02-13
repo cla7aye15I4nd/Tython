@@ -1,5 +1,3 @@
-use inkwell::AddressSpace;
-
 use super::super::runtime_fn::RuntimeFn;
 use super::super::Codegen;
 
@@ -26,32 +24,11 @@ impl<'ctx> Codegen<'ctx> {
 
         // unwind: catch all, print error, return 1
         self.builder.position_at_end(unwind_bb);
-        let landing_type = self.get_exception_landing_type();
-        let null_ptr = self.context.ptr_type(AddressSpace::default()).const_null();
-        let lp = emit!(self.build_landing_pad(
-            landing_type,
-            personality,
-            &[null_ptr.into()],
-            false,
-            "lp"
-        ));
-
-        let exc_ptr = emit!(self.build_extract_value(lp.into_struct_value(), 0, "exc_ptr"));
-
-        let begin_catch = self.get_runtime_fn(RuntimeFn::CxaBeginCatch);
-        let caught = emit!(self.build_call(begin_catch, &[exc_ptr.into()], "caught"));
-        let caught_ptr = self.extract_call_value(caught);
-
-        let type_tag_fn = self.get_runtime_fn(RuntimeFn::CaughtTypeTag);
-        let tag = emit!(self.build_call(type_tag_fn, &[caught_ptr.into()], "tag"));
-        let tag_val = self.extract_call_value(tag);
-
-        let message_fn = self.get_runtime_fn(RuntimeFn::CaughtMessage);
-        let msg = emit!(self.build_call(message_fn, &[caught_ptr.into()], "msg"));
-        let msg_val = self.extract_call_value(msg);
-
-        let end_catch = self.get_runtime_fn(RuntimeFn::CxaEndCatch);
-        emit!(self.build_call(end_catch, &[], "end_catch"));
+        let lp_alloca = self
+            .build_entry_block_alloca(self.get_exception_landing_type().into(), "main.lp_alloca");
+        let caught_ptr = self.build_landingpad_catch_all(lp_alloca, "main.lp");
+        let (tag_val, msg_val) = self.get_caught_tag_and_message(caught_ptr, "tag", "msg");
+        self.emit_end_catch("end_catch");
 
         let print_fn = self.get_runtime_fn(RuntimeFn::PrintUnhandled);
         emit!(self.build_call(print_fn, &[tag_val.into(), msg_val.into()], "print_exc"));

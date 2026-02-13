@@ -84,8 +84,6 @@ impl<'ctx> Codegen<'ctx> {
         self.builder.position_at_end(except_dispatch_bb);
 
         let caught_matches_fn = self.get_runtime_fn(RuntimeFn::CaughtMatches);
-        let caught_message_fn = self.get_runtime_fn(RuntimeFn::CaughtMessage);
-        let end_catch_fn = self.get_runtime_fn(RuntimeFn::CxaEndCatch);
 
         let handler_bbs: Vec<_> = except_clauses
             .iter()
@@ -101,36 +99,37 @@ impl<'ctx> Codegen<'ctx> {
         } else {
             let caught_reload = emit!(self.build_load(ptr_type, caught_alloca, "caught_reload"));
             for (i, clause) in except_clauses.iter().enumerate() {
-                if let Some(tag) = clause.exc_type_tag {
-                    let tag_val = self.i64_type().const_int(tag as u64, false);
-                    let matches = emit!(self.build_call(
-                        caught_matches_fn,
-                        &[caught_reload.into(), tag_val.into()],
-                        "exc_match",
-                    ));
-                    let matches_val = self.extract_call_value(matches).into_int_value();
-                    let matches_bool =
-                        self.build_int_truthiness_check(matches_val, "exc_match_bool");
-
-                    let next_bb = if i + 1 < except_clauses.len() {
-                        let bb = self
-                            .context
-                            .append_basic_block(function, &format!("exc_check_{}", i + 1));
-                        emit!(self.build_conditional_branch(matches_bool, handler_bbs[i], bb));
-                        self.builder.position_at_end(bb);
-                        bb
-                    } else {
-                        emit!(self.build_conditional_branch(
-                            matches_bool,
-                            handler_bbs[i],
-                            unhandled_bb,
-                        ));
-                        unhandled_bb
-                    };
-                    let _ = next_bb;
-                } else {
+                let Some(tag) = clause.exc_type_tag else {
                     // Bare except — catch all
                     emit!(self.build_unconditional_branch(handler_bbs[i]));
+                    break;
+                };
+
+                let tag_val = self.i64_type().const_int(tag as u64, false);
+                let matches = emit!(self.build_call(
+                    caught_matches_fn,
+                    &[caught_reload.into(), tag_val.into()],
+                    "exc_match",
+                ));
+                let matches_val = self.extract_call_value(matches).into_int_value();
+                let matches_bool = self.build_int_truthiness_check(matches_val, "exc_match_bool");
+
+                if i + 1 < except_clauses.len() {
+                    let next_check_bb = self
+                        .context
+                        .append_basic_block(function, &format!("exc_check_{}", i + 1));
+                    emit!(self.build_conditional_branch(
+                        matches_bool,
+                        handler_bbs[i],
+                        next_check_bb,
+                    ));
+                    self.builder.position_at_end(next_check_bb);
+                } else {
+                    emit!(self.build_conditional_branch(
+                        matches_bool,
+                        handler_bbs[i],
+                        unhandled_bb
+                    ));
                 }
             }
         }
@@ -139,8 +138,6 @@ impl<'ctx> Codegen<'ctx> {
         let reraise_tag_alloca =
             self.build_entry_block_alloca(self.i64_type().into(), "reraise_tag");
         let reraise_msg_alloca = self.build_entry_block_alloca(ptr_type.into(), "reraise_msg");
-        let caught_type_tag_fn = self.get_runtime_fn(RuntimeFn::CaughtTypeTag);
-
         let prev_reraise_state = self.reraise_state;
 
         for (i, clause) in except_clauses.iter().enumerate() {
@@ -150,20 +147,12 @@ impl<'ctx> Codegen<'ctx> {
             // so bare `raise` in handler body can re-raise
             let caught_reload =
                 emit!(self.build_load(ptr_type, caught_alloca, "caught_for_reraise"));
-            let tag = emit!(self.build_call(
-                caught_type_tag_fn,
-                &[caught_reload.into()],
+            let (tag_val, msg_val) = self.get_caught_tag_and_message(
+                caught_reload,
                 "reraise_tag_val",
-            ));
-            let tag_val = self.extract_call_value(tag);
-            emit!(self.build_store(reraise_tag_alloca, tag_val));
-
-            let msg = emit!(self.build_call(
-                caught_message_fn,
-                &[caught_reload.into()],
                 "reraise_msg_val",
-            ));
-            let msg_val = self.extract_call_value(msg);
+            );
+            emit!(self.build_store(reraise_tag_alloca, tag_val));
             emit!(self.build_store(reraise_msg_alloca, msg_val));
 
             self.reraise_state = Some((reraise_tag_alloca, reraise_msg_alloca));
@@ -174,7 +163,7 @@ impl<'ctx> Codegen<'ctx> {
                 self.variables.insert(var_name.clone(), alloca);
             }
 
-            emit!(self.build_call(end_catch_fn, &[], "end_catch"));
+            self.emit_end_catch("end_catch");
 
             for s in &clause.body {
                 self.codegen_stmt(s);
@@ -188,7 +177,7 @@ impl<'ctx> Codegen<'ctx> {
         self.builder.position_at_end(unhandled_bb);
         if has_finally {
             emit!(self.build_store(exc_flag.unwrap(), self.i64_type().const_int(1, false)));
-            emit!(self.build_call(end_catch_fn, &[], "end_catch_unhandled"));
+            self.emit_end_catch("end_catch_unhandled");
             emit!(self.build_unconditional_branch(finally_bb.unwrap()));
         } else {
             self.end_catch_and_resume(lp_alloca);

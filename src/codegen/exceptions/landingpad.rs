@@ -61,11 +61,47 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Emit `__cxa_end_catch` followed by a `resume` with the saved landing-pad value.
     pub(crate) fn end_catch_and_resume(&self, lp_alloca: PointerValue<'ctx>) {
-        let end_catch = self.get_runtime_fn(RuntimeFn::CxaEndCatch);
-        emit!(self.build_call(end_catch, &[], "end_catch"));
+        self.emit_end_catch("end_catch");
         let landing_type = self.get_exception_landing_type();
         let lp_val = emit!(self.build_load(landing_type, lp_alloca, "lp_resume"));
         emit!(self.build_resume(lp_val));
+    }
+
+    pub(crate) fn get_caught_type_tag(
+        &self,
+        caught_ptr: BasicValueEnum<'ctx>,
+        label: &str,
+    ) -> BasicValueEnum<'ctx> {
+        let type_tag_fn = self.get_runtime_fn(RuntimeFn::CaughtTypeTag);
+        let call = emit!(self.build_call(type_tag_fn, &[caught_ptr.into()], label));
+        self.extract_call_value(call)
+    }
+
+    pub(crate) fn get_caught_message(
+        &self,
+        caught_ptr: BasicValueEnum<'ctx>,
+        label: &str,
+    ) -> BasicValueEnum<'ctx> {
+        let message_fn = self.get_runtime_fn(RuntimeFn::CaughtMessage);
+        let call = emit!(self.build_call(message_fn, &[caught_ptr.into()], label));
+        self.extract_call_value(call)
+    }
+
+    pub(crate) fn get_caught_tag_and_message(
+        &self,
+        caught_ptr: BasicValueEnum<'ctx>,
+        tag_label: &str,
+        msg_label: &str,
+    ) -> (BasicValueEnum<'ctx>, BasicValueEnum<'ctx>) {
+        (
+            self.get_caught_type_tag(caught_ptr, tag_label),
+            self.get_caught_message(caught_ptr, msg_label),
+        )
+    }
+
+    pub(crate) fn emit_end_catch(&self, label: &str) {
+        let end_catch = self.get_runtime_fn(RuntimeFn::CxaEndCatch);
+        emit!(self.build_call(end_catch, &[], label));
     }
 
     /// Emit a function call. When inside a try block (`try_depth > 0`) and

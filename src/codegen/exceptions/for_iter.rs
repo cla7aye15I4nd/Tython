@@ -2,7 +2,6 @@ use inkwell::{AddressSpace, IntPredicate};
 
 use crate::tir::{TirStmt, ValueType};
 
-use super::super::runtime_fn::RuntimeFn;
 use super::super::Codegen;
 
 impl<'ctx> Codegen<'ctx> {
@@ -70,9 +69,9 @@ impl<'ctx> Codegen<'ctx> {
         self.builder.position_at_end(lp_bb);
         let caught_ptr = self.build_landingpad_catch_all(lp_alloca, "foriter.lp");
 
-        let type_tag_fn = self.get_runtime_fn(RuntimeFn::CaughtTypeTag);
-        let tag = emit!(self.build_call(type_tag_fn, &[caught_ptr.into()], "foriter.tag"));
-        let tag_val = self.extract_call_value(tag).into_int_value();
+        let tag_val = self
+            .get_caught_type_tag(caught_ptr, "foriter.tag")
+            .into_int_value();
 
         let stop_tag = self.i64_type().const_int(2, false); // TYTHON_EXC_STOP_ITERATION
         let is_stop =
@@ -81,8 +80,7 @@ impl<'ctx> Codegen<'ctx> {
 
         // ── Stop: end catch and exit loop (→ else or after) ─────
         self.builder.position_at_end(stop_bb);
-        let end_catch = self.get_runtime_fn(RuntimeFn::CxaEndCatch);
-        emit!(self.build_call(end_catch, &[], "foriter.end_catch"));
+        self.emit_end_catch("foriter.end_catch");
         let stop_dest = else_bb.unwrap_or(after_bb);
         emit!(self.build_unconditional_branch(stop_dest));
 
