@@ -1,8 +1,8 @@
 use anyhow::Result;
 
 use crate::tir::{
-    builtin, type_rules, CastKind, CmpOp, OrderedCmpOp, TirExpr, TirExprKind, TirStmt,
-    TypedCompare, ValueType,
+    builtin, type_rules, CastKind, CmpOp, OrderedCmpOp, TirExpr, TirExprKind, TypedCompare,
+    ValueType,
 };
 
 use crate::tir::lower::expr::binops::Coercion;
@@ -39,13 +39,16 @@ impl Lowering {
         // `in` / `not in` — containment check (must be before seq comparison)
         if matches!(cmp_op, CmpOp::In | CmpOp::NotIn) {
             let contains_expr = match &right.ty {
-                ValueType::List(_inner) => TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func: builtin::BuiltinFn::ListContains,
-                        args: vec![right, left],
-                    },
-                    ty: ValueType::Bool,
-                },
+                ValueType::List(inner) => {
+                    self.require_list_leaf_eq_support(line, inner)?;
+                    TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::ListContains,
+                            args: vec![right, left],
+                        },
+                        ty: ValueType::Bool,
+                    }
+                }
                 ValueType::Dict(key_ty, _value_ty) => {
                     if left.ty != **key_ty {
                         return Err(self.type_error(
@@ -174,6 +177,9 @@ impl Lowering {
                     self.type_error(line, "only `==` and `!=` are supported for list comparison")
                 );
             }
+            if let ValueType::List(inner) = &left.ty {
+                self.require_list_leaf_eq_support(line, inner)?;
+            }
             let eq_expr = self.generate_list_eq(left, right);
             if cmp_op == CmpOp::NotEq {
                 return Ok(TirExpr {
@@ -289,278 +295,13 @@ impl Lowering {
     }
 
     /// Generate equality check for two lists.
-    /// For primitive inner types, uses ListEqShallow.
-    /// For nested lists with primitive leaves, uses ListEqDeep.
-    /// For complex inner types (tuples), generates a comparison loop.
+    /// Lowered as a generic list-equality call; codegen monomorphizes by element type.
     fn generate_list_eq(&mut self, left: TirExpr, right: TirExpr) -> TirExpr {
-        let inner = match &left.ty {
-            ValueType::List(inner) => (**inner).clone(),
-            _ => unreachable!(),
-        };
-
-        // Check if we can use shallow comparison (primitive elements)
-        if matches!(inner, ValueType::Int | ValueType::Float | ValueType::Bool) {
-            return TirExpr {
-                kind: TirExprKind::ExternalCall {
-                    func: builtin::BuiltinFn::ListEqShallow,
-                    args: vec![left, right],
-                },
-                ty: ValueType::Bool,
-            };
-        }
-
-        // Check for nested lists → ListEqDeep with computed depth
-        if let Some(depth) = Self::list_nesting_depth(&inner) {
-            return TirExpr {
-                kind: TirExprKind::ExternalCall {
-                    func: builtin::BuiltinFn::ListEqDeep,
-                    args: vec![
-                        left,
-                        right,
-                        TirExpr {
-                            kind: TirExprKind::IntLiteral(depth),
-                            ty: ValueType::Int,
-                        },
-                    ],
-                },
-                ty: ValueType::Bool,
-            };
-        }
-
-        // Complex inner type (tuples, etc.) — generate comparison loop
-        self.generate_list_eq_loop(left, right, &inner)
-    }
-
-    /// Returns Some(depth) if the type is a list nesting ending in primitives.
-    /// e.g., list[int] → Some(0), list[list[int]] → Some(1), list[list[list[int]]] → Some(2)
-    /// Returns None for non-list or lists containing non-primitive leaves.
-    fn list_nesting_depth(ty: &ValueType) -> Option<i64> {
-        match ty {
-            ValueType::Int | ValueType::Float | ValueType::Bool => Some(0),
-            ValueType::List(inner) => Self::list_nesting_depth(inner).map(|d| d + 1),
-            _ => None,
-        }
-    }
-
-    /// Generate a loop-based list equality check for complex inner types.
-    /// Pushes setup + loop stmts into self.pre_stmts, returns a Var expression.
-    fn generate_list_eq_loop(
-        &mut self,
-        left: TirExpr,
-        right: TirExpr,
-        inner_ty: &ValueType,
-    ) -> TirExpr {
-        let result_var = self.fresh_internal("listeq_res");
-        let left_var = self.fresh_internal("listeq_a");
-        let right_var = self.fresh_internal("listeq_b");
-        let len_a_var = self.fresh_internal("listeq_len_a");
-        let len_b_var = self.fresh_internal("listeq_len_b");
-        let idx_var = self.fresh_internal("listeq_idx");
-        let stop_var = self.fresh_internal("listeq_stop");
-        let step_var = self.fresh_internal("listeq_step");
-        let start_var = self.fresh_internal("listeq_start");
-        let elem_a_var = self.fresh_internal("listeq_ea");
-        let elem_b_var = self.fresh_internal("listeq_eb");
-
-        let left_ty = left.ty.clone();
-        let right_ty = right.ty.clone();
-
-        // Let result = 1 (true)
-        let mut stmts = vec![
-            TirStmt::Let {
-                name: result_var.clone(),
-                ty: ValueType::Bool,
-                value: TirExpr {
-                    kind: TirExprKind::BoolLiteral(true),
-                    ty: ValueType::Bool,
-                },
-            },
-            TirStmt::Let {
-                name: left_var.clone(),
-                ty: left_ty.clone(),
-                value: left,
-            },
-            TirStmt::Let {
-                name: right_var.clone(),
-                ty: right_ty.clone(),
-                value: right,
-            },
-            // len_a = list_len(left)
-            TirStmt::Let {
-                name: len_a_var.clone(),
-                ty: ValueType::Int,
-                value: TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func: builtin::BuiltinFn::ListLen,
-                        args: vec![TirExpr {
-                            kind: TirExprKind::Var(left_var.clone()),
-                            ty: left_ty.clone(),
-                        }],
-                    },
-                    ty: ValueType::Int,
-                },
-            },
-            // len_b = list_len(right)
-            TirStmt::Let {
-                name: len_b_var.clone(),
-                ty: ValueType::Int,
-                value: TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func: builtin::BuiltinFn::ListLen,
-                        args: vec![TirExpr {
-                            kind: TirExprKind::Var(right_var.clone()),
-                            ty: right_ty.clone(),
-                        }],
-                    },
-                    ty: ValueType::Int,
-                },
-            },
-        ];
-
-        // Build the element comparison expression
-        let elem_a_expr = TirExpr {
-            kind: TirExprKind::Var(elem_a_var.clone()),
-            ty: inner_ty.clone(),
-        };
-        let elem_b_expr = TirExpr {
-            kind: TirExprKind::Var(elem_b_var.clone()),
-            ty: inner_ty.clone(),
-        };
-        let elem_eq = self.generate_equality_check(elem_a_expr, elem_b_expr, inner_ty);
-        // Drain any pre_stmts generated by nested equality checks
-        let nested_pre = std::mem::take(&mut self.pre_stmts);
-
-        // for i in range(0, len_a):
-        //   elem_a = list_get(left, i)
-        //   elem_b = list_get(right, i)
-        //   if !(elem_a == elem_b): result = 0; break
-        let idx_expr = TirExpr {
-            kind: TirExprKind::Var(idx_var.clone()),
-            ty: ValueType::Int,
-        };
-
-        let mut loop_body = vec![
-            TirStmt::Let {
-                name: elem_a_var,
-                ty: inner_ty.clone(),
-                value: TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func: builtin::BuiltinFn::ListGet,
-                        args: vec![
-                            TirExpr {
-                                kind: TirExprKind::Var(left_var),
-                                ty: left_ty,
-                            },
-                            idx_expr.clone(),
-                        ],
-                    },
-                    ty: inner_ty.clone(),
-                },
-            },
-            TirStmt::Let {
-                name: elem_b_var,
-                ty: inner_ty.clone(),
-                value: TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func: builtin::BuiltinFn::ListGet,
-                        args: vec![
-                            TirExpr {
-                                kind: TirExprKind::Var(right_var),
-                                ty: right_ty,
-                            },
-                            idx_expr,
-                        ],
-                    },
-                    ty: inner_ty.clone(),
-                },
-            },
-        ];
-        // Add any nested pre_stmts
-        loop_body.extend(nested_pre);
-        // if not eq: result = false; break
-        loop_body.push(TirStmt::If {
-            condition: TirExpr {
-                kind: TirExprKind::Not(Box::new(elem_eq)),
-                ty: ValueType::Bool,
-            },
-            then_body: vec![
-                TirStmt::Let {
-                    name: result_var.clone(),
-                    ty: ValueType::Bool,
-                    value: TirExpr {
-                        kind: TirExprKind::BoolLiteral(false),
-                        ty: ValueType::Bool,
-                    },
-                },
-                TirStmt::Break,
-            ],
-            else_body: vec![],
-        });
-
-        // if len_a != len_b: result = 0
-        // else: for loop
-        stmts.push(TirStmt::If {
-            condition: TirExpr {
-                kind: TirExprKind::IntNotEq(
-                    Box::new(TirExpr {
-                        kind: TirExprKind::Var(len_a_var),
-                        ty: ValueType::Int,
-                    }),
-                    Box::new(TirExpr {
-                        kind: TirExprKind::Var(len_b_var.clone()),
-                        ty: ValueType::Int,
-                    }),
-                ),
-                ty: ValueType::Bool,
-            },
-            then_body: vec![TirStmt::Let {
-                name: result_var.clone(),
-                ty: ValueType::Bool,
-                value: TirExpr {
-                    kind: TirExprKind::BoolLiteral(false),
-                    ty: ValueType::Bool,
-                },
-            }],
-            else_body: vec![
-                TirStmt::Let {
-                    name: start_var.clone(),
-                    ty: ValueType::Int,
-                    value: TirExpr {
-                        kind: TirExprKind::IntLiteral(0),
-                        ty: ValueType::Int,
-                    },
-                },
-                TirStmt::Let {
-                    name: stop_var.clone(),
-                    ty: ValueType::Int,
-                    value: TirExpr {
-                        kind: TirExprKind::Var(len_b_var),
-                        ty: ValueType::Int,
-                    },
-                },
-                TirStmt::Let {
-                    name: step_var.clone(),
-                    ty: ValueType::Int,
-                    value: TirExpr {
-                        kind: TirExprKind::IntLiteral(1),
-                        ty: ValueType::Int,
-                    },
-                },
-                TirStmt::ForRange {
-                    loop_var: idx_var,
-                    start_var,
-                    stop_var,
-                    step_var,
-                    body: loop_body,
-                    else_body: vec![],
-                },
-            ],
-        });
-
-        self.pre_stmts.extend(stmts);
-
         TirExpr {
-            kind: TirExprKind::Var(result_var),
+            kind: TirExprKind::ExternalCall {
+                func: builtin::BuiltinFn::ListEqGeneric,
+                args: vec![left, right],
+            },
             ty: ValueType::Bool,
         }
     }

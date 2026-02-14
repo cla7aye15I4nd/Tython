@@ -289,6 +289,36 @@ impl Lowering {
                             format!("builtin `{}` does not support keyword arguments", func_name),
                         ));
                     }
+                    if func_name == "sorted" {
+                        if positional_args.len() != 1 {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "sorted() expects exactly 1 argument, got {}",
+                                    positional_args.len()
+                                ),
+                            ));
+                        }
+                        let list_arg = positional_args.remove(0);
+                        let ValueType::List(inner) = &list_arg.ty else {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "sorted() requires a list whose elements support ordering (`__lt__`), got `{}`",
+                                    list_arg.ty
+                                ),
+                            ));
+                        };
+                        self.require_list_leaf_lt_support(line, inner)?;
+                        let sorted_ty = ValueType::List(inner.clone());
+                        return Ok(CallResult::Expr(TirExpr {
+                            kind: TirExprKind::ExternalCall {
+                                func: crate::tir::builtin::BuiltinFn::SortedAny,
+                                args: vec![list_arg],
+                            },
+                            ty: sorted_ty,
+                        }));
+                    }
                     if (func_name == "min" || func_name == "max")
                         && positional_args
                             .iter()

@@ -211,6 +211,79 @@ impl Lowering {
             .ok_or_else(|| self.name_error(line, format!("unknown class `{}`", class_name)))
     }
 
+    fn require_class_magic_method(
+        &self,
+        line: usize,
+        class_name: &str,
+        method_name: &str,
+    ) -> Result<()> {
+        let class_info = self.lookup_class(line, class_name)?;
+        let Some(method) = class_info.methods.get(method_name) else {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "list[{}] requires `{}` with signature `({}) -> bool`",
+                    class_name, method_name, class_name
+                ),
+            ));
+        };
+
+        if method.params.len() != 1
+            || method.params[0] != Type::Class(class_name.to_string())
+            || method.return_type != Type::Bool
+        {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "list[{}] requires `{}` with signature `({}) -> bool`",
+                    class_name, method_name, class_name
+                ),
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub(in crate::tir::lower) fn require_list_leaf_eq_support(
+        &self,
+        line: usize,
+        ty: &ValueType,
+    ) -> Result<()> {
+        match ty {
+            ValueType::List(inner) => self.require_list_leaf_eq_support(line, inner),
+            ValueType::Class(class_name) => {
+                self.require_class_magic_method(line, class_name, "__eq__")
+            }
+            _ => Ok(()),
+        }
+    }
+
+    pub(in crate::tir::lower) fn require_list_leaf_lt_support(
+        &self,
+        line: usize,
+        ty: &ValueType,
+    ) -> Result<()> {
+        match ty {
+            ValueType::Int
+            | ValueType::Float
+            | ValueType::Bool
+            | ValueType::Str
+            | ValueType::Bytes
+            | ValueType::ByteArray => Ok(()),
+            ValueType::List(inner) => self.require_list_leaf_lt_support(line, inner),
+            ValueType::Class(class_name) => {
+                self.require_class_magic_method(line, class_name, "__lt__")
+            }
+            _ => Err(self.type_error(
+                line,
+                format!(
+                    "list[{}].sort() is not supported; element type has no `__lt__`",
+                    ty
+                ),
+            )),
+        }
+    }
+
     /// Look up a field index in a class, or return an AttributeError.
     fn lookup_field_index(
         &self,

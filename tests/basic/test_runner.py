@@ -39,6 +39,7 @@ import basic.test_containment as test_containment
 import basic.test_identity as test_identity
 import basic.test_augmented_fields as test_augmented_fields
 import basic.test_list_eq_complex as test_list_eq_complex
+import basic.test_list_recursive_mono as test_list_recursive_mono
 import basic.test_print_complex as test_print_complex
 import basic.test_subscript_aug as test_subscript_aug
 import basic.test_bytearray_compare as test_bytearray_compare
@@ -97,6 +98,7 @@ def run_all_tests() -> None:
     test_identity.run_tests()
     test_augmented_fields.run_tests()
     test_list_eq_complex.run_tests()
+    test_list_recursive_mono.run_tests()
     test_print_complex.run_tests()
     test_subscript_aug.run_tests()
     test_bytearray_compare.run_tests()

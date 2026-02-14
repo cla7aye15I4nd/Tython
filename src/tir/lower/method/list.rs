@@ -48,6 +48,7 @@ pub fn lower_list_method_call(
         "count" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
+            ctx.require_list_leaf_eq_support(line, inner_type)?;
             Ok(super::expr_call(
                 BuiltinFn::ListCount,
                 ValueType::Int,
@@ -65,6 +66,7 @@ pub fn lower_list_method_call(
         "index" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
+            ctx.require_list_leaf_eq_support(line, inner_type)?;
             Ok(super::expr_call(
                 BuiltinFn::ListIndex,
                 ValueType::Int,
@@ -100,6 +102,7 @@ pub fn lower_list_method_call(
         "remove" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
+            ctx.require_list_leaf_eq_support(line, inner_type)?;
             Ok(super::void_call(BuiltinFn::ListRemove, obj.clone(), args))
         }
 
@@ -110,23 +113,8 @@ pub fn lower_list_method_call(
 
         "sort" => {
             super::check_arity(ctx, line, &type_name, method_name, 0, args.len())?;
-            let sort_fn = match inner_type {
-                ValueType::Int | ValueType::Bool => BuiltinFn::ListSortInt,
-                ValueType::Float => BuiltinFn::ListSortFloat,
-                ValueType::Str => BuiltinFn::ListSortStr,
-                ValueType::Bytes => BuiltinFn::ListSortBytes,
-                ValueType::ByteArray => BuiltinFn::ListSortByteArray,
-                _ => {
-                    return Err(ctx.type_error(
-                        line,
-                        format!(
-                            "list[{}].sort() is not supported; element type has no `__lt__`",
-                            inner_type
-                        ),
-                    ))
-                }
-            };
-            Ok(super::void_call(sort_fn, obj.clone(), args))
+            ctx.require_list_leaf_lt_support(line, inner_type)?;
+            Ok(super::void_call(BuiltinFn::ListSortAny, obj.clone(), args))
         }
 
         // ── Magic Methods ────────────────────────────────────────────────
@@ -191,6 +179,7 @@ pub fn lower_list_method_call(
         "__contains__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
+            ctx.require_list_leaf_eq_support(line, inner_type)?;
             Ok(super::expr_call(
                 BuiltinFn::ListContains,
                 ValueType::Bool,
@@ -202,17 +191,13 @@ pub fn lower_list_method_call(
         "__eq__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &list_ty)?;
-            // Choose shallow or deep equality based on inner type
-            let eq_fn = match inner_type {
-                ValueType::Int
-                | ValueType::Float
-                | ValueType::Bool
-                | ValueType::Str
-                | ValueType::Bytes
-                | ValueType::ByteArray => BuiltinFn::ListEqShallow,
-                _ => BuiltinFn::ListEqDeep,
-            };
-            Ok(super::expr_call(eq_fn, ValueType::Bool, obj.clone(), args))
+            ctx.require_list_leaf_eq_support(line, inner_type)?;
+            Ok(super::expr_call(
+                BuiltinFn::ListEqGeneric,
+                ValueType::Bool,
+                obj.clone(),
+                args,
+            ))
         }
 
         "__getitem__" => {

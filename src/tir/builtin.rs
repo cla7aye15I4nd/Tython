@@ -206,6 +206,7 @@ define_builtins! {
     // list equality
     ListEqShallow      => "__tython_list_eq_shallow",     params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
     ListEqDeep         => "__tython_list_eq_deep",        params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    ListEqGeneric      => "__tython_list_eq_generic",     params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
 
     // list containment
     ListContains       => "__tython_list_contains",       params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
@@ -224,11 +225,13 @@ define_builtins! {
     ListSortStr        => "__tython_list_sort_str",        params: [ValueType::List(Box::new(ValueType::Str))], ret: None;
     ListSortBytes      => "__tython_list_sort_bytes",     params: [ValueType::List(Box::new(ValueType::Bytes))], ret: None;
     ListSortByteArray  => "__tython_list_sort_bytearray", params: [ValueType::List(Box::new(ValueType::ByteArray))], ret: None;
+    ListSortAny        => "__tython_list_sort_any",       params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
     SortedInt          => "__tython_sorted_int",          params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     SortedFloat        => "__tython_sorted_float",        params: [ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::List(Box::new(ValueType::Float)));
     SortedStr          => "__tython_sorted_str",          params: [ValueType::List(Box::new(ValueType::Str))], ret: Some(ValueType::List(Box::new(ValueType::Str)));
     SortedBytes        => "__tython_sorted_bytes",        params: [ValueType::List(Box::new(ValueType::Bytes))], ret: Some(ValueType::List(Box::new(ValueType::Bytes)));
     SortedByteArray    => "__tython_sorted_bytearray",    params: [ValueType::List(Box::new(ValueType::ByteArray))], ret: Some(ValueType::List(Box::new(ValueType::ByteArray)));
+    SortedAny          => "__tython_sorted_any",          params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ReversedList       => "__tython_reversed_list",       params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ListExtend         => "__tython_list_extend",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListCopy           => "__tython_list_copy",           params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
