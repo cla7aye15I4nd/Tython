@@ -103,6 +103,42 @@ def test_assert_expression() -> None:
     assert x
 
 
+class TruthyBox:
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+
+def test_truthiness_sequences_and_class() -> None:
+    out: int = 0
+    d: dict[int, int] = {1: 2}
+    s: set[int] = {1, 2}
+    empty_tuple: tuple[()] = ()
+    non_empty_tuple: tuple[int] = (1,)
+    if "abc":
+        out += 1
+    if b"ab":
+        out += 1
+    if bytearray(b"ab"):
+        out += 1
+    if [1, 2]:
+        out += 1
+    if d:
+        out += 1
+    if s:
+        out += 1
+    if empty_tuple:
+        out += 100
+    if non_empty_tuple:
+        out += 1
+    if TruthyBox(7):
+        out += 1
+    print('CHECK test_truthiness lhs:', out)
+    print('CHECK test_truthiness rhs:', 8)
+    assert out == 8
+
+
 def run_tests() -> None:
     test_if_int_truthy()
     test_if_int_falsy()
@@ -116,3 +152,4 @@ def run_tests() -> None:
     test_assert_float_nonzero()
     test_assert_bool_true()
     test_assert_expression()
+    test_truthiness_sequences_and_class()

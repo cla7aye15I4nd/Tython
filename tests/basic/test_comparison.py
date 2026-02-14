@@ -175,6 +175,109 @@ def test_list_lexicographic_ordering() -> None:
     assert (b >= c) == True
 
 
+class Rank:
+    n: int
+
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    def __eq__(self, other: "Rank") -> bool:
+        return self.n == other.n
+
+    def __lt__(self, other: "Rank") -> bool:
+        return self.n < other.n
+
+    def __le__(self, other: "Rank") -> bool:
+        return self.n <= other.n
+
+    def __gt__(self, other: "Rank") -> bool:
+        return self.n > other.n
+
+    def __ge__(self, other: "Rank") -> bool:
+        return self.n >= other.n
+
+
+class Token:
+    n: int
+
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    def __eq__(self, other: "Token") -> bool:
+        return self.n == other.n
+
+
+def test_class_comparison_ordering_and_eq() -> None:
+    a: Rank = Rank(1)
+    b: Rank = Rank(2)
+    c: Rank = Rank(1)
+
+    print('CHECK test_comparison lhs:', a == c)
+    print('CHECK test_comparison rhs:', True)
+    assert (a == c) == True
+    print('CHECK test_comparison lhs:', a != b)
+    print('CHECK test_comparison rhs:', True)
+    assert (a != b) == True
+    print('CHECK test_comparison lhs:', a < b)
+    print('CHECK test_comparison rhs:', True)
+    assert (a < b) == True
+    print('CHECK test_comparison lhs:', a <= b)
+    print('CHECK test_comparison rhs:', True)
+    assert (a <= b) == True
+    print('CHECK test_comparison lhs:', b > a)
+    print('CHECK test_comparison rhs:', True)
+    assert (b > a) == True
+    print('CHECK test_comparison lhs:', b >= a)
+    print('CHECK test_comparison rhs:', True)
+    assert (b >= a) == True
+
+
+def test_tuple_eq_matrix() -> None:
+    empty_a: tuple[()] = ()
+    empty_b: tuple[()] = ()
+    print('CHECK test_comparison lhs:', empty_a == empty_b)
+    print('CHECK test_comparison rhs:', True)
+    assert (empty_a == empty_b) == True
+
+    a: tuple[float, bool, str, bytes, bytearray] = (
+        1.5,
+        True,
+        "ab",
+        b"x",
+        bytearray(b"y"),
+    )
+    b: tuple[float, bool, str, bytes, bytearray] = (
+        1.5,
+        True,
+        "ab",
+        b"x",
+        bytearray(b"y"),
+    )
+    c: tuple[float, bool, str, bytes, bytearray] = (
+        1.5,
+        False,
+        "ab",
+        b"x",
+        bytearray(b"y"),
+    )
+    print('CHECK test_comparison lhs:', a == b)
+    print('CHECK test_comparison rhs:', True)
+    assert (a == b) == True
+    print('CHECK test_comparison lhs:', a != c)
+    print('CHECK test_comparison rhs:', True)
+    assert (a != c) == True
+
+    t1: tuple[Token] = (Token(7),)
+    t2: tuple[Token] = (Token(7),)
+    t3: tuple[Token] = (Token(8),)
+    print('CHECK test_comparison lhs:', t1 == t2)
+    print('CHECK test_comparison rhs:', True)
+    assert (t1 == t2) == True
+    print('CHECK test_comparison lhs:', t1 != t3)
+    print('CHECK test_comparison rhs:', True)
+    assert (t1 != t3) == True
+
+
 def run_tests() -> None:
     test_eq_true()
     test_eq_false()
@@ -198,3 +301,5 @@ def run_tests() -> None:
     test_cmp_with_arithmetic()
     test_cmp_variables()
     test_list_lexicographic_ordering()
+    test_class_comparison_ordering_and_eq()
+    test_tuple_eq_matrix()

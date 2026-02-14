@@ -80,6 +80,13 @@ def test_sum_generator_range_fast_path() -> None:
     assert total == 15
 
 
+def test_open_read_call_path() -> None:
+    content: str = open("/etc/hosts").read()
+    print('CHECK test_call_paths lhs:', len(content) > 0)
+    print('CHECK test_call_paths rhs:', True)
+    assert (len(content) > 0) == True
+
+
 def run_tests() -> None:
     test_random_native_calls()
     test_keyword_binding_still_works()
@@ -87,3 +94,4 @@ def run_tests() -> None:
     test_sum_generator_fast_path()
     test_sum_class_list_special_case()
     test_sum_generator_range_fast_path()
+    test_open_read_call_path()

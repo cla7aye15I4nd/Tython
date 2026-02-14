@@ -341,6 +341,22 @@ def test_dict_more_magic_methods() -> None:
     assert rev_seen == [1]
 
 
+def test_dict_pop_default_and_magic_index_len() -> None:
+    d: dict[int, int] = {1: 10}
+    miss: int = d.pop(2, 99)
+    print("CHECK test_set_dict_by_tag lhs:", miss)
+    print("CHECK test_set_dict_by_tag rhs:", 99)
+    assert miss == 99
+    got: int = d.__getitem__(1)
+    print("CHECK test_set_dict_by_tag lhs:", got)
+    print("CHECK test_set_dict_by_tag rhs:", 10)
+    assert got == 10
+    ln: int = d.__len__()
+    print("CHECK test_set_dict_by_tag lhs:", ln)
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert ln == 1
+
+
 def run_tests() -> None:
     test_class_eq_identity_fallback()
     test_set_eq_by_tag_class()
@@ -351,3 +367,4 @@ def run_tests() -> None:
     test_dict_magic_methods_explicit_calls()
     test_set_magic_methods_explicit_calls()
     test_dict_more_magic_methods()
+    test_dict_pop_default_and_magic_index_len()

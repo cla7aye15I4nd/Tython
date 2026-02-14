@@ -1,5 +1,3 @@
-use inkwell::IntPredicate;
-
 use crate::tir::{TirExpr, TirStmt, ValueType};
 
 use super::super::Codegen;
@@ -80,78 +78,71 @@ impl<'ctx> Codegen<'ctx> {
         body: &[TirStmt],
         else_body: &[TirStmt],
     ) {
-        let function = emit!(self.get_insert_block()).get_parent().unwrap();
-
-        let header_bb = self.context.append_basic_block(function, "for.header");
-        let body_bb = self.context.append_basic_block(function, "for.body");
-        let incr_bb = self.context.append_basic_block(function, "for.incr");
-        let else_bb = if !else_body.is_empty() {
-            Some(self.context.append_basic_block(function, "for.else"))
-        } else {
-            None
+        // Lower `for range` through `if + while` TIR:
+        // if step > 0:
+        //   while start < stop: ...
+        // else:
+        //   while start > stop: ...
+        //
+        // Increment happens before user body so `continue` still advances.
+        let int_lit = |value: i64| TirExpr {
+            kind: crate::tir::TirExprKind::IntLiteral(value),
+            ty: ValueType::Int,
         };
-        let after_bb = self.context.append_basic_block(function, "for.after");
-
-        let loop_ptr = if let Some(&existing_ptr) = self.variables.get(loop_var) {
-            existing_ptr
-        } else {
-            let alloca =
-                self.build_entry_block_alloca(self.get_llvm_type(&ValueType::Int), loop_var);
-            self.variables.insert(loop_var.to_string(), alloca);
-            alloca
+        let int_var = |name: &str| TirExpr {
+            kind: crate::tir::TirExprKind::Var(name.to_string()),
+            ty: ValueType::Int,
         };
-        // Keep loop progress in a dedicated induction slot, separate from the
-        // user-visible loop variable. This matches Python semantics where
-        // rebinding/mutating the loop variable does not control iteration.
-        let induction_ptr =
-            self.build_entry_block_alloca(self.get_llvm_type(&ValueType::Int), "for.induction");
-        let start_ptr = self.variables[start_var];
-        let stop_ptr = self.variables[stop_var];
-        let step_ptr = self.variables[step_var];
-        let start_val =
-            emit!(self.build_load(self.get_llvm_type(&ValueType::Int), start_ptr, "for.start"))
-                .into_int_value();
-        emit!(self.build_store(induction_ptr, start_val));
-        emit!(self.build_unconditional_branch(header_bb));
+        let bool_expr = |kind| TirExpr {
+            kind,
+            ty: ValueType::Bool,
+        };
 
-        self.builder.position_at_end(header_bb);
-        let i_val =
-            emit!(self.build_load(self.get_llvm_type(&ValueType::Int), induction_ptr, "for.i",))
-                .into_int_value();
-        let stop_loaded =
-            emit!(self.build_load(self.get_llvm_type(&ValueType::Int), stop_ptr, "for.stop"))
-                .into_int_value();
-        let step_loaded =
-            emit!(self.build_load(self.get_llvm_type(&ValueType::Int), step_ptr, "for.step"))
-                .into_int_value();
-        let zero = self.i64_type().const_int(0, false);
-        let step_pos =
-            emit!(self.build_int_compare(IntPredicate::SGT, step_loaded, zero, "for.step_pos"));
-        let cond_pos =
-            emit!(self.build_int_compare(IntPredicate::SLT, i_val, stop_loaded, "for.cond_pos"));
-        let cond_neg =
-            emit!(self.build_int_compare(IntPredicate::SGT, i_val, stop_loaded, "for.cond_neg"));
-        let cond =
-            emit!(self.build_select(step_pos, cond_pos, cond_neg, "for.cond")).into_int_value();
-        let false_dest = else_bb.unwrap_or(after_bb);
-        emit!(self.build_conditional_branch(cond, body_bb, false_dest));
+        let step_pos = bool_expr(crate::tir::TirExprKind::IntGt(
+            Box::new(int_var(step_var)),
+            Box::new(int_lit(0)),
+        ));
+        let cond_pos = bool_expr(crate::tir::TirExprKind::IntLt(
+            Box::new(int_var(start_var)),
+            Box::new(int_var(stop_var)),
+        ));
+        let cond_neg = bool_expr(crate::tir::TirExprKind::IntGt(
+            Box::new(int_var(start_var)),
+            Box::new(int_var(stop_var)),
+        ));
+        let build_while_body = || {
+            let mut while_body = Vec::with_capacity(body.len() + 2);
+            while_body.push(TirStmt::Let {
+                name: loop_var.to_string(),
+                ty: ValueType::Int,
+                value: int_var(start_var),
+            });
+            while_body.push(TirStmt::Let {
+                name: start_var.to_string(),
+                ty: ValueType::Int,
+                value: TirExpr {
+                    kind: crate::tir::TirExprKind::IntAdd(
+                        Box::new(int_var(start_var)),
+                        Box::new(int_var(step_var)),
+                    ),
+                    ty: ValueType::Int,
+                },
+            });
+            while_body.extend_from_slice(body);
+            while_body
+        };
 
-        self.builder.position_at_end(body_bb);
-        emit!(self.build_store(loop_ptr, i_val));
-        loop_body!(self, incr_bb, after_bb, body);
+        let then_body = vec![TirStmt::While {
+            condition: cond_pos,
+            body: build_while_body(),
+            else_body: else_body.to_vec(),
+        }];
+        let else_body = vec![TirStmt::While {
+            condition: cond_neg,
+            body: build_while_body(),
+            else_body: else_body.to_vec(),
+        }];
 
-        self.builder.position_at_end(incr_bb);
-        let i_curr =
-            emit!(self.build_load(self.get_llvm_type(&ValueType::Int), induction_ptr, "for.i",))
-                .into_int_value();
-        let step_curr =
-            emit!(self.build_load(self.get_llvm_type(&ValueType::Int), step_ptr, "for.step"))
-                .into_int_value();
-        let i_next = emit!(self.build_int_add(i_curr, step_curr, "for.next"));
-        emit!(self.build_store(induction_ptr, i_next));
-        emit!(self.build_unconditional_branch(header_bb));
-
-        else_body!(self, else_bb, else_body, after_bb);
-        self.builder.position_at_end(after_bb);
+        self.codegen_if_stmt(&step_pos, &then_body, &else_body);
     }
 }

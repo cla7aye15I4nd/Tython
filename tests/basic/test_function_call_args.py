@@ -124,6 +124,38 @@ def test_empty_list_default_param() -> None:
     assert size([1, 2, 3]) == 3
 
 
+def test_default_expression_float_cmp_matrix() -> None:
+    def probe(
+        fa: float = 1.0 + 2.0,
+        fb: float = 5.0 - 1.5,
+        fc: float = 2.0 * 3.0,
+        fd: float = 7.5 / 2.5,
+        fe: float = 7.5 // 2.0,
+        ff: float = 7.5 % 2.0,
+        fg: float = 2.0 ** 3.0,
+        b0: bool = 1 == 1,
+        b1: bool = 1 != 2,
+        b2: bool = 1 < 2,
+        b3: bool = 1 <= 2,
+        b4: bool = 2 > 1,
+        b5: bool = 2 >= 1,
+        c0: bool = 1.0 == 1.0,
+        c1: bool = 1.0 != 2.0,
+        c2: bool = 1.0 < 2.0,
+        c3: bool = 1.0 <= 2.0,
+        c4: bool = 2.0 > 1.0,
+        c5: bool = 2.0 >= 1.0,
+    ) -> int:
+        if b0 and b1 and b2 and b3 and b4 and b5 and c0 and c1 and c2 and c3 and c4 and c5:
+            if fa > 0.0 and fb > 0.0 and fc > 0.0 and fd > 0.0 and fe > 0.0 and ff > 0.0 and fg > 0.0:
+                return 1
+        return 0
+
+    print('CHECK test_function_call_args lhs:', probe())
+    print('CHECK test_function_call_args rhs:', 1)
+    assert probe() == 1
+
+
 def run_tests() -> None:
     test_defaults_and_keywords_top_level()
     test_defaults_and_keywords_nested()
@@ -132,3 +164,4 @@ def run_tests() -> None:
     test_primitive_arg_coercions()
     test_default_expression_matrix()
     test_empty_list_default_param()
+    test_default_expression_float_cmp_matrix()
