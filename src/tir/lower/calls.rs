@@ -4,8 +4,8 @@ use std::path::Path;
 
 use crate::ast::{ClassInfo, Type};
 use crate::tir::{
-    type_rules, ArithBinOp, CallResult, CallTarget, RawBinOp, TirExpr, TirExprKind, TirStmt,
-    ValueType,
+    type_rules, ArithBinOp, CallResult, CallTarget, IntrinsicOp, RawBinOp, TirExpr, TirExprKind,
+    TirStmt, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -311,10 +311,17 @@ impl Lowering {
                         };
                         self.require_list_leaf_lt_support(line, inner)?;
                         let sorted_ty = ValueType::List(inner.clone());
+                        let lt_tag = self.register_intrinsic_instance(IntrinsicOp::Lt, inner);
                         return Ok(CallResult::Expr(TirExpr {
                             kind: TirExprKind::ExternalCall {
-                                func: crate::tir::builtin::BuiltinFn::SortedAny,
-                                args: vec![list_arg],
+                                func: crate::tir::builtin::BuiltinFn::SortedByTag,
+                                args: vec![
+                                    list_arg,
+                                    TirExpr {
+                                        kind: TirExprKind::IntLiteral(lt_tag),
+                                        ty: ValueType::Int,
+                                    },
+                                ],
                             },
                             ty: sorted_ty,
                         }));

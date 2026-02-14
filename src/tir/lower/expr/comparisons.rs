@@ -1,8 +1,8 @@
 use anyhow::Result;
 
 use crate::tir::{
-    builtin, type_rules, CastKind, CmpOp, OrderedCmpOp, TirExpr, TirExprKind, TypedCompare,
-    ValueType,
+    builtin, type_rules, CastKind, CmpOp, IntrinsicOp, OrderedCmpOp, TirExpr, TirExprKind,
+    TypedCompare, ValueType,
 };
 
 use crate::tir::lower::expr::binops::Coercion;
@@ -41,10 +41,18 @@ impl Lowering {
             let contains_expr = match &right.ty {
                 ValueType::List(inner) => {
                     self.require_list_leaf_eq_support(line, inner)?;
+                    let eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, inner);
                     TirExpr {
                         kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::ListContains,
-                            args: vec![right, left],
+                            func: builtin::BuiltinFn::ListContainsByTag,
+                            args: vec![
+                                right,
+                                left,
+                                TirExpr {
+                                    kind: TirExprKind::IntLiteral(eq_tag),
+                                    ty: ValueType::Int,
+                                },
+                            ],
                         },
                         ty: ValueType::Bool,
                     }
@@ -161,7 +169,7 @@ impl Lowering {
             ));
         }
 
-        // List equality
+        // List comparison (equality + lexicographic ordering)
         if matches!(&left.ty, ValueType::List(_)) && matches!(&right.ty, ValueType::List(_)) {
             if left.ty != right.ty {
                 return Err(self.type_error(
@@ -172,22 +180,69 @@ impl Lowering {
                     ),
                 ));
             }
-            if cmp_op != CmpOp::Eq && cmp_op != CmpOp::NotEq {
-                return Err(
-                    self.type_error(line, "only `==` and `!=` are supported for list comparison")
-                );
+            let ValueType::List(inner) = &left.ty else {
+                unreachable!();
+            };
+            match cmp_op {
+                CmpOp::Eq | CmpOp::NotEq => {
+                    self.require_list_leaf_eq_support(line, inner)?;
+                    let eq_expr = self.generate_list_eq(left, right);
+                    if cmp_op == CmpOp::NotEq {
+                        return Ok(TirExpr {
+                            kind: TirExprKind::Not(Box::new(eq_expr)),
+                            ty: ValueType::Bool,
+                        });
+                    }
+                    return Ok(eq_expr);
+                }
+                CmpOp::Lt | CmpOp::LtEq | CmpOp::Gt | CmpOp::GtEq => {
+                    self.require_list_leaf_lt_support(line, inner)?;
+                    let lt_tag = self.register_intrinsic_instance(IntrinsicOp::Lt, inner);
+                    let left_lt_right = TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::ListLtByTag,
+                            args: vec![
+                                left.clone(),
+                                right.clone(),
+                                TirExpr {
+                                    kind: TirExprKind::IntLiteral(lt_tag),
+                                    ty: ValueType::Int,
+                                },
+                            ],
+                        },
+                        ty: ValueType::Bool,
+                    };
+                    let right_lt_left = TirExpr {
+                        kind: TirExprKind::ExternalCall {
+                            func: builtin::BuiltinFn::ListLtByTag,
+                            args: vec![
+                                right.clone(),
+                                left.clone(),
+                                TirExpr {
+                                    kind: TirExprKind::IntLiteral(lt_tag),
+                                    ty: ValueType::Int,
+                                },
+                            ],
+                        },
+                        ty: ValueType::Bool,
+                    };
+                    let out = match cmp_op {
+                        CmpOp::Lt => left_lt_right,
+                        CmpOp::Gt => right_lt_left,
+                        CmpOp::LtEq => TirExpr {
+                            kind: TirExprKind::Not(Box::new(right_lt_left)),
+                            ty: ValueType::Bool,
+                        },
+                        CmpOp::GtEq => TirExpr {
+                            kind: TirExprKind::Not(Box::new(left_lt_right)),
+                            ty: ValueType::Bool,
+                        },
+                        _ => unreachable!(),
+                    };
+                    return Ok(out);
+                }
+                _ => {}
             }
-            if let ValueType::List(inner) = &left.ty {
-                self.require_list_leaf_eq_support(line, inner)?;
-            }
-            let eq_expr = self.generate_list_eq(left, right);
-            if cmp_op == CmpOp::NotEq {
-                return Ok(TirExpr {
-                    kind: TirExprKind::Not(Box::new(eq_expr)),
-                    ty: ValueType::Bool,
-                });
-            }
-            return Ok(eq_expr);
         }
 
         // Dict equality
@@ -281,6 +336,98 @@ impl Lowering {
             return Ok(eq_expr);
         }
 
+        // Class comparison via intrinsic Eq/Lt dispatch
+        if matches!(&left.ty, ValueType::Class(_)) && matches!(&right.ty, ValueType::Class(_)) {
+            if left.ty != right.ty {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "comparison operands must have compatible types: `{}` vs `{}`",
+                        left.ty, right.ty
+                    ),
+                ));
+            }
+            let out = match cmp_op {
+                CmpOp::Eq => {
+                    if let ValueType::Class(class_name) = &left.ty {
+                        self.require_class_magic_method(line, class_name, "__eq__")?;
+                    }
+                    self.register_intrinsic_instance(IntrinsicOp::Eq, &left.ty);
+                    TirExpr {
+                        kind: TirExprKind::IntrinsicCmp {
+                            op: IntrinsicOp::Eq,
+                            lhs: Box::new(left),
+                            rhs: Box::new(right),
+                        },
+                        ty: ValueType::Bool,
+                    }
+                }
+                CmpOp::NotEq => {
+                    if let ValueType::Class(class_name) = &left.ty {
+                        self.require_class_magic_method(line, class_name, "__eq__")?;
+                    }
+                    self.register_intrinsic_instance(IntrinsicOp::Eq, &left.ty);
+                    let eq = TirExpr {
+                        kind: TirExprKind::IntrinsicCmp {
+                            op: IntrinsicOp::Eq,
+                            lhs: Box::new(left),
+                            rhs: Box::new(right),
+                        },
+                        ty: ValueType::Bool,
+                    };
+                    TirExpr {
+                        kind: TirExprKind::Not(Box::new(eq)),
+                        ty: ValueType::Bool,
+                    }
+                }
+                CmpOp::Lt | CmpOp::LtEq | CmpOp::Gt | CmpOp::GtEq => {
+                    if let ValueType::Class(class_name) = &left.ty {
+                        self.require_class_magic_method(line, class_name, "__lt__")?;
+                    }
+                    self.register_intrinsic_instance(IntrinsicOp::Lt, &left.ty);
+                    let left_lt_right = TirExpr {
+                        kind: TirExprKind::IntrinsicCmp {
+                            op: IntrinsicOp::Lt,
+                            lhs: Box::new(left.clone()),
+                            rhs: Box::new(right.clone()),
+                        },
+                        ty: ValueType::Bool,
+                    };
+                    let right_lt_left = TirExpr {
+                        kind: TirExprKind::IntrinsicCmp {
+                            op: IntrinsicOp::Lt,
+                            lhs: Box::new(right.clone()),
+                            rhs: Box::new(left.clone()),
+                        },
+                        ty: ValueType::Bool,
+                    };
+                    match cmp_op {
+                        CmpOp::Lt => left_lt_right,
+                        CmpOp::Gt => right_lt_left,
+                        CmpOp::LtEq => TirExpr {
+                            kind: TirExprKind::Not(Box::new(right_lt_left)),
+                            ty: ValueType::Bool,
+                        },
+                        CmpOp::GtEq => TirExpr {
+                            kind: TirExprKind::Not(Box::new(left_lt_right)),
+                            ty: ValueType::Bool,
+                        },
+                        _ => unreachable!(),
+                    }
+                }
+                _ => {
+                    return Err(self.type_error(
+                        line,
+                        format!(
+                            "comparison operator `{:?}` is not supported for class values",
+                            cmp_op
+                        ),
+                    ));
+                }
+            };
+            return Ok(out);
+        }
+
         // Numeric comparison with optional promotion
         let (fl, fr) = self.promote_for_comparison(line, left, right)?;
         let ordered_op = OrderedCmpOp::from_cmp_op(cmp_op);
@@ -297,10 +444,21 @@ impl Lowering {
     /// Generate equality check for two lists.
     /// Lowered as a generic list-equality call; codegen monomorphizes by element type.
     fn generate_list_eq(&mut self, left: TirExpr, right: TirExpr) -> TirExpr {
+        let ValueType::List(inner) = &left.ty else {
+            unreachable!();
+        };
+        let eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, inner);
         TirExpr {
             kind: TirExprKind::ExternalCall {
-                func: builtin::BuiltinFn::ListEqGeneric,
-                args: vec![left, right],
+                func: builtin::BuiltinFn::ListEqByTag,
+                args: vec![
+                    left,
+                    right,
+                    TirExpr {
+                        kind: TirExprKind::IntLiteral(eq_tag),
+                        ty: ValueType::Int,
+                    },
+                ],
             },
             ty: ValueType::Bool,
         }
@@ -398,6 +556,17 @@ impl Lowering {
                 },
                 ty: ValueType::Bool,
             },
+            ValueType::Class(_) => {
+                self.register_intrinsic_instance(IntrinsicOp::Eq, ty);
+                TirExpr {
+                    kind: TirExprKind::IntrinsicCmp {
+                        op: IntrinsicOp::Eq,
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    },
+                    ty: ValueType::Bool,
+                }
+            }
             _ => {
                 // Fallback: bitwise compare (works for primitives stored as i64)
                 TirExpr {

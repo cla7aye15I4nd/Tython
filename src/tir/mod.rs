@@ -306,6 +306,36 @@ pub enum CallTarget {
     Builtin(builtin::BuiltinFn),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IntrinsicOp {
+    Eq,
+    Lt,
+}
+
+#[derive(Debug, Clone)]
+pub struct IntrinsicInstance {
+    pub op: IntrinsicOp,
+    pub ty: ValueType,
+    pub tag: i64,
+}
+
+fn intrinsic_tag_seed(op: IntrinsicOp) -> u64 {
+    match op {
+        IntrinsicOp::Eq => 0xcbf29ce484222325,
+        IntrinsicOp::Lt => 0x84222325cbf29ce4,
+    }
+}
+
+pub fn intrinsic_tag(op: IntrinsicOp, ty: &ValueType) -> i64 {
+    // Stable FNV-1a over op seed + canonical type signature
+    let mut h = intrinsic_tag_seed(op);
+    for b in ty.to_string().as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h as i64
+}
+
 // ── Comparison / unary / logical ops ────────────────────────────────
 
 /// Raw comparison operator — used during parsing / lowering.
@@ -430,6 +460,7 @@ impl FunctionParam {
 pub struct TirModule {
     pub functions: HashMap<String, TirFunction>,
     pub classes: HashMap<String, ClassInfo>,
+    pub intrinsic_instances: Vec<IntrinsicInstance>,
 }
 
 #[derive(Debug, Clone)]
@@ -615,6 +646,11 @@ pub enum TirExprKind {
     ExternalCall {
         func: builtin::BuiltinFn,
         args: Vec<TirExpr>,
+    },
+    IntrinsicCmp {
+        op: IntrinsicOp,
+        lhs: Box<TirExpr>,
+        rhs: Box<TirExpr>,
     },
 
     // ── Type casts ──────────────────────────────────────────────────

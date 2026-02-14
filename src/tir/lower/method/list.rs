@@ -1,6 +1,9 @@
 use anyhow::Result;
 
-use crate::tir::{builtin::BuiltinFn, CallResult, TirExpr, ValueType};
+use crate::tir::{
+    builtin::BuiltinFn, CallResult, CallTarget, IntrinsicOp, TirExpr, TirExprKind, TirStmt,
+    ValueType,
+};
 
 use super::super::Lowering;
 
@@ -12,7 +15,7 @@ use super::super::Lowering;
 ///
 /// Directly generates TIR without using type rules - all logic is self-contained here.
 pub fn lower_list_method_call(
-    ctx: &Lowering,
+    ctx: &mut Lowering,
     line: usize,
     obj: TirExpr,
     method_name: &str,
@@ -49,12 +52,19 @@ pub fn lower_list_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
             ctx.require_list_leaf_eq_support(line, inner_type)?;
-            Ok(super::expr_call(
-                BuiltinFn::ListCount,
-                ValueType::Int,
-                obj.clone(),
-                args,
-            ))
+            let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
+            let mut call_args = vec![obj.clone(), args[0].clone()];
+            call_args.push(TirExpr {
+                kind: TirExprKind::IntLiteral(eq_tag),
+                ty: ValueType::Int,
+            });
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::ListCountByTag,
+                    args: call_args,
+                },
+                ty: ValueType::Int,
+            }))
         }
 
         "extend" => {
@@ -67,12 +77,19 @@ pub fn lower_list_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
             ctx.require_list_leaf_eq_support(line, inner_type)?;
-            Ok(super::expr_call(
-                BuiltinFn::ListIndex,
-                ValueType::Int,
-                obj.clone(),
-                args,
-            ))
+            let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
+            let mut call_args = vec![obj.clone(), args[0].clone()];
+            call_args.push(TirExpr {
+                kind: TirExprKind::IntLiteral(eq_tag),
+                ty: ValueType::Int,
+            });
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::ListIndexByTag,
+                    args: call_args,
+                },
+                ty: ValueType::Int,
+            }))
         }
 
         "insert" => {
@@ -103,7 +120,16 @@ pub fn lower_list_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
             ctx.require_list_leaf_eq_support(line, inner_type)?;
-            Ok(super::void_call(BuiltinFn::ListRemove, obj.clone(), args))
+            let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
+            let mut call_args = vec![obj.clone(), args[0].clone()];
+            call_args.push(TirExpr {
+                kind: TirExprKind::IntLiteral(eq_tag),
+                ty: ValueType::Int,
+            });
+            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                target: CallTarget::Builtin(BuiltinFn::ListRemoveByTag),
+                args: call_args,
+            })))
         }
 
         "reverse" => {
@@ -114,7 +140,17 @@ pub fn lower_list_method_call(
         "sort" => {
             super::check_arity(ctx, line, &type_name, method_name, 0, args.len())?;
             ctx.require_list_leaf_lt_support(line, inner_type)?;
-            Ok(super::void_call(BuiltinFn::ListSortAny, obj.clone(), args))
+            let lt_tag = ctx.register_intrinsic_instance(IntrinsicOp::Lt, inner_type);
+            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                target: CallTarget::Builtin(BuiltinFn::ListSortByTag),
+                args: vec![
+                    obj.clone(),
+                    TirExpr {
+                        kind: TirExprKind::IntLiteral(lt_tag),
+                        ty: ValueType::Int,
+                    },
+                ],
+            })))
         }
 
         // ── Magic Methods ────────────────────────────────────────────────
@@ -180,24 +216,42 @@ pub fn lower_list_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
             ctx.require_list_leaf_eq_support(line, inner_type)?;
-            Ok(super::expr_call(
-                BuiltinFn::ListContains,
-                ValueType::Bool,
-                obj.clone(),
-                args,
-            ))
+            let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::ListContainsByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Bool,
+            }))
         }
 
         "__eq__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &list_ty)?;
             ctx.require_list_leaf_eq_support(line, inner_type)?;
-            Ok(super::expr_call(
-                BuiltinFn::ListEqGeneric,
-                ValueType::Bool,
-                obj.clone(),
-                args,
-            ))
+            let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::ListEqByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Bool,
+            }))
         }
 
         "__getitem__" => {

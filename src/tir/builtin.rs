@@ -207,9 +207,12 @@ define_builtins! {
     ListEqShallow      => "__tython_list_eq_shallow",     params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
     ListEqDeep         => "__tython_list_eq_deep",        params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
     ListEqGeneric      => "__tython_list_eq_generic",     params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
+    ListEqByTag        => "__tython_list_eq_by_tag",      params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    ListLtByTag        => "__tython_list_lt_by_tag",      params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
 
     // list containment
     ListContains       => "__tython_list_contains",       params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    ListContainsByTag  => "__tython_list_contains_by_tag", params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Bool);
 
     // str containment
     StrContains        => "__tython_str_contains",        params: [ValueType::Str, ValueType::Str], ret: Some(ValueType::Bool);
@@ -217,8 +220,11 @@ define_builtins! {
     // list methods
     ListInsert         => "__tython_list_insert",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: None;
     ListRemove         => "__tython_list_remove",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    ListRemoveByTag    => "__tython_list_remove_by_tag",  params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: None;
     ListIndex          => "__tython_list_index",          params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
+    ListIndexByTag     => "__tython_list_index_by_tag",   params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Int);
     ListCount          => "__tython_list_count",          params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
+    ListCountByTag     => "__tython_list_count_by_tag",   params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Int);
     ListReverse        => "__tython_list_reverse",        params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListSortInt        => "__tython_list_sort_int",       params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListSortFloat      => "__tython_list_sort_float",     params: [ValueType::List(Box::new(ValueType::Float))], ret: None;
@@ -226,12 +232,14 @@ define_builtins! {
     ListSortBytes      => "__tython_list_sort_bytes",     params: [ValueType::List(Box::new(ValueType::Bytes))], ret: None;
     ListSortByteArray  => "__tython_list_sort_bytearray", params: [ValueType::List(Box::new(ValueType::ByteArray))], ret: None;
     ListSortAny        => "__tython_list_sort_any",       params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
+    ListSortByTag      => "__tython_list_sort_by_tag",    params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: None;
     SortedInt          => "__tython_sorted_int",          params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     SortedFloat        => "__tython_sorted_float",        params: [ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::List(Box::new(ValueType::Float)));
     SortedStr          => "__tython_sorted_str",          params: [ValueType::List(Box::new(ValueType::Str))], ret: Some(ValueType::List(Box::new(ValueType::Str)));
     SortedBytes        => "__tython_sorted_bytes",        params: [ValueType::List(Box::new(ValueType::Bytes))], ret: Some(ValueType::List(Box::new(ValueType::Bytes)));
     SortedByteArray    => "__tython_sorted_bytearray",    params: [ValueType::List(Box::new(ValueType::ByteArray))], ret: Some(ValueType::List(Box::new(ValueType::ByteArray)));
     SortedAny          => "__tython_sorted_any",          params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    SortedByTag        => "__tython_sorted_by_tag",       params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ReversedList       => "__tython_reversed_list",       params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ListExtend         => "__tython_list_extend",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListCopy           => "__tython_list_copy",           params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));

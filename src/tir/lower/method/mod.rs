@@ -108,7 +108,7 @@ impl Lowering {
     ///
     /// Other types fall back to the old centralized `lower_builtin_method_call`.
     pub(in crate::tir::lower) fn lower_method_call(
-        &self,
+        &mut self,
         line: usize,
         obj_expr: TirExpr,
         method_name: &str,

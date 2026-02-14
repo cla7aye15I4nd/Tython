@@ -1,3 +1,4 @@
+use crate::tir::ValueType;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -69,6 +70,8 @@ pub struct Codegen<'ctx> {
     /// Saved exception state for bare `raise` inside except handlers.
     /// (type_tag_alloca, message_ptr_alloca)
     reraise_state: Option<(PointerValue<'ctx>, PointerValue<'ctx>)>,
+    intrinsic_eq_cases: HashMap<i64, ValueType>,
+    intrinsic_lt_cases: HashMap<i64, ValueType>,
 }
 
 impl<'ctx> Codegen<'ctx> {
@@ -104,6 +107,8 @@ impl<'ctx> Codegen<'ctx> {
             try_depth: 0,
             unwind_dest_stack: Vec::new(),
             reraise_state: None,
+            intrinsic_eq_cases: HashMap::new(),
+            intrinsic_lt_cases: HashMap::new(),
         }
     }
 

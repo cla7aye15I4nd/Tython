@@ -57,6 +57,14 @@ int64_t TYTHON_FN(max_list_int)(TythonList* lst);
 double TYTHON_FN(max_list_float)(TythonList* lst);
 int64_t TYTHON_FN(list_eq_shallow)(TythonList* a, TythonList* b);
 int64_t TYTHON_FN(list_eq_deep)(TythonList* a, TythonList* b, int64_t depth);
+int64_t TYTHON_FN(list_eq_by_tag)(TythonList* a, TythonList* b, int64_t eq_tag);
+int64_t TYTHON_FN(list_lt_by_tag)(TythonList* a, TythonList* b, int64_t lt_tag);
+int64_t TYTHON_FN(list_contains_by_tag)(TythonList* lst, int64_t value, int64_t eq_tag);
+int64_t TYTHON_FN(list_index_by_tag)(TythonList* lst, int64_t value, int64_t eq_tag);
+int64_t TYTHON_FN(list_count_by_tag)(TythonList* lst, int64_t value, int64_t eq_tag);
+void TYTHON_FN(list_remove_by_tag)(TythonList* lst, int64_t value, int64_t eq_tag);
+void TYTHON_FN(list_sort_by_tag)(TythonList* lst, int64_t lt_tag);
+TythonList* TYTHON_FN(sorted_by_tag)(TythonList* lst, int64_t lt_tag);
 
 #ifdef __cplusplus
 }

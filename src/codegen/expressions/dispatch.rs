@@ -74,6 +74,7 @@ impl<'ctx> Codegen<'ctx> {
             TirExprKind::ExternalCall { func, args } => self
                 .codegen_builtin_call(*func, args, Some(&expr.ty))
                 .unwrap(),
+            TirExprKind::IntrinsicCmp { op, lhs, rhs } => self.codegen_intrinsic_cmp(*op, lhs, rhs),
             TirExprKind::Cast { kind, arg } => self.codegen_cast(kind, arg),
             TirExprKind::Construct {
                 class_name,

@@ -10,6 +10,7 @@ use super::{
 };
 use crate::ast::{ClassInfo, TupleInfo, Type};
 use crate::errors::{ErrorCategory, TythonError};
+use crate::tir::{intrinsic_tag, IntrinsicOp};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 mod calls;
@@ -78,6 +79,9 @@ pub struct Lowering {
     // Hidden captured variables for lifted nested functions.
     // Keyed by mangled function name, value is ordered (name, type) capture list.
     nested_function_captures: HashMap<String, Vec<(String, Type)>>,
+
+    // Intrinsic compare instances required by this module.
+    intrinsic_instances: HashMap<(IntrinsicOp, ValueType), i64>,
 }
 
 impl Default for Lowering {
@@ -108,6 +112,7 @@ impl Lowering {
             function_signatures: HashMap::new(),
             nested_function_captures: HashMap::new(),
             in_try_finally_depth: 0,
+            intrinsic_instances: HashMap::new(),
         }
     }
 
@@ -284,6 +289,35 @@ impl Lowering {
         }
     }
 
+    pub(in crate::tir::lower) fn register_intrinsic_instance(
+        &mut self,
+        op: IntrinsicOp,
+        ty: &ValueType,
+    ) -> i64 {
+        let key = (op, ty.clone());
+        if let Some(tag) = self.intrinsic_instances.get(&key) {
+            return *tag;
+        }
+        let tag = intrinsic_tag(op, ty);
+        self.intrinsic_instances.insert(key, tag);
+        self.register_intrinsic_list_dependencies(op, ty);
+        tag
+    }
+
+    fn register_intrinsic_list_dependencies(&mut self, op: IntrinsicOp, ty: &ValueType) {
+        match ty {
+            ValueType::List(inner) => {
+                self.register_intrinsic_instance(op, inner);
+            }
+            ValueType::Tuple(fields) => {
+                for field in fields {
+                    self.register_intrinsic_list_dependencies(op, field);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Look up a field index in a class, or return an AttributeError.
     fn lookup_field_index(
         &self,
@@ -431,6 +465,7 @@ impl Lowering {
         self.current_function_name = None;
         self.internal_tmp_counter = 0;
         self.function_mangled_names.clear();
+        self.intrinsic_instances.clear();
 
         self.push_scope();
 
@@ -575,7 +610,26 @@ impl Lowering {
             self.symbol_table.insert(func.name.clone(), func_type);
         }
 
-        Ok(TirModule { functions, classes })
+        let mut intrinsic_instances = self
+            .intrinsic_instances
+            .iter()
+            .map(|((op, ty), tag)| crate::tir::IntrinsicInstance {
+                op: *op,
+                ty: ty.clone(),
+                tag: *tag,
+            })
+            .collect::<Vec<_>>();
+        intrinsic_instances.sort_by(|a, b| {
+            a.tag
+                .cmp(&b.tag)
+                .then_with(|| a.ty.to_string().cmp(&b.ty.to_string()))
+        });
+
+        Ok(TirModule {
+            functions,
+            classes,
+            intrinsic_instances,
+        })
     }
 
     // ── utility helpers ───────────────────────────────────────────────

@@ -41,6 +41,7 @@ impl Compiler {
         let mut lowering = Lowering::new();
 
         self.compile_modules(&self.entry_point.clone(), &mut codegen, &mut lowering)?;
+        codegen.emit_intrinsic_dispatchers();
 
         let entry_main_mangled = self.resolver.mangle_synthetic_main(&self.entry_point);
 
@@ -82,6 +83,7 @@ impl Compiler {
                 CompileAction::Compile(path, imports) => {
                     let module_path = self.resolver.compute_module_path(&path);
                     let tir = lowering.lower_module(&path, &module_path, &imports)?;
+                    codegen.register_intrinsic_instances(&tir.intrinsic_instances);
 
                     for class_info in tir.classes.values() {
                         codegen.register_class(class_info);

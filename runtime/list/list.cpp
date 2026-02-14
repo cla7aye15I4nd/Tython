@@ -309,3 +309,83 @@ int64_t TYTHON_FN(list_eq_deep)(TythonList* a, TythonList* b, int64_t depth) {
     }
     return 1;
 }
+
+/* ── generic by-tag algorithms ───────────────────────────────────── */
+
+int64_t TYTHON_FN(list_eq_by_tag)(TythonList* a, TythonList* b, int64_t eq_tag) {
+    if (a == b) return 1;
+    auto* av = v(a);
+    auto* bv = v(b);
+    if (av->len != bv->len) return 0;
+    for (int64_t i = 0; i < av->len; i++) {
+        if (!TYTHON_FN(intrinsic_eq)(eq_tag, av->data[i], bv->data[i])) return 0;
+    }
+    return 1;
+}
+
+int64_t TYTHON_FN(list_lt_by_tag)(TythonList* a, TythonList* b, int64_t lt_tag) {
+    auto* av = v(a);
+    auto* bv = v(b);
+    int64_t min_len = av->len < bv->len ? av->len : bv->len;
+    for (int64_t i = 0; i < min_len; i++) {
+        const int64_t lhs = av->data[i];
+        const int64_t rhs = bv->data[i];
+        if (TYTHON_FN(intrinsic_lt)(lt_tag, lhs, rhs)) return 1;
+        if (TYTHON_FN(intrinsic_lt)(lt_tag, rhs, lhs)) return 0;
+    }
+    return av->len < bv->len ? 1 : 0;
+}
+
+int64_t TYTHON_FN(list_contains_by_tag)(TythonList* lst, int64_t value, int64_t eq_tag) {
+    auto* p = v(lst);
+    for (int64_t i = 0; i < p->len; i++) {
+        if (TYTHON_FN(intrinsic_eq)(eq_tag, p->data[i], value)) return 1;
+    }
+    return 0;
+}
+
+int64_t TYTHON_FN(list_index_by_tag)(TythonList* lst, int64_t value, int64_t eq_tag) {
+    auto* p = v(lst);
+    for (int64_t i = 0; i < p->len; i++) {
+        if (TYTHON_FN(intrinsic_eq)(eq_tag, p->data[i], value)) return i;
+    }
+    TYTHON_FN(raise)(TYTHON_EXC_VALUE_ERROR, TYTHON_FN(str_new)("x not in list", 13));
+    __builtin_unreachable();
+}
+
+int64_t TYTHON_FN(list_count_by_tag)(TythonList* lst, int64_t value, int64_t eq_tag) {
+    auto* p = v(lst);
+    int64_t out = 0;
+    for (int64_t i = 0; i < p->len; i++) {
+        if (TYTHON_FN(intrinsic_eq)(eq_tag, p->data[i], value)) out++;
+    }
+    return out;
+}
+
+void TYTHON_FN(list_remove_by_tag)(TythonList* lst, int64_t value, int64_t eq_tag) {
+    int64_t idx = TYTHON_FN(list_index_by_tag)(lst, value, eq_tag);
+    auto* p = v(lst);
+    for (int64_t i = idx + 1; i < p->len; i++) {
+        p->data[i - 1] = p->data[i];
+    }
+    p->len -= 1;
+}
+
+void TYTHON_FN(list_sort_by_tag)(TythonList* lst, int64_t lt_tag) {
+    auto* p = v(lst);
+    for (int64_t i = 1; i < p->len; i++) {
+        int64_t key = p->data[i];
+        int64_t j = i - 1;
+        while (j >= 0 && TYTHON_FN(intrinsic_lt)(lt_tag, key, p->data[j])) {
+            p->data[j + 1] = p->data[j];
+            j -= 1;
+        }
+        p->data[j + 1] = key;
+    }
+}
+
+TythonList* TYTHON_FN(sorted_by_tag)(TythonList* lst, int64_t lt_tag) {
+    auto* out = L(v(lst)->copy());
+    TYTHON_FN(list_sort_by_tag)(out, lt_tag);
+    return out;
+}
