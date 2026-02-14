@@ -243,7 +243,7 @@ impl Lowering {
         // Generate `new()` factory TirFunction if __init__ exists.
         if let Some(init_method) = class_info.methods.get("__init__") {
             if let Some(new_method) = class_info.methods.get("new") {
-                let new_fn = Self::generate_new_factory(
+                let new_fn = self.generate_new_factory(
                     qualified_name,
                     &new_method.mangled_name,
                     &init_method.mangled_name,
@@ -259,6 +259,7 @@ impl Lowering {
 
     /// Generate a `new()` factory function that constructs and returns an instance.
     fn generate_new_factory(
+        &mut self,
         qualified_name: &str,
         new_mangled: &str,
         init_mangled: &str,
@@ -325,11 +326,14 @@ impl Lowering {
             let annotation = ast_getattr!(arg, "annotation");
             let ty = self.convert_type_annotation(&annotation)?;
             param_names.push(param_name.clone());
-            params.push(FunctionParam::new(param_name, Self::to_value_type(&ty)));
+            params.push(FunctionParam::new(
+                param_name,
+                self.value_type_from_type(&ty),
+            ));
         }
         let default_values = all_defaults.into_iter().skip(1).collect();
 
-        let return_type = Self::to_opt_value_type(&method_info.return_type);
+        let return_type = self.opt_value_type_from_type(&method_info.return_type);
 
         self.push_scope();
         for param in &params {

@@ -219,7 +219,7 @@ impl Lowering {
     }
 
     pub(super) fn lower_constructor_call(
-        &self,
+        &mut self,
         line: usize,
         qualified_name: &str,
         class_info: &ClassInfo,
@@ -257,7 +257,7 @@ impl Lowering {
     }
 
     pub(in crate::tir::lower) fn lower_class_magic_method(
-        &self,
+        &mut self,
         line: usize,
         object: TirExpr,
         method_names: &[&str],
@@ -275,7 +275,7 @@ impl Lowering {
     }
 
     pub(in crate::tir::lower) fn lower_class_magic_method_with_args(
-        &self,
+        &mut self,
         line: usize,
         object: TirExpr,
         method_names: &[&str],
@@ -341,7 +341,8 @@ impl Lowering {
             ));
         }
         for (i, (arg, expected)) in args.iter().zip(method.params.iter()).enumerate() {
-            if arg.ty.to_type() != *expected {
+            let expected_vty = self.value_type_from_type(expected);
+            if arg.ty != expected_vty {
                 return Err(self.type_error(
                     line,
                     format!(
@@ -352,28 +353,34 @@ impl Lowering {
             }
         }
 
+        // Clone data from method/class_info before mutable borrow via value_type_from_type
+        let method_return_type = method.return_type.clone();
+        let method_name = method.name.clone();
+        let method_mangled_name = method.mangled_name.clone();
+
         let return_type = if let Some(ref expected) = expected_return_type {
-            if method.return_type != expected.to_type() {
+            let method_return_vty = self.value_type_from_type(&method_return_type);
+            if method_return_vty != *expected {
                 return Err(self.type_error(
                     line,
                     format!(
                         "{}.{}() must return `{}`, got `{}`",
-                        class_name, method.name, expected, method.return_type
+                        class_name, method_name, expected, method_return_type
                     ),
                 ));
             }
             expected.clone()
         } else {
-            if method.return_type == Type::Unit {
+            if method_return_type == Type::Unit {
                 return Err(self.type_error(
                     line,
                     format!(
                         "{}.{}() must return a value, got `None`",
-                        class_name, method.name
+                        class_name, method_name
                     ),
                 ));
             }
-            Self::to_value_type(&method.return_type)
+            self.value_type_from_type(&method_return_type)
         };
 
         let mut call_args = Vec::with_capacity(1 + args.len());
@@ -382,7 +389,7 @@ impl Lowering {
 
         Ok(TirExpr {
             kind: TirExprKind::Call {
-                func: method.mangled_name.clone(),
+                func: method_mangled_name,
                 args: call_args,
             },
             ty: return_type,
@@ -390,7 +397,7 @@ impl Lowering {
     }
 
     pub(super) fn build_named_call_result(
-        &self,
+        &mut self,
         mangled: String,
         return_type: Type,
         args: Vec<TirExpr>,
@@ -406,7 +413,7 @@ impl Lowering {
                     func: mangled,
                     args,
                 },
-                ty: Self::to_value_type(&return_type),
+                ty: self.value_type_from_type(&return_type),
             })
         }
     }

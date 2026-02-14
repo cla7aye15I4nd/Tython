@@ -1,5 +1,4 @@
 use inkwell::values::BasicValueEnum;
-use inkwell::{AddressSpace, IntPredicate};
 
 use crate::tir::builtin::BuiltinFn;
 use crate::tir::{TirExpr, ValueType};
@@ -47,7 +46,6 @@ impl<'ctx> Codegen<'ctx> {
 
         let struct_type = match &object.ty {
             ValueType::Class(name) => self.struct_types[name.as_str()],
-            ValueType::Tuple(types) => self.get_or_create_tuple_struct(types),
             other => panic!("ICE: GetField on unsupported type `{}`", other),
         };
 
@@ -56,106 +54,6 @@ impl<'ctx> Codegen<'ctx> {
 
         let field_llvm_type = self.get_llvm_type(field_ty);
         emit!(self.build_load(field_llvm_type, field_ptr, "field_val"))
-    }
-
-    pub(crate) fn codegen_tuple_literal(
-        &mut self,
-        elements: &[TirExpr],
-        element_types: &[ValueType],
-    ) -> BasicValueEnum<'ctx> {
-        let struct_type = self.get_or_create_tuple_struct(element_types);
-        let size = struct_type.size_of().unwrap();
-        let size_i64 = emit!(self.build_int_cast(size, self.i64_type(), "tuple_size_i64"));
-        let malloc_fn = self.get_runtime_fn(RuntimeFn::Malloc);
-        let call_site = emit!(self.build_call(malloc_fn, &[size_i64.into()], "tuple_malloc"));
-        let tuple_ptr = self.extract_call_value(call_site).into_pointer_value();
-
-        for (i, elem) in elements.iter().enumerate() {
-            let field_ptr =
-                emit!(self.build_struct_gep(struct_type, tuple_ptr, i as u32, "tuple_field_ptr"));
-            let elem_val = self.codegen_expr(elem);
-            emit!(self.build_store(field_ptr, elem_val));
-        }
-        tuple_ptr.into()
-    }
-
-    pub(crate) fn codegen_tuple_get_dynamic(
-        &mut self,
-        tuple: &TirExpr,
-        index: &TirExpr,
-        len: usize,
-        element_types: &[ValueType],
-        result_ty: &ValueType,
-    ) -> BasicValueEnum<'ctx> {
-        let tuple_ptr = self.codegen_expr(tuple).into_pointer_value();
-        let idx_val = self.codegen_expr(index).into_int_value();
-        let struct_type = self.get_or_create_tuple_struct(element_types);
-
-        let result_alloca =
-            self.build_entry_block_alloca(self.get_llvm_type(result_ty), "tuple_dyn_get_tmp");
-
-        let default_val: BasicValueEnum<'ctx> = match result_ty {
-            ValueType::Int => self.i64_type().const_zero().into(),
-            ValueType::Bool => self.context.bool_type().const_zero().into(),
-            ValueType::Float => self.f64_type().const_float(0.0).into(),
-            _ => self
-                .context
-                .ptr_type(AddressSpace::default())
-                .const_null()
-                .into(),
-        };
-        emit!(self.build_store(result_alloca, default_val));
-
-        let len_i64 = self.i64_type().const_int(len as u64, false);
-        let is_neg = emit!(self.build_int_compare(
-            IntPredicate::SLT,
-            idx_val,
-            self.i64_type().const_zero(),
-            "tuple_idx_neg",
-        ));
-        let neg_adjusted = emit!(self.build_int_add(idx_val, len_i64, "tuple_idx_norm_neg"));
-        let norm_idx = emit!(self.build_select(is_neg, neg_adjusted, idx_val, "tuple_idx_norm"))
-            .into_int_value();
-
-        let function = emit!(self.get_insert_block()).get_parent().unwrap();
-        let default_bb = self
-            .context
-            .append_basic_block(function, "tuple_idx_default");
-        let merge_bb = self.context.append_basic_block(function, "tuple_idx_merge");
-
-        let mut case_bbs = Vec::with_capacity(len);
-        for i in 0..len {
-            case_bbs.push(
-                self.context
-                    .append_basic_block(function, &format!("tuple_idx_case_{}", i)),
-            );
-        }
-        let switch_cases: Vec<_> = case_bbs
-            .iter()
-            .enumerate()
-            .map(|(i, bb)| (self.i64_type().const_int(i as u64, false), *bb))
-            .collect();
-        emit!(self.build_switch(norm_idx, default_bb, &switch_cases));
-
-        for (i, case_bb) in case_bbs.iter().enumerate() {
-            self.builder.position_at_end(*case_bb);
-            let field_ptr =
-                emit!(self.build_struct_gep(struct_type, tuple_ptr, i as u32, "tuple_dyn_get_ptr"));
-            let field_val =
-                emit!(self.build_load(self.get_llvm_type(result_ty), field_ptr, "tuple_dyn_get"));
-            emit!(self.build_store(result_alloca, field_val));
-            emit!(self.build_unconditional_branch(merge_bb));
-        }
-
-        self.builder.position_at_end(default_bb);
-        emit!(self.build_unconditional_branch(merge_bb));
-
-        self.builder.position_at_end(merge_bb);
-        emit!(self.build_load(
-            self.get_llvm_type(result_ty),
-            result_alloca,
-            "tuple_dyn_get_out",
-        ))
     }
 
     pub(crate) fn codegen_list_literal(

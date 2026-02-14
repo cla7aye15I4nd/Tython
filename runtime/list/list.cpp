@@ -195,6 +195,49 @@ TythonList* TYTHON_FN(list_copy)(TythonList* lst) {
     return L(v(lst)->copy());
 }
 
+TythonList* TYTHON_FN(list_iadd)(TythonList* lst, TythonList* other) {
+    auto* lhs = v(lst);
+    auto* rhs = v(other);
+    if (lhs == rhs) {
+        const int64_t orig_len = lhs->len;
+        lhs->grow(orig_len * 2);
+        std::memcpy(lhs->data + orig_len, lhs->data,
+                    static_cast<size_t>(orig_len) * sizeof(int64_t));
+        lhs->len = orig_len * 2;
+        return lst;
+    }
+
+    lhs->extend_from(rhs->data, rhs->len);
+    return lst;
+}
+
+TythonList* TYTHON_FN(list_imul)(TythonList* lst, int64_t n) {
+    auto* p = v(lst);
+    if (n <= 0 || p->len == 0) {
+        p->clear();
+        return lst;
+    }
+    if (n == 1) return lst;
+
+    const int64_t orig_len = p->len;
+    const int64_t new_len = orig_len * n;
+    p->grow(new_len);
+    for (int64_t i = 1; i < n; i++) {
+        std::memcpy(p->data + (i * orig_len), p->data,
+                    static_cast<size_t>(orig_len) * sizeof(int64_t));
+    }
+    p->len = new_len;
+    return lst;
+}
+
+void TYTHON_FN(list_del)(TythonList* lst, int64_t index) {
+    auto* p = v(lst);
+    int64_t idx = resolve_index(p->len, index);
+    std::memmove(p->data + idx, p->data + idx + 1,
+                 static_cast<size_t>(p->len - idx - 1) * sizeof(int64_t));
+    p->len--;
+}
+
 /* ── range(...) expression builtin ───────────────────────────────── */
 
 static TythonList* range_impl(int64_t start, int64_t stop, int64_t step) {

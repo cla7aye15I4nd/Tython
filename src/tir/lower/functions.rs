@@ -156,13 +156,13 @@ impl Lowering {
             let param_name = ast_get_string!(arg, "arg");
             let annotation = ast_getattr!(arg, "annotation");
             let ty = self.convert_type_annotation(&annotation)?;
-            let vty = Self::to_value_type(&ty);
+            let vty = self.value_type_from_type(&ty);
             params.push(FunctionParam::new(param_name, vty));
             param_names.push(ast_get_string!(arg, "arg"));
         }
 
         let return_type_ast = self.convert_return_type(node)?;
-        let return_type = Self::to_opt_value_type(&return_type_ast);
+        let return_type = self.opt_value_type_from_type(&return_type_ast);
 
         self.push_scope();
         for param in &params {

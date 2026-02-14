@@ -7,25 +7,23 @@
 extern "C" {
 #endif
 
-// GC Strategy selection (compile-time)
-// Define either TYTHON_GC_NAIVE or TYTHON_GC_BOEHM
+// GC strategy selection (compile-time)
+// Runtime is built with TYTHON_GC_BOEHM.
 
 // Initialize GC system (called before main)
 void __tython_gc_init(void);
 
-// Cleanup GC system (called after main for naive GC)
+// Cleanup GC system.
 void __tython_gc_cleanup(void);
 
 // Primary allocation function (GC-managed)
 void* __tython_gc_malloc(int64_t size);
 
-// Non-GC allocation for atomic/non-pointer data
-// (Used for strings, bytes - optimization for Boehm GC)
+// Allocation for atomic/non-pointer data (e.g. strings, bytes).
 void* __tython_gc_malloc_atomic(int64_t size);
 
-// Explicit free (only for realloc-like operations)
-// In Boehm GC: no-op
-// In Naive GC: removes from tracking if it was tracked
+// Explicit free (used for realloc-like operations).
+// Boehm implementation is a no-op.
 void __tython_gc_free(void* ptr);
 
 #ifdef __cplusplus

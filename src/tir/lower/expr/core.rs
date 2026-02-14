@@ -56,7 +56,7 @@ impl Lowering {
                     .cloned()
                     .ok_or_else(|| self.name_error(line, format!("undefined variable `{}`", id)))?;
 
-                let vty = Self::to_value_type(&ty);
+                let vty = self.value_type_from_type(&ty);
                 Ok(TirExpr {
                     kind: TirExprKind::Var(id),
                     ty: vty,
@@ -210,7 +210,7 @@ impl Lowering {
 
                 Ok(TirExpr {
                     kind,
-                    ty: Self::to_value_type(&rule.result_type),
+                    ty: self.value_type_from_type(&rule.result_type),
                 })
             }
 
@@ -287,7 +287,8 @@ impl Lowering {
                     )
                 })?;
 
-                let field_ty = Self::to_value_type(&class_info.fields[field_index].ty);
+                let field_ty_ast = class_info.fields[field_index].ty.clone();
+                let field_ty = self.value_type_from_type(&field_ty_ast);
 
                 Ok(TirExpr {
                     kind: TirExprKind::GetField {
@@ -347,12 +348,15 @@ impl Lowering {
                 }
                 let element_types: Vec<ValueType> =
                     elements.iter().map(|elt| elt.ty.clone()).collect();
+                let class_name = self.get_or_create_tuple_class(&element_types);
+                let init_mangled = format!("{}$__init__", class_name);
                 Ok(TirExpr {
-                    kind: TirExprKind::TupleLiteral {
-                        elements,
-                        element_types: element_types.clone(),
+                    kind: TirExprKind::Construct {
+                        class_name: class_name.clone(),
+                        init_mangled_name: init_mangled,
+                        args: elements,
                     },
-                    ty: ValueType::Tuple(element_types),
+                    ty: ValueType::Class(class_name),
                 })
             }
             "Dict" => {
@@ -610,7 +614,8 @@ impl Lowering {
                             ty: (*value_ty).clone(),
                         })
                     }
-                    ValueType::Tuple(elements) => {
+                    ValueType::Class(ref name) if self.is_tuple_class(name) => {
+                        let elements = self.tuple_element_types(name).to_vec();
                         let index_expr = self.lower_expr(&slice_node)?;
                         if index_expr.ty != ValueType::Int {
                             return Err(self.type_error(
@@ -654,12 +659,52 @@ impl Lowering {
                                         .to_string(),
                                 ));
                             }
-                            Ok(TirExpr {
-                                kind: TirExprKind::ExternalCall {
-                                    func: builtin::BuiltinFn::TupleGetItem,
-                                    args: vec![obj_expr, index_expr],
+                            // Dynamic tuple index: generate if-else chain of GetField
+                            let elem_ty = first.clone();
+                            let tuple_len = elements.len();
+                            let tuple_var = self.fresh_internal("dyn_tup");
+                            let idx_tmp = self.fresh_internal("dyn_idx");
+                            let result_var = self.fresh_internal("dyn_tup_elem");
+
+                            let tuple_ty = obj_expr.ty.clone();
+                            self.pre_stmts.push(TirStmt::Let {
+                                name: tuple_var.clone(),
+                                ty: tuple_ty.clone(),
+                                value: obj_expr,
+                            });
+                            self.pre_stmts.push(TirStmt::Let {
+                                name: idx_tmp.clone(),
+                                ty: ValueType::Int,
+                                value: index_expr,
+                            });
+                            // Initialize result variable
+                            self.pre_stmts.push(TirStmt::Let {
+                                name: result_var.clone(),
+                                ty: elem_ty.clone(),
+                                value: TirExpr {
+                                    kind: TirExprKind::GetField {
+                                        object: Box::new(TirExpr {
+                                            kind: TirExprKind::Var(tuple_var.clone()),
+                                            ty: tuple_ty.clone(),
+                                        }),
+                                        field_index: 0,
+                                    },
+                                    ty: elem_ty.clone(),
                                 },
-                                ty: first.clone(),
+                            });
+                            let switch_stmts = self.gen_tuple_dynamic_getitem_stmts(
+                                &result_var,
+                                &elem_ty,
+                                &tuple_var,
+                                &tuple_ty,
+                                &idx_tmp,
+                                tuple_len,
+                            );
+                            self.pre_stmts.extend(switch_stmts);
+
+                            Ok(TirExpr {
+                                kind: TirExprKind::Var(result_var),
+                                ty: elem_ty,
                             })
                         }
                     }

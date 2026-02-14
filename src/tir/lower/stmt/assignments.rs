@@ -58,7 +58,7 @@ impl Lowering {
                     self.syntax_error(line, "empty list literal `[]` requires a type annotation")
                 })?;
                 let inner_ty = match &list_ty {
-                    Type::List(inner) => Self::to_value_type(inner),
+                    Type::List(inner) => self.value_type_from_type(inner),
                     _ => {
                         return Err(self.type_error(
                             line,
@@ -90,9 +90,10 @@ impl Lowering {
                     self.syntax_error(line, "empty dict literal `{}` requires a type annotation")
                 })?;
                 let (key_ty, value_ty) = match &dict_ty {
-                    Type::Dict(key, value) => {
-                        (Self::to_value_type(key), Self::to_value_type(value))
-                    }
+                    Type::Dict(key, value) => (
+                        self.value_type_from_type(key),
+                        self.value_type_from_type(value),
+                    ),
                     _ => {
                         return Err(self.type_error(
                             line,
@@ -130,7 +131,7 @@ impl Lowering {
                     self.syntax_error(line, "set() requires a type annotation in this context")
                 })?;
                 let inner_ty = match &set_ty {
-                    Type::Set(inner) => Self::to_value_type(inner),
+                    Type::Set(inner) => self.value_type_from_type(inner),
                     _ => {
                         return Err(self.type_error(
                             line,
@@ -168,9 +169,10 @@ impl Lowering {
                             self.syntax_error(line, "tuple(genexpr) requires a type annotation")
                         })?;
                         let element_types = match &tuple_ty {
-                            Type::Tuple(elements) => {
-                                elements.iter().map(Self::to_value_type).collect::<Vec<_>>()
-                            }
+                            Type::Tuple(elements) => elements
+                                .iter()
+                                .map(|t| self.value_type_from_type(t))
+                                .collect::<Vec<_>>(),
                             _ => {
                                 return Err(self.type_error(
                                     line,
@@ -204,16 +206,19 @@ impl Lowering {
                             });
                         }
 
-                        let vty = ValueType::Tuple(element_types.clone());
+                        let class_name = self.get_or_create_tuple_class(&element_types);
+                        let init_mangled = format!("{}$__init__", class_name);
+                        let vty = ValueType::Class(class_name.clone());
                         self.declare(target.clone(), tuple_ty);
 
                         return Ok(vec![TirStmt::Let {
                             name: target,
                             ty: vty.clone(),
                             value: TirExpr {
-                                kind: TirExprKind::TupleLiteral {
-                                    elements: tuple_elements,
-                                    element_types,
+                                kind: TirExprKind::Construct {
+                                    class_name: class_name.clone(),
+                                    init_mangled_name: init_mangled,
+                                    args: tuple_elements,
                                 },
                                 ty: vty,
                             },
@@ -225,30 +230,34 @@ impl Lowering {
 
         let saved_empty_list_hint = self.empty_list_hint.clone();
         if let Some(Type::List(inner)) = &annotated_ty {
-            self.empty_list_hint = Some(Self::to_value_type(inner));
+            self.empty_list_hint = Some(self.value_type_from_type(inner));
         }
         let tir_value = self.lower_expr(&value_node)?;
         self.empty_list_hint = saved_empty_list_hint;
 
-        let tir_value_ast_ty = tir_value.ty.to_type();
+        // Compare at the ValueType level so that Type::Tuple and the
+        // corresponding auto-generated tuple class are treated as equal.
         if let Some(ref ann_ty) = annotated_ty {
-            if ann_ty != &tir_value_ast_ty {
+            let ann_vty = self.value_type_from_type(ann_ty);
+            if ann_vty != tir_value.ty {
                 return Err(self.type_error(
                     line,
                     format!(
                         "type mismatch: expected `{}`, got `{}`",
-                        ann_ty, tir_value_ast_ty
+                        ann_ty,
+                        tir_value.ty.to_type()
                     ),
                 ));
             }
         }
+        let tir_value_ast_ty = tir_value.ty.to_type();
 
         let var_type = annotated_ty.unwrap_or(tir_value_ast_ty);
         self.declare(target.clone(), var_type.clone());
 
         Ok(vec![TirStmt::Let {
             name: target,
-            ty: Self::to_value_type(&var_type),
+            ty: self.value_type_from_type(&var_type),
             value: tir_value,
         }])
     }
@@ -270,7 +279,7 @@ impl Lowering {
                 let value_node = ast_getattr!(node, "value");
                 let saved_empty_list_hint = self.empty_list_hint.clone();
                 if let Some(Type::List(inner)) = self.lookup(&target).cloned() {
-                    self.empty_list_hint = Some(Self::to_value_type(&inner));
+                    self.empty_list_hint = Some(self.value_type_from_type(&inner));
                 }
                 let tir_value = self.lower_expr(&value_node)?;
                 self.empty_list_hint = saved_empty_list_hint;
@@ -318,7 +327,7 @@ impl Lowering {
 
                 let target_ref = TirExpr {
                     kind: TirExprKind::Var(target.clone()),
-                    ty: Self::to_value_type(&target_ty),
+                    ty: self.value_type_from_type(&target_ty),
                 };
 
                 // Try to use magic method for augmented assignment
@@ -420,7 +429,7 @@ impl Lowering {
             let elts = ast_get_list!(value_node, "elts");
             if elts.is_empty() {
                 let inner_ty = match &field.ty {
-                    Type::List(inner) => Self::to_value_type(inner),
+                    Type::List(inner) => self.value_type_from_type(inner),
                     _ => {
                         return Err(self.type_error(
                             line,
@@ -446,9 +455,10 @@ impl Lowering {
             let keys = ast_get_list!(value_node, "keys");
             if keys.is_empty() {
                 let (key_ty, value_ty) = match &field.ty {
-                    Type::Dict(key, value) => {
-                        (Self::to_value_type(key), Self::to_value_type(value))
-                    }
+                    Type::Dict(key, value) => (
+                        self.value_type_from_type(key),
+                        self.value_type_from_type(value),
+                    ),
                     _ => {
                         return Err(self.type_error(
                             line,
@@ -474,7 +484,8 @@ impl Lowering {
             self.lower_expr(&value_node)?
         };
 
-        if tir_value.ty.to_type() != field.ty {
+        let field_vty = self.value_type_from_type(&field.ty);
+        if tir_value.ty != field_vty {
             return Err(self.type_error(
                 line,
                 format!(
@@ -562,7 +573,7 @@ impl Lowering {
                     ],
                 }])
             }
-            ValueType::Tuple(_) => {
+            ValueType::Class(ref name) if self.is_tuple_class(name) => {
                 Err(self.type_error(line, "tuple does not support index assignment".to_string()))
             }
             other => Err(self.type_error(
@@ -674,7 +685,7 @@ impl Lowering {
                     ],
                 }])
             }
-            ValueType::Tuple(_) => {
+            ValueType::Class(ref name) if self.is_tuple_class(name) => {
                 Err(self.type_error(line, "tuple does not support index assignment".to_string()))
             }
             other => Err(self.type_error(
@@ -707,7 +718,7 @@ impl Lowering {
         let class_info = self.lookup_class(line, &class_name)?;
         let field_index = self.lookup_field_index(line, &class_info, &field_name)?;
         let field = &class_info.fields[field_index];
-        let field_vty = Self::to_value_type(&field.ty);
+        let field_vty = self.value_type_from_type(&field.ty);
 
         // Read current field value
         let current_val = TirExpr {
@@ -715,7 +726,7 @@ impl Lowering {
                 object: Box::new(obj_expr.clone()),
                 field_index,
             },
-            ty: field_vty,
+            ty: field_vty.clone(),
         };
 
         let op = Self::convert_binop(&ast_getattr!(aug_node, "op"))?;
@@ -723,7 +734,7 @@ impl Lowering {
 
         let binop_expr = self.resolve_binop(line, op, current_val, rhs)?;
 
-        if binop_expr.ty.to_type() != field.ty {
+        if binop_expr.ty != field_vty {
             return Err(self.type_error(
                 line,
                 format!(

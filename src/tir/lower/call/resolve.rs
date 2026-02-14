@@ -454,7 +454,7 @@ impl Lowering {
     }
 
     fn lower_class_instance_method_call(
-        &self,
+        &mut self,
         line: usize,
         object: TirExpr,
         class_name: &str,
@@ -491,7 +491,8 @@ impl Lowering {
             ));
         }
         for (i, (arg, expected)) in args.positional.iter().zip(method.params.iter()).enumerate() {
-            if arg.ty.to_type() != *expected {
+            let expected_vty = self.value_type_from_type(expected);
+            if arg.ty != expected_vty {
                 return Err(self.type_error(
                     line,
                     format!(

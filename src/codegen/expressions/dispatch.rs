@@ -85,10 +85,6 @@ impl<'ctx> Codegen<'ctx> {
                 object,
                 field_index,
             } => self.codegen_get_field(object, *field_index, &expr.ty),
-            TirExprKind::TupleLiteral {
-                elements,
-                element_types,
-            } => self.codegen_tuple_literal(elements, element_types),
             TirExprKind::ListLiteral {
                 element_type,
                 elements,

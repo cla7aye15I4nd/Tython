@@ -278,6 +278,15 @@ def test_tuple_eq_matrix() -> None:
     assert (t1 != t3) == True
 
 
+def test_chained_compare_with_empty_list_literal() -> None:
+    xs: list[int] = [1, 2]
+    ys: list[int] = [1, 2]
+    out: bool = xs == [] == ys
+    print('CHECK test_comparison lhs:', out)
+    print('CHECK test_comparison rhs:', False)
+    assert out == False
+
+
 def run_tests() -> None:
     test_eq_true()
     test_eq_false()
@@ -303,3 +312,4 @@ def run_tests() -> None:
     test_list_lexicographic_ordering()
     test_class_comparison_ordering_and_eq()
     test_tuple_eq_matrix()
+    test_chained_compare_with_empty_list_literal()

@@ -3,7 +3,8 @@ use crate::tir::{builtin, TirExpr, TirExprKind, TirStmt, ValueType};
 use crate::tir::lower::Lowering;
 
 impl Lowering {
-    /// Auto-generate str() for composite types (list, tuple).
+    /// Auto-generate str() for composite types (list).
+    /// Tuple classes now go through ClassMagic(__str__) dispatch.
     /// Pushes setup statements into `self.pre_stmts` and returns a
     /// `Var` expression pointing to the result string.
     pub(in crate::tir::lower) fn lower_str_auto(&mut self, arg: TirExpr) -> TirExpr {
@@ -12,9 +13,6 @@ impl Lowering {
         match &arg_ty {
             ValueType::List(inner) => {
                 self.lower_str_list(&result_var, arg, inner.as_ref().clone());
-            }
-            ValueType::Tuple(element_types) => {
-                self.lower_str_tuple(&result_var, arg, element_types.clone());
             }
             _ => unreachable!("ICE: lower_str_auto called on non-composite type"),
         }
@@ -155,115 +153,6 @@ impl Lowering {
         });
     }
 
-    /// Generate string building code for a tuple.
-    /// Produces: result_var = "(" + join(repr(elem), ", ") + ")"
-    fn lower_str_tuple(
-        &mut self,
-        result_var: &str,
-        tuple_arg: TirExpr,
-        element_types: Vec<ValueType>,
-    ) {
-        let tuple_var = self.fresh_internal("str_tuple");
-        let tuple_ty = tuple_arg.ty.clone();
-
-        // let tuple_var = <tuple_arg>
-        self.pre_stmts.push(TirStmt::Let {
-            name: tuple_var.clone(),
-            ty: tuple_ty.clone(),
-            value: tuple_arg,
-        });
-
-        // let result_var = "("
-        self.pre_stmts.push(TirStmt::Let {
-            name: result_var.to_string(),
-            ty: ValueType::Str,
-            value: TirExpr {
-                kind: TirExprKind::StrLiteral("(".to_string()),
-                ty: ValueType::Str,
-            },
-        });
-
-        for (i, elem_ty) in element_types.iter().enumerate() {
-            if i > 0 {
-                // result_var = result_var + ", "
-                self.pre_stmts.push(TirStmt::Let {
-                    ty: ValueType::Str,
-                    name: result_var.to_string(),
-                    value: TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::StrConcat,
-                            args: vec![
-                                TirExpr {
-                                    kind: TirExprKind::Var(result_var.to_string()),
-                                    ty: ValueType::Str,
-                                },
-                                TirExpr {
-                                    kind: TirExprKind::StrLiteral(", ".to_string()),
-                                    ty: ValueType::Str,
-                                },
-                            ],
-                        },
-                        ty: ValueType::Str,
-                    },
-                });
-            }
-
-            let elem_expr = TirExpr {
-                kind: TirExprKind::GetField {
-                    object: Box::new(TirExpr {
-                        kind: TirExprKind::Var(tuple_var.clone()),
-                        ty: tuple_ty.clone(),
-                    }),
-                    field_index: i,
-                },
-                ty: elem_ty.clone(),
-            };
-            let repr_expr = self.lower_repr_str_expr(elem_expr);
-
-            // result_var = result_var + repr(elem)
-            self.pre_stmts.push(TirStmt::Let {
-                name: result_var.to_string(),
-                ty: ValueType::Str,
-                value: TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func: builtin::BuiltinFn::StrConcat,
-                        args: vec![
-                            TirExpr {
-                                kind: TirExprKind::Var(result_var.to_string()),
-                                ty: ValueType::Str,
-                            },
-                            repr_expr,
-                        ],
-                    },
-                    ty: ValueType::Str,
-                },
-            });
-        }
-
-        // Trailing comma for single-element tuples
-        let suffix = if element_types.len() == 1 { ",)" } else { ")" };
-        self.pre_stmts.push(TirStmt::Let {
-            ty: ValueType::Str,
-            name: result_var.to_string(),
-            value: TirExpr {
-                kind: TirExprKind::ExternalCall {
-                    func: builtin::BuiltinFn::StrConcat,
-                    args: vec![
-                        TirExpr {
-                            kind: TirExprKind::Var(result_var.to_string()),
-                            ty: ValueType::Str,
-                        },
-                        TirExpr {
-                            kind: TirExprKind::StrLiteral(suffix.to_string()),
-                            ty: ValueType::Str,
-                        },
-                    ],
-                },
-                ty: ValueType::Str,
-            },
-        });
-    }
-
     /// Return a TirExpr of type Str representing the repr of a value.
     /// For composite types, generates code via pre_stmts.
     pub(in crate::tir::lower) fn lower_repr_str_expr(&mut self, arg: TirExpr) -> TirExpr {
@@ -310,9 +199,33 @@ impl Lowering {
                 },
                 ty: ValueType::Str,
             },
-            ValueType::List(_) | ValueType::Tuple(_) => {
+            ValueType::List(_) => {
                 // Recursive: auto-generate str for nested composite types
                 self.lower_str_auto(arg)
+            }
+            ValueType::Class(name) => {
+                let class_info = self.class_registry.get(name).cloned();
+                if let Some(info) = class_info {
+                    if let Some(repr_method) = info.methods.get("__repr__") {
+                        TirExpr {
+                            kind: TirExprKind::Call {
+                                func: repr_method.mangled_name.clone(),
+                                args: vec![arg],
+                            },
+                            ty: ValueType::Str,
+                        }
+                    } else {
+                        TirExpr {
+                            kind: TirExprKind::StrLiteral("<?>".to_string()),
+                            ty: ValueType::Str,
+                        }
+                    }
+                } else {
+                    TirExpr {
+                        kind: TirExprKind::StrLiteral("<?>".to_string()),
+                        ty: ValueType::Str,
+                    }
+                }
             }
             _ => {
                 // Fallback: use str() conversion if available

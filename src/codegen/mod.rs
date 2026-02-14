@@ -3,7 +3,6 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::types::StructType;
 use inkwell::values::PointerValue;
@@ -59,7 +58,6 @@ pub struct Codegen<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
-    target_machine: TargetMachine,
     variables: HashMap<String, PointerValue<'ctx>>,
     loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
     struct_types: HashMap<String, StructType<'ctx>>,
@@ -103,7 +101,6 @@ impl<'ctx> Codegen<'ctx> {
             context,
             module,
             builder,
-            target_machine,
             variables: HashMap::new(),
             loop_stack: Vec::new(),
             struct_types: HashMap::new(),
@@ -115,33 +112,13 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
-    const RUNTIME_BC_NAIVE: &'static str = env!("RUNTIME_BC_PATH_NAIVE");
     const RUNTIME_BC_BOEHM: &'static str = env!("RUNTIME_BC_PATH_BOEHM");
 
     pub fn link(&self, output_path: &Path) {
         let bc_path = output_path.with_extension("o");
 
-        // Run LLVM optimization passes before emitting bitcode
-        let options = PassBuilderOptions::create();
-        self.module
-            .run_passes("default<O2>", &self.target_machine, options)
-            .expect("Failed to run LLVM optimization passes");
-
+        // Write unoptimized bitcode; clang LTO handles optimization
         self.module.write_bitcode_to_path(&bc_path);
-
-        // Select runtime based on TYTHON_GC environment variable
-        let gc_type = std::env::var("TYTHON_GC").unwrap_or_else(|_| "boehm".to_string());
-        let runtime_bc = match gc_type.as_str() {
-            "naive" => Self::RUNTIME_BC_NAIVE,
-            "boehm" => Self::RUNTIME_BC_BOEHM,
-            _ => {
-                eprintln!(
-                    "Warning: Unknown TYTHON_GC value '{}', defaulting to 'boehm'",
-                    gc_type
-                );
-                Self::RUNTIME_BC_BOEHM
-            }
-        };
 
         let mut cmd = Command::new("clang++");
         cmd.arg("-static")
@@ -150,15 +127,12 @@ impl<'ctx> Codegen<'ctx> {
             .arg("-o")
             .arg(output_path)
             .arg(&bc_path)
-            .arg(runtime_bc);
+            .arg(Self::RUNTIME_BC_BOEHM);
 
         // Add libraries AFTER object files (linking order matters)
         cmd.arg("-lm");
 
-        // Add Boehm GC library if using boehm
-        if gc_type == "boehm" {
-            cmd.arg("-lgc");
-        }
+        cmd.arg("-lgc");
 
         cmd.arg("-lpthread").arg("-ldl");
 

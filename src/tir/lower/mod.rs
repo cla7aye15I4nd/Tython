@@ -19,6 +19,7 @@ pub mod expr;
 mod functions;
 pub mod method;
 mod stmt;
+mod tuple_class;
 
 #[derive(Clone)]
 struct FunctionSignature {
@@ -81,6 +82,10 @@ pub struct Lowering {
 
     // Intrinsic compare instances required by this module.
     intrinsic_instances: HashMap<(IntrinsicOp, ValueType), i64>,
+
+    // Maps auto-generated tuple class names to their element types.
+    // E.g. "__tuple$int|str|bool" -> [Int, Str, Bool]
+    tuple_class_elements: HashMap<String, Vec<ValueType>>,
 }
 
 impl Default for Lowering {
@@ -111,6 +116,7 @@ impl Lowering {
             nested_function_captures: HashMap::new(),
             in_try_finally_depth: 0,
             intrinsic_instances: HashMap::new(),
+            tuple_class_elements: HashMap::new(),
         }
     }
 
@@ -247,8 +253,9 @@ impl Lowering {
             | ValueType::Bytes
             | ValueType::ByteArray => Ok(()),
             ValueType::List(inner) => self.require_intrinsic_eq_support(line, inner),
-            ValueType::Tuple(fields) => {
-                for field in fields {
+            ValueType::Class(name) if self.is_tuple_class(name) => {
+                let fields = self.tuple_element_types(name).to_vec();
+                for field in &fields {
                     self.require_intrinsic_eq_support(line, field)?;
                 }
                 Ok(())
@@ -310,8 +317,9 @@ impl Lowering {
             ValueType::List(inner) => {
                 self.register_intrinsic_instance(op, inner);
             }
-            ValueType::Tuple(fields) => {
-                for field in fields {
+            ValueType::Class(name) if self.is_tuple_class(name) => {
+                let fields = self.tuple_element_types(name).to_vec();
+                for field in &fields {
                     self.register_intrinsic_list_dependencies(op, field);
                 }
             }
@@ -340,14 +348,47 @@ impl Lowering {
 
     // ── helpers: Type → ValueType conversion ────────────────────────
 
-    fn to_value_type(ty: &Type) -> ValueType {
-        ValueType::from_type(ty).expect("ICE: expected a value type")
+    fn value_type_from_type(&mut self, ty: &Type) -> ValueType {
+        match ty {
+            Type::Tuple(elements) => {
+                let elem_vtys: Vec<ValueType> = elements
+                    .iter()
+                    .map(|t| self.value_type_from_type(t))
+                    .collect();
+                let class_name = self.get_or_create_tuple_class(&elem_vtys);
+                ValueType::Class(class_name)
+            }
+            Type::List(inner) => ValueType::List(Box::new(self.value_type_from_type(inner))),
+            Type::Dict(key, value) => ValueType::Dict(
+                Box::new(self.value_type_from_type(key)),
+                Box::new(self.value_type_from_type(value)),
+            ),
+            Type::Set(inner) => ValueType::Set(Box::new(self.value_type_from_type(inner))),
+            Type::Function {
+                params,
+                return_type,
+            } => {
+                let vt_params: Vec<ValueType> = params
+                    .iter()
+                    .map(|p| self.value_type_from_type(p))
+                    .collect();
+                let vt_ret = match return_type.as_ref() {
+                    Type::Unit => None,
+                    other => Some(Box::new(self.value_type_from_type(other))),
+                };
+                ValueType::Function {
+                    params: vt_params,
+                    return_type: vt_ret,
+                }
+            }
+            _ => ValueType::from_type(ty).expect("ICE: expected a value type"),
+        }
     }
 
-    fn to_opt_value_type(ty: &Type) -> Option<ValueType> {
+    fn opt_value_type_from_type(&mut self, ty: &Type) -> Option<ValueType> {
         match ty {
             Type::Unit => None,
-            other => Some(Self::to_value_type(other)),
+            other => Some(self.value_type_from_type(other)),
         }
     }
 
@@ -380,14 +421,18 @@ impl Lowering {
             | ValueType::List(_)
             | ValueType::Dict(_, _)
             | ValueType::Set(_) => {
-                let len_fn = match &expr.ty {
-                    ValueType::Str => builtin::BuiltinFn::StrLen,
-                    ValueType::Bytes => builtin::BuiltinFn::BytesLen,
-                    ValueType::ByteArray => builtin::BuiltinFn::ByteArrayLen,
-                    ValueType::List(_) => builtin::BuiltinFn::ListLen,
-                    ValueType::Dict(_, _) => builtin::BuiltinFn::DictLen,
-                    ValueType::Set(_) => builtin::BuiltinFn::SetLen,
-                    _ => unreachable!(),
+                let len_fn = if matches!(&expr.ty, ValueType::Str) {
+                    builtin::BuiltinFn::StrLen
+                } else if matches!(&expr.ty, ValueType::Bytes) {
+                    builtin::BuiltinFn::BytesLen
+                } else if matches!(&expr.ty, ValueType::ByteArray) {
+                    builtin::BuiltinFn::ByteArrayLen
+                } else if matches!(&expr.ty, ValueType::List(_)) {
+                    builtin::BuiltinFn::ListLen
+                } else if matches!(&expr.ty, ValueType::Dict(_, _)) {
+                    builtin::BuiltinFn::DictLen
+                } else {
+                    builtin::BuiltinFn::SetLen
                 };
                 let len_expr = TirExpr {
                     kind: TirExprKind::ExternalCall {
@@ -404,10 +449,13 @@ impl Lowering {
                     ty: ValueType::Bool,
                 })
             }
-            ValueType::Tuple(elements) => Ok(TirExpr {
-                kind: TirExprKind::BoolLiteral(!elements.is_empty()),
-                ty: ValueType::Bool,
-            }),
+            ValueType::Class(ref name) if self.is_tuple_class(name) => {
+                let is_nonempty = !self.tuple_element_types(name).is_empty();
+                Ok(TirExpr {
+                    kind: TirExprKind::BoolLiteral(is_nonempty),
+                    ty: ValueType::Bool,
+                })
+            }
             ValueType::Class(_) => Ok(TirExpr {
                 kind: TirExprKind::BoolLiteral(true),
                 ty: ValueType::Bool,
@@ -746,8 +794,8 @@ impl Lowering {
             }
 
             TirExprKind::Cast { arg, .. } => self.ensure_supported_default_expr(line, arg),
-            TirExprKind::TupleLiteral { elements, .. } => {
-                for elt in elements {
+            TirExprKind::Construct { args, .. } => {
+                for elt in args {
                     self.ensure_supported_default_expr(line, elt)?;
                 }
                 Ok(())
@@ -912,17 +960,23 @@ impl Lowering {
                         }
                         let key_ty = self.convert_type_annotation(&elts.get_item(0)?)?;
                         let value_ty = self.convert_type_annotation(&elts.get_item(1)?)?;
-                        if ValueType::from_type(&key_ty).is_none() {
+                        if ValueType::from_type(&key_ty).is_none()
+                            && !matches!(key_ty, Type::Tuple(_))
+                        {
                             bail!("unsupported dict key type `{}`", key_ty);
                         }
-                        if ValueType::from_type(&value_ty).is_none() {
+                        if ValueType::from_type(&value_ty).is_none()
+                            && !matches!(value_ty, Type::Tuple(_))
+                        {
                             bail!("unsupported dict value type `{}`", value_ty);
                         }
                         Ok(Type::Dict(Box::new(key_ty), Box::new(value_ty)))
                     }
                     "set" => {
                         let inner_ty = self.convert_type_annotation(&slice_node)?;
-                        if ValueType::from_type(&inner_ty).is_none() {
+                        if ValueType::from_type(&inner_ty).is_none()
+                            && !matches!(inner_ty, Type::Tuple(_))
+                        {
                             bail!("unsupported set element type `{}`", inner_ty);
                         }
                         Ok(Type::Set(Box::new(inner_ty)))
@@ -938,9 +992,6 @@ impl Lowering {
                         } else {
                             vec![self.convert_type_annotation(&slice_node)?]
                         };
-                        if ValueType::from_type(&Type::Tuple(element_types.clone())).is_none() {
-                            bail!("unsupported tuple element type in annotation");
-                        }
                         Ok(Type::Tuple(element_types))
                     }
                     _ => bail!("unsupported generic type `{}`", container_name),

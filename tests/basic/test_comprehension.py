@@ -17,6 +17,10 @@ class Countdown:
         return value
 
 
+def source_values() -> list[int]:
+    return [1, 2, 3, 4, 5]
+
+
 def risky_divide(n: int, events: list[int]) -> int:
     result: int = 0
     try:
@@ -345,6 +349,18 @@ def test_sum_generator_with_filters_and_tuple_unpack_valid() -> None:
     assert r3 == [10, 8, 6]
 
 
+def test_sum_generator_call_iter_and_enumerate_tuple() -> None:
+    total1: int = sum((x for x in source_values() if x > 1 if x < 5), 10)
+    print('CHECK test_comprehension lhs:', total1)
+    print('CHECK test_comprehension rhs:', 19)
+    assert total1 == 19
+
+    total2: int = sum((i + v for (i, v) in enumerate([4, 5, 6]) if i >= 0 if v > 4), 0)
+    print('CHECK test_comprehension lhs:', total2)
+    print('CHECK test_comprehension rhs:', 14)
+    assert total2 == 14
+
+
 def run_tests() -> None:
     test_try_except_finally_raise_nested()
     test_iter_next_stopiteration_manual_and_for()
@@ -359,3 +375,4 @@ def run_tests() -> None:
     test_internal_iter_next_nested_structure()
     test_comprehension_tuple_unpack_zip_enumerate_valid()
     test_sum_generator_with_filters_and_tuple_unpack_valid()
+    test_sum_generator_call_iter_and_enumerate_tuple()

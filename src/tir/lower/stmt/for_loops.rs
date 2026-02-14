@@ -65,10 +65,8 @@ impl Lowering {
             ValueType::Str => self.handle_for_str(node, line, &loop_var, iterable_expr),
             ValueType::Bytes => self.handle_for_bytes(node, line, &loop_var, iterable_expr),
             ValueType::ByteArray => self.handle_for_bytearray(node, line, &loop_var, iterable_expr),
-            ValueType::Class(class_name) => {
-                self.handle_for_class_iter(node, line, &loop_var, iterable_expr, &class_name)
-            }
-            ValueType::Tuple(ref elements) => {
+            ValueType::Class(ref name) if self.is_tuple_class(name) => {
+                let elements = self.tuple_element_types(name).to_vec();
                 let first = elements
                     .first()
                     .ok_or_else(|| self.type_error(line, "cannot iterate over empty tuple"))?;
@@ -81,6 +79,9 @@ impl Lowering {
                 let elem_ty = first.clone();
                 let tuple_len = elements.len();
                 self.handle_for_tuple(node, line, &loop_var, iterable_expr, elem_ty, tuple_len)
+            }
+            ValueType::Class(class_name) => {
+                self.handle_for_class_iter(node, line, &loop_var, iterable_expr, &class_name)
             }
             other => Err(self.type_error(line, format!("cannot iterate over `{}`", other))),
         }
@@ -436,8 +437,8 @@ impl Lowering {
             args.push(expr);
         }
 
-        let (start_expr, stop_expr, step_expr) = match args.len() {
-            1 => (
+        let (start_expr, stop_expr, step_expr) = if args.len() == 1 {
+            (
                 TirExpr {
                     kind: TirExprKind::IntLiteral(0),
                     ty: ValueType::Int,
@@ -447,17 +448,23 @@ impl Lowering {
                     kind: TirExprKind::IntLiteral(1),
                     ty: ValueType::Int,
                 },
-            ),
-            2 => (
+            )
+        } else if args.len() == 2 {
+            (
                 args[0].clone(),
                 args[1].clone(),
                 TirExpr {
                     kind: TirExprKind::IntLiteral(1),
                     ty: ValueType::Int,
                 },
-            ),
-            3 => (args[0].clone(), args[1].clone(), args[2].clone()),
-            _ => unreachable!(),
+            )
+        } else if args.len() == 3 {
+            (args[0].clone(), args[1].clone(), args[2].clone())
+        } else {
+            return Err(self.type_error(
+                line,
+                format!("range() expects 1 to 3 arguments, got {}", args.len()),
+            ));
         };
 
         let start_name = self.fresh_internal("range_start");
@@ -577,7 +584,7 @@ impl Lowering {
             )
         })?;
 
-        let elem_ty = Self::to_value_type(&next_method.return_type);
+        let elem_ty = self.value_type_from_type(&next_method.return_type);
         let next_mangled = next_method.mangled_name.clone();
 
         // Create temp vars
@@ -649,27 +656,11 @@ impl Lowering {
         let body = self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?;
         let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
 
-        // Prepend: loop_var = tuple[idx_var]
-        let mut full_body = vec![TirStmt::Let {
-            name: loop_var.to_string(),
-            ty: elem_ty.clone(),
-            value: TirExpr {
-                kind: TirExprKind::ExternalCall {
-                    func: builtin::BuiltinFn::TupleGetItem,
-                    args: vec![
-                        TirExpr {
-                            kind: TirExprKind::Var(tuple_var.clone()),
-                            ty: tuple_expr.ty.clone(),
-                        },
-                        TirExpr {
-                            kind: TirExprKind::Var(idx_var.clone()),
-                            ty: ValueType::Int,
-                        },
-                    ],
-                },
-                ty: elem_ty,
-            },
-        }];
+        // Prepend: loop_var = tuple[idx_var] via if-else chain of GetField
+        let tuple_ty = tuple_expr.ty.clone();
+        let mut full_body = self.gen_tuple_dynamic_getitem_stmts(
+            loop_var, &elem_ty, &tuple_var, &tuple_ty, &idx_var, tuple_len,
+        );
         full_body.extend(body);
 
         Ok(vec![

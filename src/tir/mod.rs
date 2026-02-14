@@ -19,7 +19,6 @@ pub enum ValueType {
     List(Box<ValueType>),
     Dict(Box<ValueType>, Box<ValueType>),
     Set(Box<ValueType>),
-    Tuple(Vec<ValueType>),
     Class(String),
     Function {
         params: Vec<ValueType>,
@@ -42,12 +41,7 @@ impl ValueType {
                 Box::new(ValueType::from_type(value)?),
             )),
             Type::Set(inner) => Some(ValueType::Set(Box::new(ValueType::from_type(inner)?))),
-            Type::Tuple(elements) => Some(ValueType::Tuple(
-                elements
-                    .iter()
-                    .map(ValueType::from_type)
-                    .collect::<Option<Vec<_>>>()?,
-            )),
+            Type::Tuple(_) => None, // Tuples are handled by Lowering::to_value_type
             Type::Class(name) => Some(ValueType::Class(name.clone())),
             Type::Function {
                 params,
@@ -83,9 +77,6 @@ impl ValueType {
                 Type::Dict(Box::new(key.to_type()), Box::new(value.to_type()))
             }
             ValueType::Set(inner) => Type::Set(Box::new(inner.to_type())),
-            ValueType::Tuple(elements) => {
-                Type::Tuple(elements.iter().map(ValueType::to_type).collect())
-            }
             ValueType::Class(name) => Type::Class(name.clone()),
             ValueType::Function {
                 params,
@@ -139,7 +130,6 @@ impl ValueType {
                 | ValueType::List(_)
                 | ValueType::Dict(_, _)
                 | ValueType::Set(_)
-                | ValueType::Tuple(_)
                 | ValueType::Class(_)
         )
     }
@@ -157,16 +147,6 @@ impl std::fmt::Display for ValueType {
             ValueType::List(inner) => write!(f, "list[{}]", inner),
             ValueType::Dict(key, value) => write!(f, "dict[{}, {}]", key, value),
             ValueType::Set(inner) => write!(f, "set[{}]", inner),
-            ValueType::Tuple(elements) => {
-                write!(f, "tuple[")?;
-                for (i, elt) in elements.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", elt)?;
-                }
-                write!(f, "]")
-            }
             ValueType::Class(name) => write!(f, "{}", name),
             ValueType::Function {
                 params,
@@ -667,12 +647,6 @@ pub enum TirExprKind {
         class_name: String,
         init_mangled_name: String,
         args: Vec<TirExpr>,
-    },
-
-    // ── Tuple operations ────────────────────────────────────────────
-    TupleLiteral {
-        elements: Vec<TirExpr>,
-        element_types: Vec<ValueType>,
     },
 
     // ── List operations ─────────────────────────────────────────────

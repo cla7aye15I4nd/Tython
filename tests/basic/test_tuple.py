@@ -102,6 +102,14 @@ def test_tuple_bool_dynamic_index() -> None:
     assert flags[j] == True
 
 
+def test_tuple_unary_plus_dynamic_index() -> None:
+    values: tuple[int, int, int] = (9, 8, 7)
+    idx: int = +1
+    print('CHECK test_tuple lhs:', values[idx])
+    print('CHECK test_tuple rhs:', 8)
+    assert values[idx] == 8
+
+
 def run_tests() -> None:
     nums: tuple[int, int, int] = (10, 20, 30)
     mixed: tuple[str, bytes, bool] = ("x", b"ab", True)
@@ -154,6 +162,7 @@ def run_tests() -> None:
     assert result2 == 21
     test_tuple_static_index_with_dict_and_set()
     test_tuple_bool_dynamic_index()
+    test_tuple_unary_plus_dynamic_index()
 
     if nums:
         print(1)

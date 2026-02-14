@@ -562,6 +562,26 @@ impl Lowering {
                     elem_ty: ValueType::Str,
                 })
             }
+            ValueType::Class(ref name) if self.is_tuple_class(name) => {
+                let elements = self.tuple_element_types(name).to_vec();
+                let first = elements
+                    .first()
+                    .ok_or_else(|| self.type_error(line, "cannot iterate over empty tuple"))?;
+                if elements.iter().any(|ty| ty != first) {
+                    return Err(self.type_error(
+                        line,
+                        "for-in over tuple requires all elements to have the same type",
+                    ));
+                }
+                let elem_ty = first.clone();
+                let tuple_len = elements.len();
+                self.declare(var_name.to_string(), elem_ty.to_type());
+                Ok(GenKind::Tuple {
+                    tuple_expr: iter_expr,
+                    elem_ty,
+                    tuple_len,
+                })
+            }
             ValueType::Class(class_name) => {
                 let class_info = self.lookup_class(line, class_name)?;
                 let iter_method = class_info.methods.get("__iter__").ok_or_else(|| {
@@ -590,7 +610,7 @@ impl Lowering {
                         ),
                     )
                 })?;
-                let elem_ty = Self::to_value_type(&next_method.return_type);
+                let elem_ty = self.value_type_from_type(&next_method.return_type);
                 let next_mangled = next_method.mangled_name.clone();
                 self.declare(var_name.to_string(), next_method.return_type.clone());
                 Ok(GenKind::ClassIter {
@@ -599,25 +619,6 @@ impl Lowering {
                     iter_class: iter_class_name,
                     next_mangled,
                     elem_ty,
-                })
-            }
-            ValueType::Tuple(elements) => {
-                let first = elements
-                    .first()
-                    .ok_or_else(|| self.type_error(line, "cannot iterate over empty tuple"))?;
-                if elements.iter().any(|ty| ty != first) {
-                    return Err(self.type_error(
-                        line,
-                        "for-in over tuple requires all elements to have the same type",
-                    ));
-                }
-                let elem_ty = first.clone();
-                let len = elements.len();
-                self.declare(var_name.to_string(), elem_ty.to_type());
-                Ok(GenKind::Tuple {
-                    tuple_expr: iter_expr,
-                    elem_ty,
-                    len,
                 })
             }
             other => Err(self.type_error(
@@ -771,6 +772,63 @@ impl Lowering {
                     },
                 ]
             }
+            GenKind::Tuple {
+                tuple_expr,
+                elem_ty,
+                tuple_len,
+            } => {
+                let tuple_var = self.fresh_internal("comp_tuple");
+                let start_name = self.fresh_internal("comp_tuple_start");
+                let stop_name = self.fresh_internal("comp_tuple_stop");
+                let step_name = self.fresh_internal("comp_tuple_step");
+                let idx_var = self.fresh_internal("comp_tuple_idx");
+
+                let tuple_ty = tuple_expr.ty.clone();
+                let mut full_body = self.gen_tuple_dynamic_getitem_stmts(
+                    var_name, elem_ty, &tuple_var, &tuple_ty, &idx_var, *tuple_len,
+                );
+                full_body.extend(body);
+
+                vec![
+                    TirStmt::Let {
+                        name: tuple_var,
+                        ty: tuple_expr.ty.clone(),
+                        value: tuple_expr.clone(),
+                    },
+                    TirStmt::Let {
+                        name: start_name.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(0),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: stop_name.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(*tuple_len as i64),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::Let {
+                        name: step_name.clone(),
+                        ty: ValueType::Int,
+                        value: TirExpr {
+                            kind: TirExprKind::IntLiteral(1),
+                            ty: ValueType::Int,
+                        },
+                    },
+                    TirStmt::ForRange {
+                        loop_var: idx_var,
+                        start_var: start_name,
+                        stop_var: stop_name,
+                        step_var: step_name,
+                        body: full_body,
+                        else_body: vec![],
+                    },
+                ]
+            }
             GenKind::ClassIter {
                 obj_expr,
                 iter_mangled,
@@ -809,80 +867,6 @@ impl Lowering {
                         iterator_class: iter_class.clone(),
                         next_mangled: next_mangled.clone(),
                         body,
-                        else_body: vec![],
-                    },
-                ]
-            }
-            GenKind::Tuple {
-                tuple_expr,
-                elem_ty,
-                len,
-            } => {
-                let tuple_var = self.fresh_internal("comp_tuple");
-                let idx_var = self.fresh_internal("comp_tuple_idx");
-                let start_name = self.fresh_internal("comp_start");
-                let stop_name = self.fresh_internal("comp_stop");
-                let step_name = self.fresh_internal("comp_step");
-
-                // Prepend: var_name = tuple[idx_var]
-                let mut full_body = vec![TirStmt::Let {
-                    name: var_name.to_string(),
-                    ty: elem_ty.clone(),
-                    value: TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::TupleGetItem,
-                            args: vec![
-                                TirExpr {
-                                    kind: TirExprKind::Var(tuple_var.clone()),
-                                    ty: tuple_expr.ty.clone(),
-                                },
-                                TirExpr {
-                                    kind: TirExprKind::Var(idx_var.clone()),
-                                    ty: ValueType::Int,
-                                },
-                            ],
-                        },
-                        ty: elem_ty.clone(),
-                    },
-                }];
-                full_body.extend(body);
-
-                vec![
-                    TirStmt::Let {
-                        name: tuple_var,
-                        ty: tuple_expr.ty.clone(),
-                        value: tuple_expr.clone(),
-                    },
-                    TirStmt::Let {
-                        name: start_name.clone(),
-                        ty: ValueType::Int,
-                        value: TirExpr {
-                            kind: TirExprKind::IntLiteral(0),
-                            ty: ValueType::Int,
-                        },
-                    },
-                    TirStmt::Let {
-                        name: stop_name.clone(),
-                        ty: ValueType::Int,
-                        value: TirExpr {
-                            kind: TirExprKind::IntLiteral(*len as i64),
-                            ty: ValueType::Int,
-                        },
-                    },
-                    TirStmt::Let {
-                        name: step_name.clone(),
-                        ty: ValueType::Int,
-                        value: TirExpr {
-                            kind: TirExprKind::IntLiteral(1),
-                            ty: ValueType::Int,
-                        },
-                    },
-                    TirStmt::ForRange {
-                        loop_var: idx_var,
-                        start_var: start_name,
-                        stop_var: stop_name,
-                        step_var: step_name,
-                        body: full_body,
                         else_body: vec![],
                     },
                 ]
@@ -1169,7 +1153,7 @@ enum GenKind {
     Tuple {
         tuple_expr: TirExpr,
         elem_ty: ValueType,
-        len: usize,
+        tuple_len: usize,
     },
     Zip2 {
         left_name: String,

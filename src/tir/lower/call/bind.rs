@@ -172,7 +172,7 @@ impl Lowering {
     }
 
     pub(super) fn append_nested_captures_if_needed(
-        &self,
+        &mut self,
         line: usize,
         mangled: &str,
         args: &mut Vec<TirExpr>,
@@ -180,7 +180,8 @@ impl Lowering {
         let Some(captures) = self.nested_function_captures.get(mangled) else {
             return Ok(());
         };
-        for (name, ty) in captures {
+        let captures = captures.clone();
+        for (name, ty) in &captures {
             let resolved = self.lookup(name).cloned().ok_or_else(|| {
                 self.name_error(
                     line,
@@ -201,14 +202,14 @@ impl Lowering {
             }
             args.push(TirExpr {
                 kind: TirExprKind::Var(name.clone()),
-                ty: Self::to_value_type(ty),
+                ty: self.value_type_from_type(ty),
             });
         }
         Ok(())
     }
 
     pub(super) fn check_call_args(
-        &self,
+        &mut self,
         line: usize,
         func_name: &str,
         func_type: &Type,
@@ -232,7 +233,8 @@ impl Lowering {
                     ));
                 }
                 for (i, (arg, expected)) in args.iter().zip(params.iter()).enumerate() {
-                    if arg.ty.to_type() != *expected {
+                    let expected_vty = self.value_type_from_type(expected);
+                    if arg.ty != expected_vty {
                         return Err(self.type_error(
                             line,
                             format!(

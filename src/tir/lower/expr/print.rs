@@ -47,7 +47,7 @@ impl Lowering {
         });
     }
 
-    fn lower_print_class_as_str(&self, line: usize, object: TirExpr) -> Result<TirExpr> {
+    fn lower_print_class_as_str(&mut self, line: usize, object: TirExpr) -> Result<TirExpr> {
         let rule = crate::tir::type_rules::lookup_builtin_call("str", &[&object.ty])
             .expect("ICE: missing builtin rule for str() on class");
         match rule {
@@ -76,44 +76,6 @@ impl Lowering {
         }
 
         match &arg.ty {
-            ValueType::Tuple(element_types) => {
-                let tuple_var = self.fresh_internal("print_tuple");
-                let tuple_ty = arg.ty.clone();
-                let tuple_element_types = element_types.clone();
-
-                stmts.push(TirStmt::Let {
-                    name: tuple_var.clone(),
-                    ty: tuple_ty.clone(),
-                    value: arg,
-                });
-
-                Self::push_print_str_literal(stmts, "(");
-
-                for (i, element_ty) in tuple_element_types.iter().enumerate() {
-                    if i > 0 {
-                        Self::push_print_str_literal(stmts, ", ");
-                    }
-
-                    let element_expr = TirExpr {
-                        kind: TirExprKind::GetField {
-                            object: Box::new(TirExpr {
-                                kind: TirExprKind::Var(tuple_var.clone()),
-                                ty: tuple_ty.clone(),
-                            }),
-                            field_index: i,
-                        },
-                        ty: element_ty.clone(),
-                    };
-
-                    self.lower_print_repr_stmts(line, element_expr, stmts)?;
-                }
-
-                if tuple_element_types.len() == 1 {
-                    Self::push_print_str_literal(stmts, ",");
-                }
-                Self::push_print_str_literal(stmts, ")");
-                Ok(())
-            }
             ValueType::Class(_) => {
                 let print_arg = self.lower_print_class_as_str(line, arg)?;
                 self.lower_print_value_stmts(line, print_arg, stmts)

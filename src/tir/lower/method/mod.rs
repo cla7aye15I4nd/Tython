@@ -1,14 +1,14 @@
 use anyhow::Result;
 
 use crate::tir::{
-    builtin::BuiltinFn, type_rules, CallResult, CallTarget, TirExpr, TirExprKind, TirStmt,
-    ValueType,
+    builtin::BuiltinFn, CallResult, CallTarget, TirExpr, TirExprKind, TirStmt, ValueType,
 };
 
 use super::Lowering;
 
 pub mod dict;
 pub mod list;
+pub mod rules;
 pub mod set;
 
 // ── Helper Functions ─────────────────────────────────────────────────
@@ -89,67 +89,6 @@ pub fn expr_call(
 // ── Dispatcher ───────────────────────────────────────────────────────
 
 impl Lowering {
-    pub(in crate::tir::lower) fn emit_method_rule_call(
-        &self,
-        line: usize,
-        obj_expr: TirExpr,
-        tir_args: Vec<TirExpr>,
-        method_name: &str,
-        type_name: &str,
-        lookup: Option<Result<type_rules::MethodCallRule, String>>,
-    ) -> Result<CallResult> {
-        let rule = match lookup {
-            Some(Ok(rule)) => rule,
-            Some(Err(msg)) => return Err(self.type_error(line, msg)),
-            None => {
-                return Err(self.attribute_error(
-                    line,
-                    format!("{} has no method `{}`", type_name, method_name),
-                ))
-            }
-        };
-
-        if tir_args.len() != rule.params.len() {
-            return Err(self.type_error(
-                line,
-                type_rules::method_call_arity_error(
-                    type_name,
-                    method_name,
-                    rule.params.len(),
-                    tir_args.len(),
-                ),
-            ));
-        }
-        for (arg, expected) in tir_args.iter().zip(rule.params.iter()) {
-            if arg.ty != *expected {
-                return Err(self.type_error(
-                    line,
-                    type_rules::method_call_type_error(type_name, method_name, expected, &arg.ty),
-                ));
-            }
-        }
-
-        let mut full_args = Vec::with_capacity(1 + tir_args.len());
-        full_args.push(obj_expr);
-        full_args.extend(tir_args);
-
-        Ok(match rule.result {
-            type_rules::MethodCallResult::Void(func) => {
-                CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                    target: CallTarget::Builtin(func),
-                    args: full_args,
-                }))
-            }
-            type_rules::MethodCallResult::Expr { func, return_type } => CallResult::Expr(TirExpr {
-                kind: TirExprKind::ExternalCall {
-                    func,
-                    args: full_args,
-                },
-                ty: return_type,
-            }),
-        })
-    }
-
     /// Dispatch method calls for builtin types.
     pub(in crate::tir::lower) fn lower_method_call(
         &mut self,
@@ -171,10 +110,15 @@ impl Lowering {
             ValueType::Set(inner) => {
                 set::lower_set_method_call(self, line, obj_expr, method_name, args, &inner)
             }
-            ref ty => {
-                let type_name = type_rules::builtin_type_display_name(ty);
-                let lookup = type_rules::lookup_builtin_method(ty, method_name);
-                self.emit_method_rule_call(line, obj_expr, args, method_name, &type_name, lookup)
+            ValueType::Str => rules::lower_str_method_call(self, line, obj_expr, method_name, args),
+            ValueType::Bytes => {
+                rules::lower_bytes_method_call(self, line, obj_expr, method_name, args)
+            }
+            ValueType::ByteArray => {
+                rules::lower_bytearray_method_call(self, line, obj_expr, method_name, args)
+            }
+            ty => {
+                Err(self.attribute_error(line, format!("{} has no method `{}`", ty, method_name)))
             }
         }
     }

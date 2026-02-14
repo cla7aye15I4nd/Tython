@@ -114,12 +114,14 @@ pub fn lower_set_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = match method_name {
-                "difference" => BuiltinFn::SetDifferenceByTag,
-                "intersection" => BuiltinFn::SetIntersectionByTag,
-                "symmetric_difference" => BuiltinFn::SetSymmetricDifferenceByTag,
-                "union" => BuiltinFn::SetUnionByTag,
-                _ => unreachable!(),
+            let func = if method_name == "difference" {
+                BuiltinFn::SetDifferenceByTag
+            } else if method_name == "intersection" {
+                BuiltinFn::SetIntersectionByTag
+            } else if method_name == "symmetric_difference" {
+                BuiltinFn::SetSymmetricDifferenceByTag
+            } else {
+                BuiltinFn::SetUnionByTag
             };
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
@@ -141,12 +143,14 @@ pub fn lower_set_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = match method_name {
-                "difference_update" => BuiltinFn::SetDifferenceUpdateByTag,
-                "intersection_update" => BuiltinFn::SetIntersectionUpdateByTag,
-                "symmetric_difference_update" => BuiltinFn::SetSymmetricDifferenceUpdateByTag,
-                "update" => BuiltinFn::SetUpdateByTag,
-                _ => unreachable!(),
+            let func = if method_name == "difference_update" {
+                BuiltinFn::SetDifferenceUpdateByTag
+            } else if method_name == "intersection_update" {
+                BuiltinFn::SetIntersectionUpdateByTag
+            } else if method_name == "symmetric_difference_update" {
+                BuiltinFn::SetSymmetricDifferenceUpdateByTag
+            } else {
+                BuiltinFn::SetUpdateByTag
             };
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(func),
@@ -165,11 +169,12 @@ pub fn lower_set_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = match method_name {
-                "isdisjoint" => BuiltinFn::SetIsDisjointByTag,
-                "issubset" => BuiltinFn::SetIsSubsetByTag,
-                "issuperset" => BuiltinFn::SetIsSupersetByTag,
-                _ => unreachable!(),
+            let func = if method_name == "isdisjoint" {
+                BuiltinFn::SetIsDisjointByTag
+            } else if method_name == "issubset" {
+                BuiltinFn::SetIsSubsetByTag
+            } else {
+                BuiltinFn::SetIsSupersetByTag
             };
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
@@ -257,32 +262,27 @@ pub fn lower_set_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let (func, lhs, rhs) = match method_name {
-                "__and__" => (
-                    BuiltinFn::SetIntersectionByTag,
-                    obj.clone(),
-                    args[0].clone(),
-                ),
-                "__or__" => (BuiltinFn::SetUnionByTag, obj.clone(), args[0].clone()),
-                "__sub__" => (BuiltinFn::SetDifferenceByTag, obj.clone(), args[0].clone()),
-                "__xor__" => (
-                    BuiltinFn::SetSymmetricDifferenceByTag,
-                    obj.clone(),
-                    args[0].clone(),
-                ),
-                "__rand__" => (
-                    BuiltinFn::SetIntersectionByTag,
-                    args[0].clone(),
-                    obj.clone(),
-                ),
-                "__ror__" => (BuiltinFn::SetUnionByTag, args[0].clone(), obj.clone()),
-                "__rsub__" => (BuiltinFn::SetDifferenceByTag, args[0].clone(), obj.clone()),
-                "__rxor__" => (
-                    BuiltinFn::SetSymmetricDifferenceByTag,
-                    args[0].clone(),
-                    obj.clone(),
-                ),
-                _ => unreachable!(),
+            let (func, reversed) = if method_name == "__and__" {
+                (BuiltinFn::SetIntersectionByTag, false)
+            } else if method_name == "__or__" {
+                (BuiltinFn::SetUnionByTag, false)
+            } else if method_name == "__sub__" {
+                (BuiltinFn::SetDifferenceByTag, false)
+            } else if method_name == "__xor__" {
+                (BuiltinFn::SetSymmetricDifferenceByTag, false)
+            } else if method_name == "__rand__" {
+                (BuiltinFn::SetIntersectionByTag, true)
+            } else if method_name == "__ror__" {
+                (BuiltinFn::SetUnionByTag, true)
+            } else if method_name == "__rsub__" {
+                (BuiltinFn::SetDifferenceByTag, true)
+            } else {
+                (BuiltinFn::SetSymmetricDifferenceByTag, true)
+            };
+            let (lhs, rhs) = if reversed {
+                (args[0].clone(), obj.clone())
+            } else {
+                (obj.clone(), args[0].clone())
             };
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
@@ -304,12 +304,14 @@ pub fn lower_set_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = match method_name {
-                "__iand__" => BuiltinFn::SetIAndByTag,
-                "__ior__" => BuiltinFn::SetIOrByTag,
-                "__isub__" => BuiltinFn::SetISubByTag,
-                "__ixor__" => BuiltinFn::SetIXorByTag,
-                _ => unreachable!(),
+            let func = if method_name == "__iand__" {
+                BuiltinFn::SetIAndByTag
+            } else if method_name == "__ior__" {
+                BuiltinFn::SetIOrByTag
+            } else if method_name == "__isub__" {
+                BuiltinFn::SetISubByTag
+            } else {
+                BuiltinFn::SetIXorByTag
             };
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
@@ -331,12 +333,14 @@ pub fn lower_set_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = match method_name {
-                "__lt__" => BuiltinFn::SetLtByTag,
-                "__le__" => BuiltinFn::SetLeByTag,
-                "__gt__" => BuiltinFn::SetGtByTag,
-                "__ge__" => BuiltinFn::SetGeByTag,
-                _ => unreachable!(),
+            let func = if method_name == "__lt__" {
+                BuiltinFn::SetLtByTag
+            } else if method_name == "__le__" {
+                BuiltinFn::SetLeByTag
+            } else if method_name == "__gt__" {
+                BuiltinFn::SetGtByTag
+            } else {
+                BuiltinFn::SetGeByTag
             };
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {

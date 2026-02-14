@@ -219,7 +219,7 @@ impl Lowering {
     /// Sequence operations (concat, repeat) become `ExternalCall`;
     /// arithmetic/bitwise operations become `BinOp`.
     pub(in crate::tir::lower) fn resolve_binop(
-        &self,
+        &mut self,
         line: usize,
         raw_op: RawBinOp,
         left: TirExpr,
@@ -240,7 +240,7 @@ impl Lowering {
             )
         })?;
 
-        let result_vty = Self::to_value_type(&rule.result_type);
+        let result_vty = self.value_type_from_type(&rule.result_type);
 
         // Sequence operations → ExternalCall
         if let Some(func) = Self::resolve_seq_binop(raw_op, &result_vty) {
@@ -357,7 +357,7 @@ impl Lowering {
     }
 
     fn try_lower_class_binop_magic(
-        &self,
+        &mut self,
         line: usize,
         raw_op: RawBinOp,
         left: TirExpr,

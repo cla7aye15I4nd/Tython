@@ -110,14 +110,14 @@ define_builtins! {
     BytesLower    => "__tython_bytes_lower",    params: [ValueType::Bytes],                        ret: Some(ValueType::Bytes);
     BytesLStrip   => "__tython_bytes_lstrip",   params: [ValueType::Bytes, ValueType::Bytes],      ret: Some(ValueType::Bytes);
     BytesMakeTrans => "__tython_bytes_maketrans", params: [ValueType::Bytes, ValueType::Bytes, ValueType::Bytes], ret: Some(ValueType::Bytes);
-    BytesPartition => "__tython_bytes_partition", params: [ValueType::Bytes, ValueType::Bytes],    ret: Some(ValueType::Tuple(vec![ValueType::Bytes, ValueType::Bytes, ValueType::Bytes]));
+    BytesPartition => "__tython_bytes_partition", params: [ValueType::Bytes, ValueType::Bytes],    ret: Some(ValueType::Int);
     BytesRemovePrefix => "__tython_bytes_removeprefix", params: [ValueType::Bytes, ValueType::Bytes], ret: Some(ValueType::Bytes);
     BytesRemoveSuffix => "__tython_bytes_removesuffix", params: [ValueType::Bytes, ValueType::Bytes], ret: Some(ValueType::Bytes);
     BytesReplace  => "__tython_bytes_replace",  params: [ValueType::Bytes, ValueType::Bytes, ValueType::Bytes], ret: Some(ValueType::Bytes);
     BytesRFind    => "__tython_bytes_rfind",    params: [ValueType::Bytes, ValueType::Bytes],      ret: Some(ValueType::Int);
     BytesRIndex   => "__tython_bytes_rindex",   params: [ValueType::Bytes, ValueType::Bytes],      ret: Some(ValueType::Int);
     BytesRJust    => "__tython_bytes_rjust",    params: [ValueType::Bytes, ValueType::Int, ValueType::Bytes], ret: Some(ValueType::Bytes);
-    BytesRPartition => "__tython_bytes_rpartition", params: [ValueType::Bytes, ValueType::Bytes],  ret: Some(ValueType::Tuple(vec![ValueType::Bytes, ValueType::Bytes, ValueType::Bytes]));
+    BytesRPartition => "__tython_bytes_rpartition", params: [ValueType::Bytes, ValueType::Bytes],  ret: Some(ValueType::Int);
     BytesRSplit   => "__tython_bytes_rsplit",   params: [ValueType::Bytes, ValueType::Bytes],      ret: Some(ValueType::List(Box::new(ValueType::Bytes)));
     BytesRStrip   => "__tython_bytes_rstrip",   params: [ValueType::Bytes, ValueType::Bytes],      ret: Some(ValueType::Bytes);
     BytesSplit    => "__tython_bytes_split",    params: [ValueType::Bytes, ValueType::Bytes],      ret: Some(ValueType::List(Box::new(ValueType::Bytes)));
@@ -171,14 +171,14 @@ define_builtins! {
     ByteArrayLower     => "__tython_bytearray_lower",      params: [ValueType::ByteArray],                       ret: Some(ValueType::ByteArray);
     ByteArrayLStrip    => "__tython_bytearray_lstrip",     params: [ValueType::ByteArray, ValueType::Bytes],     ret: Some(ValueType::ByteArray);
     ByteArrayMakeTrans => "__tython_bytearray_maketrans",  params: [ValueType::ByteArray, ValueType::Bytes, ValueType::Bytes], ret: Some(ValueType::Bytes);
-    ByteArrayPartition => "__tython_bytearray_partition",  params: [ValueType::ByteArray, ValueType::Bytes],     ret: Some(ValueType::Tuple(vec![ValueType::ByteArray, ValueType::ByteArray, ValueType::ByteArray]));
+    ByteArrayPartition => "__tython_bytearray_partition",  params: [ValueType::ByteArray, ValueType::Bytes],     ret: Some(ValueType::Int);
     ByteArrayRemovePrefix => "__tython_bytearray_removeprefix", params: [ValueType::ByteArray, ValueType::Bytes], ret: Some(ValueType::ByteArray);
     ByteArrayRemoveSuffix => "__tython_bytearray_removesuffix", params: [ValueType::ByteArray, ValueType::Bytes], ret: Some(ValueType::ByteArray);
     ByteArrayReplace   => "__tython_bytearray_replace",    params: [ValueType::ByteArray, ValueType::Bytes, ValueType::Bytes], ret: Some(ValueType::ByteArray);
     ByteArrayRFind     => "__tython_bytearray_rfind",      params: [ValueType::ByteArray, ValueType::Bytes],     ret: Some(ValueType::Int);
     ByteArrayRIndex    => "__tython_bytearray_rindex",     params: [ValueType::ByteArray, ValueType::Bytes],     ret: Some(ValueType::Int);
     ByteArrayRJust     => "__tython_bytearray_rjust",      params: [ValueType::ByteArray, ValueType::Int, ValueType::Bytes], ret: Some(ValueType::ByteArray);
-    ByteArrayRPartition => "__tython_bytearray_rpartition", params: [ValueType::ByteArray, ValueType::Bytes],    ret: Some(ValueType::Tuple(vec![ValueType::ByteArray, ValueType::ByteArray, ValueType::ByteArray]));
+    ByteArrayRPartition => "__tython_bytearray_rpartition", params: [ValueType::ByteArray, ValueType::Bytes],    ret: Some(ValueType::Int);
     ByteArrayRSplit    => "__tython_bytearray_rsplit",     params: [ValueType::ByteArray, ValueType::Bytes],     ret: Some(ValueType::List(Box::new(ValueType::ByteArray)));
     ByteArrayRStrip    => "__tython_bytearray_rstrip",     params: [ValueType::ByteArray, ValueType::Bytes],     ret: Some(ValueType::ByteArray);
     ByteArraySplit     => "__tython_bytearray_split",      params: [ValueType::ByteArray, ValueType::Bytes],     ret: Some(ValueType::List(Box::new(ValueType::ByteArray)));
@@ -198,7 +198,7 @@ define_builtins! {
     ListLen            => "__tython_list_len",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
     ListGet            => "__tython_list_get",            params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: Some(ValueType::Int);
     ListSlice          => "__tython_list_slice",          params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int],      ret: Some(ValueType::List(Box::new(ValueType::Int)));
-    TupleGetItem       => "__tython_tuple_getitem",       params: [ValueType::Tuple(vec![ValueType::Int]), ValueType::Int],                        ret: Some(ValueType::Int);
+    TupleGetItem       => "__tython_tuple_getitem",       params: [ValueType::Int, ValueType::Int],                        ret: Some(ValueType::Int);
     ListRepeat         => "__tython_list_repeat",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ListAppend         => "__tython_list_append",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int],                       ret: None;
     ListPop            => "__tython_list_pop",            params: [ValueType::List(Box::new(ValueType::Int))],                                       ret: Some(ValueType::Int);
@@ -272,7 +272,7 @@ define_builtins! {
     DictFromKeysByTag  => "__tython_dict_fromkeys_by_tag", params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
     DictCopy           => "__tython_dict_copy",           params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
     DictItems          => "__tython_dict_items",          params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
-    DictPopItem        => "__tython_dict_popitem",        params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Tuple(vec![ValueType::Int, ValueType::Int]));
+    DictPopItem        => "__tython_dict_popitem",        params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Int);
     DictKeys           => "__tython_dict_keys",           params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     DictValues         => "__tython_dict_values",         params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
 

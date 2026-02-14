@@ -312,6 +312,12 @@ def test_list_explicit_magic_and_methods() -> None:
 
     plus: list[int] = xs.__add__([6])
     mul: list[int] = [7, 8].__mul__(2)
+    inplace: list[int] = [1, 2]
+    inplace_out: list[int] = inplace.__iadd__([3])
+    imul_src: list[int] = [4, 5]
+    imul_out: list[int] = imul_src.__imul__(2)
+    del_src: list[int] = [10, 11, 12]
+    del_src.__delitem__(1)
     contains_four: bool = xs.__contains__(4)
     third: int = xs.__getitem__(2)
     ln: int = xs.__len__()
@@ -325,6 +331,15 @@ def test_list_explicit_magic_and_methods() -> None:
     print('CHECK test_list lhs:', mul)
     print('CHECK test_list rhs:', [7, 8, 7, 8])
     assert mul == [7, 8, 7, 8]
+    print('CHECK test_list lhs:', inplace_out)
+    print('CHECK test_list rhs:', [1, 2, 3])
+    assert inplace_out == [1, 2, 3]
+    print('CHECK test_list lhs:', imul_out)
+    print('CHECK test_list rhs:', [4, 5, 4, 5])
+    assert imul_out == [4, 5, 4, 5]
+    print('CHECK test_list lhs:', del_src)
+    print('CHECK test_list rhs:', [10, 12])
+    assert del_src == [10, 12]
     print('CHECK test_list lhs:', contains_four)
     print('CHECK test_list rhs:', True)
     assert contains_four == True

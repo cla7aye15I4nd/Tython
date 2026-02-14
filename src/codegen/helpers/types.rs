@@ -1,4 +1,4 @@
-use inkwell::types::{FloatType, IntType, StructType};
+use inkwell::types::{FloatType, IntType};
 use inkwell::AddressSpace;
 
 use crate::ast::ClassInfo;
@@ -24,33 +24,6 @@ impl<'ctx> Codegen<'ctx> {
             .insert(class_info.name.clone(), struct_type);
     }
 
-    pub(crate) fn tuple_signature_key(elem_types: &[ValueType]) -> String {
-        elem_types
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("|")
-    }
-
-    pub(crate) fn get_or_create_tuple_struct(
-        &mut self,
-        elem_types: &[ValueType],
-    ) -> StructType<'ctx> {
-        let key = Self::tuple_signature_key(elem_types);
-        if let Some(existing) = self.struct_types.get(&key) {
-            return *existing;
-        }
-
-        let struct_name = format!("__tython_tuple${}", self.struct_types.len());
-        let field_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> =
-            elem_types.iter().map(|ty| self.get_llvm_type(ty)).collect();
-
-        let struct_type = self.context.opaque_struct_type(&struct_name);
-        struct_type.set_body(&field_types, false);
-        self.struct_types.insert(key, struct_type);
-        struct_type
-    }
-
     pub(crate) fn get_llvm_type(&self, ty: &ValueType) -> inkwell::types::BasicTypeEnum<'ctx> {
         match ty {
             ValueType::Int => self.context.i64_type().into(),
@@ -62,7 +35,6 @@ impl<'ctx> Codegen<'ctx> {
             | ValueType::List(_)
             | ValueType::Dict(_, _)
             | ValueType::Set(_)
-            | ValueType::Tuple(_)
             | ValueType::Class(_)
             | ValueType::Function { .. } => self.context.ptr_type(AddressSpace::default()).into(),
         }

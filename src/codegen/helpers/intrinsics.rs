@@ -409,51 +409,6 @@ impl<'ctx> Codegen<'ctx> {
                     "intrinsic_list_cmp_b"
                 ))
             }
-            ValueType::Tuple(fields) if matches!(op, IntrinsicOp::Eq) => {
-                let tuple_ty = ValueType::Tuple(fields.clone());
-                let lhs = self
-                    .bitcast_from_i64(lhs_slot, &tuple_ty)
-                    .into_pointer_value();
-                let rhs = self
-                    .bitcast_from_i64(rhs_slot, &tuple_ty)
-                    .into_pointer_value();
-                let tuple_struct = self.get_or_create_tuple_struct(fields);
-                let mut all_eq = self.bool_type().const_int(1, false);
-                for (idx, field_ty) in fields.iter().enumerate() {
-                    let lhs_field_ptr = emit!(self.build_struct_gep(
-                        tuple_struct,
-                        lhs,
-                        idx as u32,
-                        "intrinsic_tuple_lhs_ptr"
-                    ));
-                    let rhs_field_ptr = emit!(self.build_struct_gep(
-                        tuple_struct,
-                        rhs,
-                        idx as u32,
-                        "intrinsic_tuple_rhs_ptr"
-                    ));
-                    let lhs_val = emit!(self.build_load(
-                        self.get_llvm_type(field_ty),
-                        lhs_field_ptr,
-                        "intrinsic_tuple_lhs"
-                    ));
-                    let rhs_val = emit!(self.build_load(
-                        self.get_llvm_type(field_ty),
-                        rhs_field_ptr,
-                        "intrinsic_tuple_rhs"
-                    ));
-                    let lhs_field_slot = self.bitcast_to_i64(lhs_val, field_ty);
-                    let rhs_field_slot = self.bitcast_to_i64(rhs_val, field_ty);
-                    let feq = self.intrinsic_compare_slots(
-                        IntrinsicOp::Eq,
-                        field_ty,
-                        lhs_field_slot,
-                        rhs_field_slot,
-                    );
-                    all_eq = emit!(self.build_and(all_eq, feq, "intrinsic_tuple_and"));
-                }
-                all_eq
-            }
             _ => {
                 let pred = match op {
                     IntrinsicOp::Eq => IntPredicate::EQ,

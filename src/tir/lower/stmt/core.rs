@@ -136,7 +136,7 @@ impl Lowering {
                 ));
             }
             let ty = self.convert_type_annotation(&annotation)?;
-            let vty = Self::to_value_type(&ty);
+            let vty = self.value_type_from_type(&ty);
             param_types.push(ty);
             param_names.push(param_name.clone());
             explicit_param_name_set.insert(param_name.clone());
@@ -144,7 +144,7 @@ impl Lowering {
         }
 
         let return_type_ast = self.convert_return_type(node)?;
-        let return_type = Self::to_opt_value_type(&return_type_ast);
+        let return_type = self.opt_value_type_from_type(&return_type_ast);
 
         // Declare the function in the current scope so it can be referenced
         let func_type = crate::ast::Type::Function {
@@ -180,7 +180,7 @@ impl Lowering {
         for (cap_name, cap_ty) in &captures {
             params.push(FunctionParam::new(
                 cap_name.clone(),
-                Self::to_value_type(cap_ty),
+                self.value_type_from_type(cap_ty),
             ));
         }
         self.nested_function_captures
@@ -256,8 +256,9 @@ impl Lowering {
             Ok(vec![TirStmt::Return(None)])
         } else {
             let tir_expr = self.lower_expr(&value_node)?;
-            if let Some(ref expected) = self.current_return_type {
-                if *expected != tir_expr.ty.to_type() {
+            if let Some(expected) = self.current_return_type.clone() {
+                let expected_vty = self.value_type_from_type(&expected);
+                if expected_vty != tir_expr.ty {
                     return Err(self.type_error(
                         line,
                         format!(
@@ -323,7 +324,7 @@ impl Lowering {
     ) -> Result<Vec<TirStmt>> {
         let test_node = ast_getattr!(node, "test");
         let condition = self.lower_expr(&test_node)?;
-        if !matches!(
+        let assert_ok = matches!(
             condition.ty,
             ValueType::Bool
                 | ValueType::Int
@@ -332,8 +333,10 @@ impl Lowering {
                 | ValueType::Bytes
                 | ValueType::ByteArray
                 | ValueType::List(_)
-                | ValueType::Tuple(_)
-        ) {
+                | ValueType::Dict(_, _)
+                | ValueType::Set(_)
+        ) || matches!(&condition.ty, ValueType::Class(name) if self.is_tuple_class(name));
+        if !assert_ok {
             return Err(self.type_error(line, format!("cannot use `{}` in assert", condition.ty)));
         }
         let bool_condition = self.lower_truthy_to_bool(line, condition, "assert")?;

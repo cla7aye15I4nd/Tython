@@ -222,9 +222,6 @@ pub fn lookup_builtin_call(name: &str, arg_types: &[&ValueType]) -> Option<Built
         }),
 
         // Built-in functions — len() via unified __len__ dunder
-        ("len", [ValueType::Tuple(elements)]) => {
-            Some(BuiltinCallRule::ConstInt(elements.len() as i64))
-        }
         ("len", [ValueType::Class(_)]) => Some(class_magic(&["__len__"], Some(ValueType::Int))),
         ("len", [ty]) => lookup_builtin_dunder(ty, "__len__"),
 

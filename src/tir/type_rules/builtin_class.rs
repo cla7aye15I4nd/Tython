@@ -1,33 +1,8 @@
-//! Unified builtin type method lookup.
-//!
-//! Provides a single entry point for looking up methods on builtin types
-//! (list, bytearray, str, bytes, etc.), abstracting over the per-type
-//! lookup functions in `method_call.rs`.
+//! Unified builtin dunder lookup for builtin value types.
 
 use super::builtin_call::BuiltinCallRule;
-use super::method_call::{
-    lookup_bytearray_method, lookup_bytes_method, lookup_str_method, MethodCallRule,
-};
 use crate::tir::builtin::BuiltinFn;
 use crate::tir::ValueType;
-
-/// Look up a method on a builtin (non-class) value type.
-///
-/// Returns:
-/// - `Some(Ok(rule))` — method exists and is supported
-/// - `Some(Err(msg))` — method is recognized but unsupported for this type configuration
-/// - `None` — not a builtin type with methods, or method name is unknown
-pub fn lookup_builtin_method(
-    ty: &ValueType,
-    method_name: &str,
-) -> Option<Result<MethodCallRule, String>> {
-    match ty {
-        ValueType::ByteArray => lookup_bytearray_method(method_name),
-        ValueType::Str => lookup_str_method(method_name),
-        ValueType::Bytes => lookup_bytes_method(method_name),
-        _ => None,
-    }
-}
 
 /// Look up a dunder method on a builtin type, returning the equivalent `BuiltinCallRule`.
 ///
@@ -85,19 +60,9 @@ pub fn lookup_builtin_dunder(ty: &ValueType, dunder: &str) -> Option<BuiltinCall
                 func: BuiltinFn::StrFromByteArray,
                 return_type: ValueType::Str,
             }),
-            ValueType::List(_) | ValueType::Tuple(_) => Some(BuiltinCallRule::StrAuto),
+            ValueType::List(_) => Some(BuiltinCallRule::StrAuto),
             _ => None,
         },
         _ => None,
-    }
-}
-
-/// Return the human-readable type name for error messages.
-pub fn builtin_type_display_name(ty: &ValueType) -> String {
-    match ty {
-        ValueType::List(inner) => format!("list[{}]", inner),
-        ValueType::Dict(key, value) => format!("dict[{}, {}]", key, value),
-        ValueType::Set(inner) => format!("set[{}]", inner),
-        _ => ty.to_string(),
     }
 }
