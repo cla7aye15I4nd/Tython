@@ -451,21 +451,45 @@ impl<'ctx> Codegen<'ctx> {
             },
             ValueType::Class(class_name) => {
                 let class_ty = ValueType::Class(class_name.clone());
-                let lhs = self.bitcast_from_i64(lhs_slot, &class_ty);
-                let rhs = self.bitcast_from_i64(rhs_slot, &class_ty);
-                let method = match op {
-                    IntrinsicOp::Eq => "__eq__",
-                    IntrinsicOp::Lt => "__lt__",
-                };
-                let fn_name = format!("{}${}", class_name, method);
-                let f = self.get_or_declare_function(
-                    &fn_name,
-                    &[class_ty.clone(), class_ty],
-                    Some(ValueType::Bool),
-                );
-                let call =
-                    emit!(self.build_call(f, &[lhs.into(), rhs.into()], "intrinsic_cls_cmp"));
-                self.extract_call_value(call).into_int_value()
+                match op {
+                    IntrinsicOp::Eq => {
+                        let eq_name = format!("{}$__eq__", class_name);
+                        if let Some(eq_fn) = self.module.get_function(&eq_name) {
+                            let lhs = self.bitcast_from_i64(lhs_slot, &class_ty);
+                            let rhs = self.bitcast_from_i64(rhs_slot, &class_ty);
+                            let call = emit!(self.build_call(
+                                eq_fn,
+                                &[lhs.into(), rhs.into()],
+                                "intrinsic_cls_eq"
+                            ));
+                            self.extract_call_value(call).into_int_value()
+                        } else {
+                            // Python's default object.__eq__ fallback is identity.
+                            emit!(self.build_int_compare(
+                                IntPredicate::EQ,
+                                lhs_slot,
+                                rhs_slot,
+                                "intrinsic_cls_eq_identity"
+                            ))
+                        }
+                    }
+                    IntrinsicOp::Lt => {
+                        let lhs = self.bitcast_from_i64(lhs_slot, &class_ty);
+                        let rhs = self.bitcast_from_i64(rhs_slot, &class_ty);
+                        let lt_name = format!("{}$__lt__", class_name);
+                        let lt_fn = self.get_or_declare_function(
+                            &lt_name,
+                            &[class_ty.clone(), class_ty],
+                            Some(ValueType::Bool),
+                        );
+                        let call = emit!(self.build_call(
+                            lt_fn,
+                            &[lhs.into(), rhs.into()],
+                            "intrinsic_cls_lt"
+                        ));
+                        self.extract_call_value(call).into_int_value()
+                    }
+                }
             }
             ValueType::List(inner) => {
                 let list_ty = ValueType::List(Box::new((**inner).clone()));

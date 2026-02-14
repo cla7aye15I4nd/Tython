@@ -397,9 +397,6 @@ impl Lowering {
             }
             let out = match cmp_op {
                 CmpOp::Eq => {
-                    if let ValueType::Class(class_name) = &left.ty {
-                        self.require_class_magic_method(line, class_name, "__eq__")?;
-                    }
                     self.register_intrinsic_instance(IntrinsicOp::Eq, &left.ty);
                     TirExpr {
                         kind: TirExprKind::IntrinsicCmp {
@@ -411,9 +408,6 @@ impl Lowering {
                     }
                 }
                 CmpOp::NotEq => {
-                    if let ValueType::Class(class_name) = &left.ty {
-                        self.require_class_magic_method(line, class_name, "__eq__")?;
-                    }
                     self.register_intrinsic_instance(IntrinsicOp::Eq, &left.ty);
                     let eq = TirExpr {
                         kind: TirExprKind::IntrinsicCmp {

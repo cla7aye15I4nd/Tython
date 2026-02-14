@@ -1,13 +1,6 @@
-class BoxNoEq:
-    value: int
-
-    def __init__(self, value: int) -> None:
-        self.value = value
-
-
 def main() -> None:
-    s: set[BoxNoEq] = set()
-    s.add(BoxNoEq(1))
+    s: set[int] = set()
+    s.add("x")
 
 
 if __name__ == "__main__":

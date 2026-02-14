@@ -1,4 +1,4 @@
-class BoxNoEq:
+class BoxNoLt:
     value: int
 
     def __init__(self, value: int) -> None:
@@ -6,9 +6,8 @@ class BoxNoEq:
 
 
 def main() -> None:
-    xs: list[list[BoxNoEq]] = [[BoxNoEq(1)], [BoxNoEq(2)]]
-    count: int = xs.count([BoxNoEq(1)])
-    print(count)
+    xs: list[list[BoxNoLt]] = [[BoxNoLt(2)], [BoxNoLt(1)]]
+    xs.sort()
 
 
 if __name__ == "__main__":

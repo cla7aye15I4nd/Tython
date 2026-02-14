@@ -1,13 +1,6 @@
-class BoxNoEq:
-    value: int
-
-    def __init__(self, value: int) -> None:
-        self.value = value
-
-
 def main() -> None:
-    d: dict[BoxNoEq, int] = {}
-    d[BoxNoEq(1)] = 7
+    d: dict[int, int] = {}
+    d["k"] = 7
 
 
 if __name__ == "__main__":

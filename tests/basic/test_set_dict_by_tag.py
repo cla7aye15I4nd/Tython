@@ -21,6 +21,32 @@ class EqVal:
         return self.value == other.value
 
 
+class NoEq:
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+
+def test_class_eq_identity_fallback() -> None:
+    a: NoEq = NoEq(1)
+    b: NoEq = NoEq(1)
+    c: NoEq = a
+    print("CHECK test_set_dict_by_tag lhs:", a == c)
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert (a == c) == True
+    print("CHECK test_set_dict_by_tag lhs:", a == b)
+    print("CHECK test_set_dict_by_tag rhs:", False)
+    assert (a == b) == False
+    xs: list[NoEq] = [a]
+    print("CHECK test_set_dict_by_tag lhs:", a in xs)
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert (a in xs) == True
+    print("CHECK test_set_dict_by_tag lhs:", NoEq(1) in xs)
+    print("CHECK test_set_dict_by_tag rhs:", False)
+    assert (NoEq(1) in xs) == False
+
+
 def test_set_eq_by_tag_class() -> None:
     s: set[EqKey] = set()
     s.add(EqKey(1))
@@ -192,6 +218,7 @@ def test_dict_full_methods_int() -> None:
 
 
 def run_tests() -> None:
+    test_class_eq_identity_fallback()
     test_set_eq_by_tag_class()
     test_dict_key_and_value_eq_by_tag()
     test_dict_eq_by_tag()

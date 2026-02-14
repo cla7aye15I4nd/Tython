@@ -276,9 +276,7 @@ impl Lowering {
                 }
                 Ok(())
             }
-            ValueType::Class(class_name) => {
-                self.require_class_magic_method(line, class_name, "__eq__")
-            }
+            ValueType::Class(_) => Ok(()),
             _ => Err(self.type_error(
                 line,
                 format!(
