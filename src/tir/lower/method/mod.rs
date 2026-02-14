@@ -7,12 +7,9 @@ use crate::tir::{
 
 use super::Lowering;
 
-pub mod bytearray;
-pub mod bytes;
 pub mod dict;
 pub mod list;
 pub mod set;
-pub mod str;
 
 // ── Helper Functions ─────────────────────────────────────────────────
 
@@ -92,21 +89,68 @@ pub fn expr_call(
 // ── Dispatcher ───────────────────────────────────────────────────────
 
 impl Lowering {
-    /// Dispatch method calls for builtin types to type-specific handlers.
-    ///
-    /// This function routes method calls to per-type lowering functions based on
-    /// the object's type. Each type has its own dedicated module that generates
-    /// TIR directly without using type rules.
-    ///
-    /// Supported types:
-    /// - `list[T]` → `list::lower_list_method_call`
-    /// - `dict[K, V]` → `dict::lower_dict_method_call`
-    /// - `set[T]` → `set::lower_set_method_call`
-    /// - `str` → `str::lower_str_method_call`
-    /// - `bytes` → `bytes::lower_bytes_method_call`
-    /// - `bytearray` → `bytearray::lower_bytearray_method_call`
-    ///
-    /// Other types fall back to the old centralized `lower_builtin_method_call`.
+    pub(in crate::tir::lower) fn emit_method_rule_call(
+        &self,
+        line: usize,
+        obj_expr: TirExpr,
+        tir_args: Vec<TirExpr>,
+        method_name: &str,
+        type_name: &str,
+        lookup: Option<Result<type_rules::MethodCallRule, String>>,
+    ) -> Result<CallResult> {
+        let rule = match lookup {
+            Some(Ok(rule)) => rule,
+            Some(Err(msg)) => return Err(self.type_error(line, msg)),
+            None => {
+                return Err(self.attribute_error(
+                    line,
+                    format!("{} has no method `{}`", type_name, method_name),
+                ))
+            }
+        };
+
+        if tir_args.len() != rule.params.len() {
+            return Err(self.type_error(
+                line,
+                type_rules::method_call_arity_error(
+                    type_name,
+                    method_name,
+                    rule.params.len(),
+                    tir_args.len(),
+                ),
+            ));
+        }
+        for (arg, expected) in tir_args.iter().zip(rule.params.iter()) {
+            if arg.ty != *expected {
+                return Err(self.type_error(
+                    line,
+                    type_rules::method_call_type_error(type_name, method_name, expected, &arg.ty),
+                ));
+            }
+        }
+
+        let mut full_args = Vec::with_capacity(1 + tir_args.len());
+        full_args.push(obj_expr);
+        full_args.extend(tir_args);
+
+        Ok(match rule.result {
+            type_rules::MethodCallResult::Void(func) => {
+                CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                    target: CallTarget::Builtin(func),
+                    args: full_args,
+                }))
+            }
+            type_rules::MethodCallResult::Expr { func, return_type } => CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func,
+                    args: full_args,
+                },
+                ty: return_type,
+            }),
+        })
+    }
+
+    /// Dispatch method calls for builtin types.
     pub(in crate::tir::lower) fn lower_method_call(
         &mut self,
         line: usize,
@@ -127,30 +171,10 @@ impl Lowering {
             ValueType::Set(inner) => {
                 set::lower_set_method_call(self, line, obj_expr, method_name, args, &inner)
             }
-            ValueType::Str => str::lower_str_method_call(self, line, obj_expr, method_name, args),
-            ValueType::Bytes => {
-                bytes::lower_bytes_method_call(self, line, obj_expr, method_name, args)
-            }
-            ValueType::ByteArray => {
-                bytearray::lower_bytearray_method_call(self, line, obj_expr, method_name, args)
-            }
-            // For now, other types (e.g., Tuple, Class) fall back to the old implementation
             ref ty => {
-                // Get type name for error messages
                 let type_name = type_rules::builtin_type_display_name(ty);
-
-                // Look up method in type rules
                 let lookup = type_rules::lookup_builtin_method(ty, method_name);
-
-                // Call old implementation
-                self.lower_builtin_method_call(
-                    line,
-                    obj_expr,
-                    args,
-                    method_name,
-                    &type_name,
-                    lookup,
-                )
+                self.emit_method_rule_call(line, obj_expr, args, method_name, &type_name, lookup)
             }
         }
     }

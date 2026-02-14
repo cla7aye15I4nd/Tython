@@ -7,6 +7,7 @@ from . import module_e
 from . import module_f
 from . import module_g
 from . import module_h
+from . import module_kwargs
 
 from .module_a import func_a, compute_a
 from .nested.deep.deeper import bottom
@@ -429,6 +430,17 @@ def test_from_import_deep_nested_class() -> None:
     assert leaf.triple() == 21
 
 
+def test_module_kwargs_defaults_and_keywords() -> None:
+    print(module_kwargs.combine(1))
+    print('CHECK test_runner lhs:', module_kwargs.combine(1))
+    print('CHECK test_runner rhs:', 111)
+    assert module_kwargs.combine(1) == 111
+    print(module_kwargs.combine(1, c=5))
+    print('CHECK test_runner lhs:', module_kwargs.combine(1, c=5))
+    print('CHECK test_runner rhs:', 16)
+    assert module_kwargs.combine(1, c=5) == 16
+
+
 def run_all_tests() -> None:
     test_module_a()
     test_module_b()
@@ -473,3 +485,4 @@ def run_all_tests() -> None:
     test_from_import_class()
     test_from_import_nested_class()
     test_from_import_deep_nested_class()
+    test_module_kwargs_defaults_and_keywords()

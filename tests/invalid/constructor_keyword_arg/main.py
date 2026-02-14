@@ -1,0 +1,8 @@
+class Point:
+    x: int
+
+    def __init__(self, x: int) -> None:
+        self.x = x
+
+
+p: Point = Point(x=1)

@@ -31,8 +31,34 @@ def test_fstring_format_spec_is_accepted() -> None:
     assert "3" in sf
 
 
+class Fancy:
+    n: int
+
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    def __str__(self) -> str:
+        return "Fancy(" + str(self.n) + ")"
+
+    def __repr__(self) -> str:
+        return "Fancy<" + str(self.n) + ">"
+
+
+def test_fstring_class_magic_conversions() -> None:
+    f: Fancy = Fancy(9)
+    s1: str = f"{f}"
+    s2: str = f"{f!r}"
+    print('CHECK test_fstring lhs:', s1)
+    print('CHECK test_fstring rhs:', 'Fancy(9)')
+    assert s1 == "Fancy(9)"
+    print('CHECK test_fstring lhs:', s2)
+    print('CHECK test_fstring rhs:', 'Fancy<9>')
+    assert s2 == "Fancy<9>"
+
+
 def run_tests() -> None:
     test_basic_fstring()
     test_fstring_repr_conversion()
     test_fstring_dict_key()
     test_fstring_format_spec_is_accepted()
+    test_fstring_class_magic_conversions()

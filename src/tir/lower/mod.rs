@@ -13,7 +13,7 @@ use crate::errors::{ErrorCategory, TythonError};
 use crate::tir::{intrinsic_tag, IntrinsicOp};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
-mod calls;
+mod call;
 mod classes;
 pub mod expr;
 mod functions;

@@ -6,8 +6,7 @@
 
 use super::builtin_call::BuiltinCallRule;
 use super::method_call::{
-    lookup_bytearray_method, lookup_bytes_method, lookup_dict_method, lookup_list_method,
-    lookup_set_method, lookup_str_method, MethodCallRule,
+    lookup_bytearray_method, lookup_bytes_method, lookup_str_method, MethodCallRule,
 };
 use crate::tir::builtin::BuiltinFn;
 use crate::tir::ValueType;
@@ -23,9 +22,6 @@ pub fn lookup_builtin_method(
     method_name: &str,
 ) -> Option<Result<MethodCallRule, String>> {
     match ty {
-        ValueType::List(inner) => lookup_list_method(inner, method_name),
-        ValueType::Dict(key, value) => lookup_dict_method(key, value, method_name),
-        ValueType::Set(inner) => lookup_set_method(inner, method_name),
         ValueType::ByteArray => lookup_bytearray_method(method_name),
         ValueType::Str => lookup_str_method(method_name),
         ValueType::Bytes => lookup_bytes_method(method_name),

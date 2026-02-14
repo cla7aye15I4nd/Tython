@@ -1,7 +1,7 @@
 use anyhow::Result;
 use pyo3::prelude::*;
 
-use crate::tir::{builtin, type_rules, CallResult, TirExpr, TirExprKind, TirStmt, ValueType};
+use crate::tir::{builtin, TirExpr, TirExprKind, TirStmt, ValueType};
 use crate::{ast_get_int, ast_get_list, ast_getattr, ast_type_name};
 
 use crate::tir::lower::Lowering;
@@ -95,38 +95,6 @@ impl Lowering {
     }
 
     fn lower_fstring_convert(&mut self, line: usize, name: &str, arg: TirExpr) -> Result<TirExpr> {
-        let arg_types: Vec<&ValueType> = vec![&arg.ty];
-        let rule = type_rules::lookup_builtin_call(name, &arg_types).ok_or_else(|| {
-            self.type_error(
-                line,
-                format!(
-                    "f-string conversion `{}` is not defined for type `{}`",
-                    name, arg.ty
-                ),
-            )
-        })?;
-
-        if let type_rules::BuiltinCallRule::ClassMagic {
-            method_names,
-            return_type,
-        } = rule
-        {
-            return self.lower_class_magic_method(line, arg, method_names, return_type, name);
-        }
-
-        if matches!(rule, type_rules::BuiltinCallRule::StrAuto) {
-            return Ok(self.lower_str_auto(arg));
-        }
-        if matches!(rule, type_rules::BuiltinCallRule::ReprAuto) {
-            return Ok(self.lower_repr_str_expr(arg));
-        }
-
-        match Self::lower_builtin_rule(rule, vec![arg]) {
-            CallResult::Expr(expr) => Ok(expr),
-            CallResult::VoidStmt(_) => Err(self.type_error(
-                line,
-                format!("f-string conversion `{}` produced no value", name),
-            )),
-        }
+        self.lower_builtin_single_arg_expr(line, name, arg)
     }
 }

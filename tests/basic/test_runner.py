@@ -51,6 +51,7 @@ import basic.test_dict_set as test_dict_set
 import basic.test_set_dict_by_tag as test_set_dict_by_tag
 import basic.test_function_call_args as test_function_call_args
 import basic.test_fstring as test_fstring
+import basic.test_call_paths as test_call_paths
 import basic.test_pass_ellipsis_docstring as test_pass_ellipsis_docstring
 import basic.test_iteration_no_exceptions as test_iteration_no_exceptions
 import basic.test_iteration_performance as test_iteration_performance
@@ -111,6 +112,7 @@ def run_all_tests() -> None:
     test_set_dict_by_tag.run_tests()
     test_function_call_args.run_tests()
     test_fstring.run_tests()
+    test_call_paths.run_tests()
     test_pass_ellipsis_docstring.run_tests()
     test_iteration_no_exceptions.run_tests()
     test_iteration_performance.run_tests()
