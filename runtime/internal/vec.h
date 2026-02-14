@@ -27,7 +27,7 @@ struct Vec {
 
     static Vec* create(const T* src, int64_t n) {
         auto* v = static_cast<Vec*>(__tython_malloc(sizeof(Vec)));
-        int64_t cap = n > 8 ? n : 8;
+        int64_t cap = n > 0 ? n : 8;
         v->len = n;
         v->capacity = cap;
         v->data = static_cast<T*>(__tython_malloc(cap * static_cast<int64_t>(sizeof(T))));

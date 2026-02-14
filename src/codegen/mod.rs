@@ -3,6 +3,7 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
+use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::types::StructType;
 use inkwell::values::PointerValue;
@@ -60,6 +61,7 @@ pub struct Codegen<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
+    target_machine: TargetMachine,
     variables: HashMap<String, PointerValue<'ctx>>,
     loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
     struct_types: HashMap<String, StructType<'ctx>>,
@@ -81,12 +83,14 @@ impl<'ctx> Codegen<'ctx> {
 
         let triple = TargetMachine::get_default_triple();
         let target = Target::from_triple(&triple).unwrap();
+        let cpu = TargetMachine::get_host_cpu_name();
+        let features = TargetMachine::get_host_cpu_features();
         let target_machine = target
             .create_target_machine(
                 &triple,
-                "",
-                "",
-                OptimizationLevel::Default,
+                cpu.to_str().unwrap(),
+                features.to_str().unwrap(),
+                OptimizationLevel::Aggressive,
                 RelocMode::Default,
                 CodeModel::Default,
             )
@@ -101,6 +105,7 @@ impl<'ctx> Codegen<'ctx> {
             context,
             module,
             builder,
+            target_machine,
             variables: HashMap::new(),
             loop_stack: Vec::new(),
             struct_types: HashMap::new(),
@@ -117,6 +122,12 @@ impl<'ctx> Codegen<'ctx> {
 
     pub fn link(&self, output_path: &Path) {
         let bc_path = output_path.with_extension("o");
+
+        // Run LLVM optimization passes before emitting bitcode
+        let options = PassBuilderOptions::create();
+        self.module
+            .run_passes("default<O2>", &self.target_machine, options)
+            .expect("Failed to run LLVM optimization passes");
 
         self.module.write_bitcode_to_path(&bc_path);
 

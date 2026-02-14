@@ -316,6 +316,86 @@ impl<'ctx> Codegen<'ctx> {
         lt_cases.sort_by_key(|(tag, _)| *tag);
         self.emit_intrinsic_compare_dispatcher(IntrinsicOp::Eq, "__tython_intrinsic_eq", &eq_cases);
         self.emit_intrinsic_compare_dispatcher(IntrinsicOp::Lt, "__tython_intrinsic_lt", &lt_cases);
+        // Hash dispatcher uses the same eq_tag values — needed by set/dict by_tag operations
+        self.emit_intrinsic_hash_dispatcher("__tython_intrinsic_hash", &eq_cases);
+    }
+
+    fn emit_intrinsic_hash_dispatcher(&mut self, symbol: &str, cases: &[(i64, ValueType)]) {
+        let f = self.get_or_declare_function(
+            symbol,
+            &[ValueType::Int, ValueType::Int],
+            Some(ValueType::Int),
+        );
+        if f.get_first_basic_block().is_some() {
+            return;
+        }
+
+        let saved_block = self.builder.get_insert_block();
+        let entry = self.context.append_basic_block(f, "entry");
+        self.builder.position_at_end(entry);
+
+        let tag_val = f.get_nth_param(0).unwrap().into_int_value();
+        let value_slot = f.get_nth_param(1).unwrap().into_int_value();
+
+        let default_bb = self.context.append_basic_block(f, "default");
+        let mut switch_cases = Vec::new();
+        let mut case_blocks = Vec::new();
+        for (tag, _) in cases {
+            let bb = self.context.append_basic_block(f, "case");
+            switch_cases.push((self.i64_type().const_int(*tag as u64, true), bb));
+            case_blocks.push(bb);
+        }
+        emit!(self.build_switch(tag_val, default_bb, &switch_cases));
+
+        for ((_, ty), bb) in cases.iter().zip(case_blocks.iter()) {
+            self.builder.position_at_end(*bb);
+            let out = self.intrinsic_hash_slot(ty, value_slot);
+            emit!(self.build_return(Some(&out)));
+        }
+
+        // Default: return the raw value (identity/pointer hash)
+        self.builder.position_at_end(default_bb);
+        emit!(self.build_return(Some(&value_slot)));
+
+        if let Some(bb) = saved_block {
+            self.builder.position_at_end(bb);
+        }
+    }
+
+    fn intrinsic_hash_slot(
+        &mut self,
+        ty: &ValueType,
+        value_slot: inkwell::values::IntValue<'ctx>,
+    ) -> inkwell::values::BasicValueEnum<'ctx> {
+        match ty {
+            ValueType::Int | ValueType::Bool => value_slot.into(),
+            ValueType::Float => {
+                // bitcast f64 to i64 for hashing
+                value_slot.into()
+            }
+            ValueType::Str => {
+                let str_ptr = self.bitcast_from_i64(value_slot, &ValueType::Str);
+                let hash_fn = self.get_builtin(BuiltinFn::StrHash);
+                let call = emit!(self.build_call(hash_fn, &[str_ptr.into()], "str_hash"));
+                self.extract_call_value(call)
+            }
+            ValueType::Class(class_name) => {
+                let hash_name = format!("{}$__hash__", class_name);
+                if let Some(hash_fn) = self.module.get_function(&hash_name) {
+                    let class_ty = ValueType::Class(class_name.clone());
+                    let obj = self.bitcast_from_i64(value_slot, &class_ty);
+                    let call = emit!(self.build_call(hash_fn, &[obj.into()], "cls_hash"));
+                    self.extract_call_value(call)
+                } else {
+                    // No __hash__ → identity hash (pointer value)
+                    value_slot.into()
+                }
+            }
+            _ => {
+                // Bytes, ByteArray, List, Tuple, etc. — use raw value
+                value_slot.into()
+            }
+        }
     }
 
     fn intrinsic_compare_slots(

@@ -30,6 +30,7 @@ TythonStr* TYTHON_FN(str_read)(TythonStr* s);
 TythonStr* TYTHON_FN(str_strip)(TythonStr* s);
 void* TYTHON_FN(str_split)(TythonStr* s, TythonStr* sep);
 TythonStr* TYTHON_FN(str_join)(TythonStr* sep, void* parts);
+int64_t TYTHON_FN(str_hash)(TythonStr* s);
 void* TYTHON_FN(set_from_str)(TythonStr* s);
 
 #ifdef __cplusplus

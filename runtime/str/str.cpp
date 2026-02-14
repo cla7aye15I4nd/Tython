@@ -200,6 +200,15 @@ TythonStr* TYTHON_FN(str_join)(TythonStr* sep, void* parts_ptr) {
     return out;
 }
 
+int64_t TYTHON_FN(str_hash)(TythonStr* s) {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (int64_t i = 0; i < s->len; i++) {
+        h ^= static_cast<uint8_t>(s->data[i]);
+        h *= 0x100000001b3ULL;
+    }
+    return static_cast<int64_t>(h);
+}
+
 void* TYTHON_FN(set_from_str)(TythonStr* s) {
     bool seen[256] = {false};
     auto* out = TYTHON_FN(list_empty)();

@@ -214,6 +214,21 @@ impl Lowering {
         let args_list = ast_get_list!(node, "args");
         let keywords_list = ast_get_list!(node, "keywords");
 
+        // Early detection: fuse sum(GeneratorExp, start) to avoid materializing
+        // the generator as a temporary list. This directly accumulates elements.
+        if ast_type_name!(func_node) == "Name" {
+            let func_name = ast_get_string!(func_node, "id");
+            if func_name == "sum" && args_list.len() == 2 && keywords_list.is_empty() {
+                let first_arg = args_list.get_item(0)?;
+                if ast_type_name!(first_arg) == "GeneratorExp" {
+                    let start_expr = self.lower_expr(&args_list.get_item(1)?)?;
+                    return self
+                        .lower_sum_generator(&first_arg, start_expr, line)
+                        .map(CallResult::Expr);
+                }
+            }
+        }
+
         let mut positional_args = Vec::new();
         for arg in args_list.iter() {
             positional_args.push(self.lower_expr(&arg)?);

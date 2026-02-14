@@ -1,7 +1,9 @@
 use anyhow::Result;
 use pyo3::prelude::*;
 
-use crate::tir::{builtin, CallTarget, TirExpr, TirExprKind, TirStmt, Type, ValueType};
+use crate::tir::{
+    builtin, ArithBinOp, CallTarget, RawBinOp, TirExpr, TirExprKind, TirStmt, Type, ValueType,
+};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 use crate::tir::lower::Lowering;
@@ -250,6 +252,235 @@ impl Lowering {
         Ok(TirExpr {
             kind: TirExprKind::Var(list_var),
             ty: list_ty,
+        })
+    }
+
+    /// Fused sum(GeneratorExp, start) lowering.
+    /// Instead of materializing the generator as a list and then summing,
+    /// this directly accumulates: `acc = start; for x in iter: acc = acc + elt`.
+    pub(in crate::tir::lower) fn lower_sum_generator(
+        &mut self,
+        gen_node: &Bound<PyAny>,
+        start_expr: TirExpr,
+        line: usize,
+    ) -> Result<TirExpr> {
+        let elt_node = ast_getattr!(gen_node, "elt");
+        let generators = ast_get_list!(gen_node, "generators");
+
+        self.push_scope();
+
+        // Phase 1: Parse generators (same as lower_comp_impl)
+        let mut gen_infos = Vec::new();
+        for gen in generators.iter() {
+            let target = ast_getattr!(gen, "target");
+            let iter_node = ast_getattr!(gen, "iter");
+            let target_type = ast_type_name!(target);
+
+            let (var_name, gen_kind) = if target_type == "Name" {
+                let var_name = ast_get_string!(target, "id");
+                let gen_kind = if ast_type_name!(iter_node) == "Call" {
+                    let func_node = ast_getattr!(iter_node, "func");
+                    if ast_type_name!(func_node) == "Name"
+                        && ast_get_string!(func_node, "id") == "range"
+                    {
+                        let args_list = ast_get_list!(iter_node, "args");
+                        let (start, stop, step) = self.parse_range_args(&args_list, line)?;
+                        self.declare(var_name.clone(), Type::Int);
+                        GenKind::Range { start, stop, step }
+                    } else {
+                        let iter_expr = self.lower_expr(&iter_node)?;
+                        self.gen_kind_from_expr(line, &var_name, iter_expr)?
+                    }
+                } else {
+                    let iter_expr = self.lower_expr(&iter_node)?;
+                    self.gen_kind_from_expr(line, &var_name, iter_expr)?
+                };
+                (var_name, gen_kind)
+            } else if target_type == "Tuple" && ast_type_name!(iter_node) == "Call" {
+                let names = {
+                    let elts = ast_get_list!(target, "elts");
+                    let mut names = Vec::with_capacity(elts.len());
+                    for elt in elts.iter() {
+                        if ast_type_name!(elt) != "Name" {
+                            return Err(self.syntax_error(
+                                line,
+                                "comprehension tuple target must contain only variable names",
+                            ));
+                        }
+                        names.push(ast_get_string!(elt, "id"));
+                    }
+                    names
+                };
+                if names.len() != 2 {
+                    return Err(self.syntax_error(
+                        line,
+                        "comprehension tuple target currently requires exactly two variables",
+                    ));
+                }
+                let func_node = ast_getattr!(iter_node, "func");
+                if ast_type_name!(func_node) != "Name" {
+                    return Err(self.syntax_error(
+                        line,
+                        "comprehension tuple target is only supported with zip(...) or enumerate(...)",
+                    ));
+                }
+                let func_name = ast_get_string!(func_node, "id");
+                let args = ast_get_list!(iter_node, "args");
+                match func_name.as_str() {
+                    "zip" => {
+                        if args.len() != 2 {
+                            return Err(self.type_error(
+                                line,
+                                format!("zip() expects 2 arguments, got {}", args.len()),
+                            ));
+                        }
+                        let left_expr = self.lower_expr(&args.get_item(0)?)?;
+                        let right_expr = self.lower_expr(&args.get_item(1)?)?;
+                        let (left_elem, right_elem) = match (&left_expr.ty, &right_expr.ty) {
+                            (ValueType::List(a), ValueType::List(b)) => {
+                                ((**a).clone(), (**b).clone())
+                            }
+                            _ => {
+                                return Err(self.type_error(
+                                    line,
+                                    "zip() in comprehension requires list arguments",
+                                ))
+                            }
+                        };
+                        self.declare(names[0].clone(), left_elem.to_type());
+                        self.declare(names[1].clone(), right_elem.to_type());
+                        (
+                            names[0].clone(),
+                            GenKind::Zip2 {
+                                left_name: names[0].clone(),
+                                right_name: names[1].clone(),
+                                left_expr,
+                                right_expr,
+                                left_elem,
+                                right_elem,
+                            },
+                        )
+                    }
+                    "enumerate" => {
+                        if args.len() != 1 {
+                            return Err(self.type_error(
+                                line,
+                                format!("enumerate() expects 1 argument, got {}", args.len()),
+                            ));
+                        }
+                        let list_expr = self.lower_expr(&args.get_item(0)?)?;
+                        let elem_ty = match &list_expr.ty {
+                            ValueType::List(inner) => (**inner).clone(),
+                            _ => {
+                                return Err(self.type_error(
+                                    line,
+                                    "enumerate() in comprehension requires a list argument",
+                                ))
+                            }
+                        };
+                        self.declare(names[0].clone(), Type::Int);
+                        self.declare(names[1].clone(), elem_ty.to_type());
+                        (
+                            names[0].clone(),
+                            GenKind::Enumerate {
+                                idx_name: names[0].clone(),
+                                value_name: names[1].clone(),
+                                list_expr,
+                                elem_ty,
+                            },
+                        )
+                    }
+                    _ => {
+                        return Err(self.syntax_error(
+                            line,
+                            "comprehension tuple target is only supported with zip(...) or enumerate(...)",
+                        ))
+                    }
+                }
+            } else {
+                return Err(
+                    self.syntax_error(line, "comprehension target must be a variable or tuple")
+                );
+            };
+
+            let ifs_list = ast_get_list!(gen, "ifs");
+            let mut if_conds = Vec::new();
+            for if_node in ifs_list.iter() {
+                let cond = self.lower_expr(&if_node)?;
+                if_conds.push(self.lower_truthy_to_bool(
+                    line,
+                    cond,
+                    "comprehension filter condition",
+                )?);
+            }
+
+            gen_infos.push(GenInfo {
+                var_name,
+                kind: gen_kind,
+                if_conds,
+            });
+        }
+
+        // Phase 2: Lower the element expression
+        let elt_expr = self.lower_expr(&elt_node)?;
+        let elt_pre = std::mem::take(&mut self.pre_stmts);
+        let elem_ty = elt_expr.ty.clone();
+
+        self.pop_scope();
+
+        // Phase 3: Build accumulation loop instead of list construction
+        let acc_var = self.fresh_internal("sum_acc");
+        self.declare(acc_var.clone(), elem_ty.to_type());
+
+        // Build the add expression: acc = acc + elt
+        let lhs = TirExpr {
+            kind: TirExprKind::Var(acc_var.clone()),
+            ty: elem_ty.clone(),
+        };
+        let add_expr = self.resolve_binop(line, RawBinOp::Arith(ArithBinOp::Add), lhs, elt_expr)?;
+
+        // Innermost body: pre_stmts from elt + acc = acc + elt
+        let mut body: Vec<TirStmt> = elt_pre;
+        body.push(TirStmt::Let {
+            name: acc_var.clone(),
+            ty: elem_ty.clone(),
+            value: add_expr,
+        });
+
+        // Build from inside out (same as lower_comp_impl)
+        for gen_info in gen_infos.iter().rev() {
+            if !gen_info.if_conds.is_empty() {
+                let combined = gen_info
+                    .if_conds
+                    .iter()
+                    .cloned()
+                    .reduce(|a, b| TirExpr {
+                        kind: TirExprKind::LogicalAnd(Box::new(a), Box::new(b)),
+                        ty: ValueType::Bool,
+                    })
+                    .unwrap();
+                body = vec![TirStmt::If {
+                    condition: combined,
+                    then_body: body,
+                    else_body: vec![],
+                }];
+            }
+            body = self.build_comp_for_loop(&gen_info.var_name, &gen_info.kind, body);
+        }
+
+        // Emit: initialize accumulator + loop stmts
+        let mut stmts = vec![TirStmt::Let {
+            name: acc_var.clone(),
+            ty: elem_ty.clone(),
+            value: start_expr,
+        }];
+        stmts.extend(body);
+
+        self.pre_stmts.extend(stmts);
+
+        Ok(TirExpr {
+            kind: TirExprKind::Var(acc_var),
+            ty: elem_ty,
         })
     }
 

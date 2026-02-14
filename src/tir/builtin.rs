@@ -77,6 +77,7 @@ define_builtins! {
     StrStrip      => "__tython_str_strip",      params: [ValueType::Str],                          ret: Some(ValueType::Str);
     StrSplit      => "__tython_str_split",      params: [ValueType::Str, ValueType::Str],          ret: Some(ValueType::List(Box::new(ValueType::Str)));
     StrJoin       => "__tython_str_join",       params: [ValueType::Str, ValueType::List(Box::new(ValueType::Str))], ret: Some(ValueType::Str);
+    StrHash       => "__tython_str_hash",       params: [ValueType::Str],                          ret: Some(ValueType::Int);
 
     // bytes builtins
     BytesConcat   => "__tython_bytes_concat",   params: [ValueType::Bytes, ValueType::Bytes],       ret: Some(ValueType::Bytes);
