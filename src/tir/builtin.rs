@@ -251,12 +251,28 @@ define_builtins! {
     DictEmpty          => "__tython_dict_empty",          params: [], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
     DictLen            => "__tython_dict_len",            params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Int);
     DictContains       => "__tython_dict_contains",       params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    DictContainsByTag  => "__tython_dict_contains_by_tag", params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Bool);
     DictGet            => "__tython_dict_get",            params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
+    DictGetByTag       => "__tython_dict_get_by_tag",     params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Int);
+    DictGetDefaultByTag => "__tython_dict_get_default_by_tag", params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int, ValueType::Int], ret: Some(ValueType::Int);
     DictSet            => "__tython_dict_set",            params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: None;
+    DictSetByTag       => "__tython_dict_set_by_tag",     params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int, ValueType::Int], ret: None;
+    DictSetDefaultByTag => "__tython_dict_setdefault_by_tag", params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int, ValueType::Int], ret: Some(ValueType::Int);
+    DictDelByTag       => "__tython_dict_del_by_tag",     params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: None;
     DictClear          => "__tython_dict_clear",          params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: None;
     DictPop            => "__tython_dict_pop",            params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Int);
+    DictPopByTag       => "__tython_dict_pop_by_tag",     params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Int);
+    DictPopDefaultByTag => "__tython_dict_pop_default_by_tag", params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int, ValueType::Int], ret: Some(ValueType::Int);
     DictEq             => "__tython_dict_eq",             params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
+    DictEqByTag        => "__tython_dict_eq_by_tag",      params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Bool);
+    DictUpdateByTag    => "__tython_dict_update_by_tag",  params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    DictOrByTag        => "__tython_dict_or_by_tag",      params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
+    DictIOrByTag       => "__tython_dict_ior_by_tag",     params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
+    DictFromKeysByTag  => "__tython_dict_fromkeys_by_tag", params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
     DictCopy           => "__tython_dict_copy",           params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));
+    DictItems          => "__tython_dict_items",          params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    DictPopItem        => "__tython_dict_popitem",        params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::Tuple(vec![ValueType::Int, ValueType::Int]));
+    DictKeys           => "__tython_dict_keys",           params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     DictValues         => "__tython_dict_values",         params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
 
     // set builtins (all Set(...) map to ptr in LLVM; element type is a sentinel)
@@ -264,12 +280,36 @@ define_builtins! {
     SetFromStr         => "__tython_set_from_str",        params: [ValueType::Str], ret: Some(ValueType::List(Box::new(ValueType::Str)));
     SetLen             => "__tython_set_len",             params: [ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
     SetContains        => "__tython_set_contains",        params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    SetContainsByTag   => "__tython_set_contains_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Bool);
     SetAdd             => "__tython_set_add",             params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetAddByTag        => "__tython_set_add_by_tag",      params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: None;
     SetRemove          => "__tython_set_remove",          params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetRemoveByTag     => "__tython_set_remove_by_tag",   params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: None;
     SetDiscard         => "__tython_set_discard",         params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetDiscardByTag    => "__tython_set_discard_by_tag",  params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: None;
+    SetUnionByTag      => "__tython_set_union_by_tag",    params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+    SetUpdateByTag     => "__tython_set_update_by_tag",   params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetIntersectionByTag => "__tython_set_intersection_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+    SetIntersectionUpdateByTag => "__tython_set_intersection_update_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetDifferenceByTag => "__tython_set_difference_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+    SetDifferenceUpdateByTag => "__tython_set_difference_update_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetSymmetricDifferenceByTag => "__tython_set_symmetric_difference_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+    SetSymmetricDifferenceUpdateByTag => "__tython_set_symmetric_difference_update_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: None;
+    SetIsDisjointByTag => "__tython_set_isdisjoint_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    SetIsSubsetByTag   => "__tython_set_issubset_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    SetIsSupersetByTag => "__tython_set_issuperset_by_tag", params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    SetLtByTag         => "__tython_set_lt_by_tag",       params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    SetLeByTag         => "__tython_set_le_by_tag",       params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    SetGtByTag         => "__tython_set_gt_by_tag",       params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    SetGeByTag         => "__tython_set_ge_by_tag",       params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
+    SetIAndByTag       => "__tython_set_iand_by_tag",     params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+    SetIOrByTag        => "__tython_set_ior_by_tag",      params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+    SetISubByTag       => "__tython_set_isub_by_tag",     params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
+    SetIXorByTag       => "__tython_set_ixor_by_tag",     params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
     SetPop             => "__tython_set_pop",             params: [ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
     SetClear           => "__tython_set_clear",           params: [ValueType::Set(Box::new(ValueType::Int))], ret: None;
     SetEq              => "__tython_set_eq",              params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Bool);
+    SetEqByTag         => "__tython_set_eq_by_tag",       params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
     SetCopy            => "__tython_set_copy",            params: [ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
 
     // aggregate builtins

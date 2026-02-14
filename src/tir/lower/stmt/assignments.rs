@@ -3,8 +3,8 @@ use pyo3::prelude::*;
 
 use crate::ast::Type;
 use crate::tir::{
-    builtin, ArithBinOp, BitwiseBinOp, CallResult, CallTarget, RawBinOp, TirExpr, TirExprKind,
-    TirStmt, ValueType,
+    builtin, ArithBinOp, BitwiseBinOp, CallResult, CallTarget, IntrinsicOp, RawBinOp, TirExpr,
+    TirExprKind, TirStmt, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -547,9 +547,19 @@ impl Lowering {
                         ),
                     ));
                 }
+                self.require_intrinsic_eq_support(line, key_ty)?;
+                let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, key_ty);
                 Ok(vec![TirStmt::VoidCall {
-                    target: CallTarget::Builtin(builtin::BuiltinFn::DictSet),
-                    args: vec![list_expr, key_expr, tir_value],
+                    target: CallTarget::Builtin(builtin::BuiltinFn::DictSetByTag),
+                    args: vec![
+                        list_expr,
+                        key_expr,
+                        tir_value,
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(key_eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
                 }])
             }
             ValueType::Tuple(_) => {
@@ -619,11 +629,20 @@ impl Lowering {
                         format!("dict key index must be `{}`, got `{}`", key_ty, key_expr.ty),
                     ));
                 }
+                self.require_intrinsic_eq_support(line, key_ty)?;
+                let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, key_ty);
 
                 let current_val = TirExpr {
                     kind: TirExprKind::ExternalCall {
-                        func: builtin::BuiltinFn::DictGet,
-                        args: vec![list_expr.clone(), key_expr.clone()],
+                        func: builtin::BuiltinFn::DictGetByTag,
+                        args: vec![
+                            list_expr.clone(),
+                            key_expr.clone(),
+                            TirExpr {
+                                kind: TirExprKind::IntLiteral(key_eq_tag),
+                                ty: ValueType::Int,
+                            },
+                        ],
                     },
                     ty: (**value_ty).clone(),
                 };
@@ -643,8 +662,16 @@ impl Lowering {
                 }
 
                 Ok(vec![TirStmt::VoidCall {
-                    target: CallTarget::Builtin(builtin::BuiltinFn::DictSet),
-                    args: vec![list_expr, key_expr, binop_expr],
+                    target: CallTarget::Builtin(builtin::BuiltinFn::DictSetByTag),
+                    args: vec![
+                        list_expr,
+                        key_expr,
+                        binop_expr,
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(key_eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
                 }])
             }
             ValueType::Tuple(_) => {

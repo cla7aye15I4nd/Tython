@@ -577,14 +577,31 @@ impl<'ctx> Codegen<'ctx> {
     ) -> Option<BasicValueEnum<'ctx>> {
         let function = self.get_builtin(func);
 
-        // DictGet/DictPop need both:
+        // DictGet/DictPop variants need both:
         // - key (arg1) bitcasted to i64
         // - returned slot bitcasted from i64 to the value type
-        if matches!(func, BuiltinFn::DictGet | BuiltinFn::DictPop) {
+        if matches!(
+            func,
+            BuiltinFn::DictGet
+                | BuiltinFn::DictPop
+                | BuiltinFn::DictGetByTag
+                | BuiltinFn::DictPopByTag
+                | BuiltinFn::DictGetDefaultByTag
+                | BuiltinFn::DictPopDefaultByTag
+                | BuiltinFn::DictSetDefaultByTag
+        ) {
             let mut call_args: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
             for (i, arg) in args.iter().enumerate() {
                 let val = self.codegen_expr(arg);
-                if i == 1 {
+                if i == 1
+                    || i == 2
+                        && matches!(
+                            func,
+                            BuiltinFn::DictGetDefaultByTag
+                                | BuiltinFn::DictPopDefaultByTag
+                                | BuiltinFn::DictSetDefaultByTag
+                        )
+                {
                     call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
                 } else {
                     call_args.push(self.bool_to_runtime_abi_arg(val, &arg.ty).into());
@@ -673,7 +690,11 @@ impl<'ctx> Codegen<'ctx> {
         // Dict ops with key in position 1; set/get/pop bitcast that key.
         if matches!(
             func,
-            BuiltinFn::DictContains | BuiltinFn::DictGet | BuiltinFn::DictPop
+            BuiltinFn::DictContains
+                | BuiltinFn::DictGet
+                | BuiltinFn::DictPop
+                | BuiltinFn::DictContainsByTag
+                | BuiltinFn::DictDelByTag
         ) {
             let mut call_args: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
             for (i, arg) in args.iter().enumerate() {
@@ -689,8 +710,8 @@ impl<'ctx> Codegen<'ctx> {
                 .map(|ty| self.bool_from_runtime_abi(self.extract_call_value(call), ty));
         }
 
-        // DictSet bitcasts key (arg1) and value (arg2).
-        if matches!(func, BuiltinFn::DictSet) {
+        // DictSet variants bitcast key (arg1) and value (arg2).
+        if matches!(func, BuiltinFn::DictSet | BuiltinFn::DictSetByTag) {
             let mut call_args: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
             for (i, arg) in args.iter().enumerate() {
                 let val = self.codegen_expr(arg);
@@ -704,6 +725,22 @@ impl<'ctx> Codegen<'ctx> {
             return None;
         }
 
+        // dict.fromkeys(keys, value, key_eq_tag) bitcasts value (arg1) to i64.
+        if matches!(func, BuiltinFn::DictFromKeysByTag) {
+            let mut call_args: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
+            for (i, arg) in args.iter().enumerate() {
+                let val = self.codegen_expr(arg);
+                if i == 1 {
+                    call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
+                } else {
+                    call_args.push(self.bool_to_runtime_abi_arg(val, &arg.ty).into());
+                }
+            }
+            let call = emit!(self.build_call(function, &call_args, "builtin_call"));
+            return result_ty
+                .map(|ty| self.bool_from_runtime_abi(self.extract_call_value(call), ty));
+        }
+
         // Set ops with element arg in position 1.
         if matches!(
             func,
@@ -711,6 +748,10 @@ impl<'ctx> Codegen<'ctx> {
                 | BuiltinFn::SetAdd
                 | BuiltinFn::SetRemove
                 | BuiltinFn::SetDiscard
+                | BuiltinFn::SetContainsByTag
+                | BuiltinFn::SetAddByTag
+                | BuiltinFn::SetRemoveByTag
+                | BuiltinFn::SetDiscardByTag
         ) {
             let mut call_args: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
             for (i, arg) in args.iter().enumerate() {

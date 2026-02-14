@@ -254,12 +254,38 @@ impl Lowering {
         line: usize,
         ty: &ValueType,
     ) -> Result<()> {
+        self.require_intrinsic_eq_support(line, ty)
+    }
+
+    pub(in crate::tir::lower) fn require_intrinsic_eq_support(
+        &self,
+        line: usize,
+        ty: &ValueType,
+    ) -> Result<()> {
         match ty {
-            ValueType::List(inner) => self.require_list_leaf_eq_support(line, inner),
+            ValueType::Int
+            | ValueType::Float
+            | ValueType::Bool
+            | ValueType::Str
+            | ValueType::Bytes
+            | ValueType::ByteArray => Ok(()),
+            ValueType::List(inner) => self.require_intrinsic_eq_support(line, inner),
+            ValueType::Tuple(fields) => {
+                for field in fields {
+                    self.require_intrinsic_eq_support(line, field)?;
+                }
+                Ok(())
+            }
             ValueType::Class(class_name) => {
                 self.require_class_magic_method(line, class_name, "__eq__")
             }
-            _ => Ok(()),
+            _ => Err(self.type_error(
+                line,
+                format!(
+                    "type `{}` does not support structural equality in generic containers",
+                    ty
+                ),
+            )),
         }
     }
 

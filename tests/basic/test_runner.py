@@ -48,6 +48,7 @@ import basic.test_str_auto as test_str_auto
 import basic.test_feature_roadmap as test_feature_roadmap
 import basic.test_dict_set_annotations as test_dict_set_annotations
 import basic.test_dict_set as test_dict_set
+import basic.test_set_dict_by_tag as test_set_dict_by_tag
 import basic.test_function_call_args as test_function_call_args
 import basic.test_fstring as test_fstring
 import basic.test_pass_ellipsis_docstring as test_pass_ellipsis_docstring
@@ -107,6 +108,7 @@ def run_all_tests() -> None:
     test_feature_roadmap.run_tests()
     test_dict_set_annotations.run_tests()
     test_dict_set.run_tests()
+    test_set_dict_by_tag.run_tests()
     test_function_call_args.run_tests()
     test_fstring.run_tests()
     test_pass_ellipsis_docstring.run_tests()

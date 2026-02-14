@@ -2,8 +2,8 @@ use anyhow::Result;
 use pyo3::prelude::*;
 
 use crate::tir::{
-    builtin, type_rules, CallResult, CallTarget, LogicalOp, TirExpr, TirExprKind, TirStmt,
-    ValueType,
+    builtin, type_rules, CallResult, CallTarget, IntrinsicOp, LogicalOp, TirExpr, TirExprKind,
+    TirStmt, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -415,6 +415,8 @@ impl Lowering {
                 }
 
                 let dict_ty = ValueType::Dict(Box::new(key_ty.clone()), Box::new(value_ty.clone()));
+                self.require_intrinsic_eq_support(line, &key_ty)?;
+                let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, &key_ty);
                 let dict_var = self.fresh_internal("dict_lit");
                 self.pre_stmts.push(TirStmt::Let {
                     name: dict_var.clone(),
@@ -429,7 +431,7 @@ impl Lowering {
                 });
                 for i in 0..keys.len() {
                     self.pre_stmts.push(TirStmt::VoidCall {
-                        target: CallTarget::Builtin(builtin::BuiltinFn::DictSet),
+                        target: CallTarget::Builtin(builtin::BuiltinFn::DictSetByTag),
                         args: vec![
                             TirExpr {
                                 kind: TirExprKind::Var(dict_var.clone()),
@@ -437,6 +439,10 @@ impl Lowering {
                             },
                             keys[i].clone(),
                             values[i].clone(),
+                            TirExpr {
+                                kind: TirExprKind::IntLiteral(key_eq_tag),
+                                ty: ValueType::Int,
+                            },
                         ],
                     });
                 }
@@ -469,6 +475,8 @@ impl Lowering {
                     }
                 }
 
+                self.require_intrinsic_eq_support(line, &elem_ty)?;
+                let eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, &elem_ty);
                 let set_ty = ValueType::Set(Box::new(elem_ty));
                 let set_var = self.fresh_internal("set_lit");
                 self.pre_stmts.push(TirStmt::Let {
@@ -484,13 +492,17 @@ impl Lowering {
                 });
                 for elt in elements {
                     self.pre_stmts.push(TirStmt::VoidCall {
-                        target: CallTarget::Builtin(builtin::BuiltinFn::SetAdd),
+                        target: CallTarget::Builtin(builtin::BuiltinFn::SetAddByTag),
                         args: vec![
                             TirExpr {
                                 kind: TirExprKind::Var(set_var.clone()),
                                 ty: set_ty.clone(),
                             },
                             elt,
+                            TirExpr {
+                                kind: TirExprKind::IntLiteral(eq_tag),
+                                ty: ValueType::Int,
+                            },
                         ],
                     });
                 }
@@ -594,10 +606,19 @@ impl Lowering {
                                 ),
                             ));
                         }
+                        self.require_intrinsic_eq_support(line, &key_ty)?;
+                        let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, &key_ty);
                         Ok(TirExpr {
                             kind: TirExprKind::ExternalCall {
-                                func: builtin::BuiltinFn::DictGet,
-                                args: vec![obj_expr, index_expr],
+                                func: builtin::BuiltinFn::DictGetByTag,
+                                args: vec![
+                                    obj_expr,
+                                    index_expr,
+                                    TirExpr {
+                                        kind: TirExprKind::IntLiteral(key_eq_tag),
+                                        ty: ValueType::Int,
+                                    },
+                                ],
                             },
                             ty: (*value_ty).clone(),
                         })

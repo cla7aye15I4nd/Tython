@@ -67,10 +67,19 @@ impl Lowering {
                             ),
                         ));
                     }
+                    self.require_intrinsic_eq_support(line, key_ty)?;
+                    let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, key_ty);
                     TirExpr {
                         kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::DictContains,
-                            args: vec![right, left],
+                            func: builtin::BuiltinFn::DictContainsByTag,
+                            args: vec![
+                                right,
+                                left,
+                                TirExpr {
+                                    kind: TirExprKind::IntLiteral(key_eq_tag),
+                                    ty: ValueType::Int,
+                                },
+                            ],
                         },
                         ty: ValueType::Bool,
                     }
@@ -85,10 +94,19 @@ impl Lowering {
                             ),
                         ));
                     }
+                    self.require_intrinsic_eq_support(line, elem_ty)?;
+                    let elem_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, elem_ty);
                     TirExpr {
                         kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::SetContains,
-                            args: vec![right, left],
+                            func: builtin::BuiltinFn::SetContainsByTag,
+                            args: vec![
+                                right,
+                                left,
+                                TirExpr {
+                                    kind: TirExprKind::IntLiteral(elem_eq_tag),
+                                    ty: ValueType::Int,
+                                },
+                            ],
                         },
                         ty: ValueType::Bool,
                     }
@@ -261,10 +279,28 @@ impl Lowering {
                     self.type_error(line, "only `==` and `!=` are supported for dict comparison")
                 );
             }
+            let ValueType::Dict(key_ty, value_ty) = &left.ty else {
+                unreachable!();
+            };
+            self.require_intrinsic_eq_support(line, key_ty)?;
+            self.require_intrinsic_eq_support(line, value_ty)?;
+            let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, key_ty);
+            let value_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, value_ty);
             let eq_expr = TirExpr {
                 kind: TirExprKind::ExternalCall {
-                    func: builtin::BuiltinFn::DictEq,
-                    args: vec![left, right],
+                    func: builtin::BuiltinFn::DictEqByTag,
+                    args: vec![
+                        left,
+                        right,
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(key_eq_tag),
+                            ty: ValueType::Int,
+                        },
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(value_eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
                 },
                 ty: ValueType::Bool,
             };
@@ -293,10 +329,22 @@ impl Lowering {
                     self.type_error(line, "only `==` and `!=` are supported for set comparison")
                 );
             }
+            let ValueType::Set(elem_ty) = &left.ty else {
+                unreachable!();
+            };
+            self.require_intrinsic_eq_support(line, elem_ty)?;
+            let elem_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, elem_ty);
             let eq_expr = TirExpr {
                 kind: TirExprKind::ExternalCall {
-                    func: builtin::BuiltinFn::SetEq,
-                    args: vec![left, right],
+                    func: builtin::BuiltinFn::SetEqByTag,
+                    args: vec![
+                        left,
+                        right,
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(elem_eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
                 },
                 ty: ValueType::Bool,
             };
