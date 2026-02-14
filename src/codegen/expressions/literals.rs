@@ -1,12 +1,9 @@
-use inkwell::values::BasicValueEnum;
-
-use crate::tir::ValueType;
-
 use super::super::Codegen;
+use crate::tir::ValueType;
+use inkwell::values::BasicValueEnum;
 
 impl<'ctx> Codegen<'ctx> {
     fn codegen_byte_array_literal(&self, bytes: &[u8], name: &str) -> BasicValueEnum<'ctx> {
-        // Create struct: { i64 len, [i8 x N] data }
         let len_field = self.i64_type().const_int(bytes.len() as u64, false);
         let byte_values: Vec<_> = bytes
             .iter()

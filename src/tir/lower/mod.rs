@@ -14,9 +14,9 @@ use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 mod calls;
 mod classes;
-mod expressions;
+mod expr;
 mod functions;
-mod statements;
+mod stmt;
 
 #[derive(Clone)]
 struct FunctionSignature {
