@@ -314,6 +314,33 @@ def test_set_magic_methods_explicit_calls() -> None:
     assert base.__len__() == 3
 
 
+def test_dict_more_magic_methods() -> None:
+    left: dict[int, int] = {1: 10}
+    right: dict[int, int] = {2: 20}
+
+    merged_left: dict[int, int] = left.__or__(right)
+    merged_right: dict[int, int] = left.__ror__(right)
+    print("CHECK test_set_dict_by_tag lhs:", merged_left == {1: 10, 2: 20})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert merged_left == {1: 10, 2: 20}
+    print("CHECK test_set_dict_by_tag lhs:", merged_right == {2: 20, 1: 10})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert merged_right == {2: 20, 1: 10}
+
+    keys_seen: list[int] = []
+    for k in left.__iter__():
+        keys_seen.append(k)
+    rev_seen: list[int] = []
+    for k in left.__reversed__():
+        rev_seen.append(k)
+    print("CHECK test_set_dict_by_tag lhs:", keys_seen)
+    print("CHECK test_set_dict_by_tag rhs:", [1])
+    assert keys_seen == [1]
+    print("CHECK test_set_dict_by_tag lhs:", rev_seen)
+    print("CHECK test_set_dict_by_tag rhs:", [1])
+    assert rev_seen == [1]
+
+
 def run_tests() -> None:
     test_class_eq_identity_fallback()
     test_set_eq_by_tag_class()
@@ -323,3 +350,4 @@ def run_tests() -> None:
     test_dict_full_methods_int()
     test_dict_magic_methods_explicit_calls()
     test_set_magic_methods_explicit_calls()
+    test_dict_more_magic_methods()

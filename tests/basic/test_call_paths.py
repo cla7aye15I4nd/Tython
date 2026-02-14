@@ -73,9 +73,17 @@ def test_sum_class_list_special_case() -> None:
     assert total.value == 16
 
 
+def test_sum_generator_range_fast_path() -> None:
+    total: int = sum((i for i in range(1, 6)), 0)
+    print('CHECK test_call_paths lhs:', total)
+    print('CHECK test_call_paths rhs:', 15)
+    assert total == 15
+
+
 def run_tests() -> None:
     test_random_native_calls()
     test_keyword_binding_still_works()
     test_math_native_calls()
     test_sum_generator_fast_path()
     test_sum_class_list_special_case()
+    test_sum_generator_range_fast_path()

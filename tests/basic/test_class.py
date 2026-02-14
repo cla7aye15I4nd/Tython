@@ -76,6 +76,19 @@ class PointFactory:
         return Point(self.ox + x, self.oy + y)
 
 
+class DictHolder:
+    d: dict[int, int]
+
+    def __init__(self) -> None:
+        self.d = {}
+
+    def put(self, k: int, v: int) -> None:
+        self.d[k] = v
+
+    def get(self, k: int) -> int:
+        return self.d[k]
+
+
 def point_distance_sq(p1: Point, p2: Point) -> int:
     dx: int = p1.x - p2.x
     dy: int = p1.y - p2.y
@@ -281,6 +294,17 @@ def test_free_function_with_class_args() -> None:
     assert d == 25
 
 
+def test_class_empty_dict_field_assignment() -> None:
+    h: DictHolder = DictHolder()
+    print('CHECK test_class lhs:', len(h.d))
+    print('CHECK test_class rhs:', 0)
+    assert len(h.d) == 0
+    h.put(4, 44)
+    print('CHECK test_class lhs:', h.get(4))
+    print('CHECK test_class rhs:', 44)
+    assert h.get(4) == 44
+
+
 def test_augmented_assign_field() -> None:
     c: Counter = Counter(10)
     c.count += 5
@@ -351,6 +375,7 @@ def run_tests() -> None:
     test_nested_class_method()
     test_nested_field_mutation()
     test_free_function_with_class_args()
+    test_class_empty_dict_field_assignment()
     test_augmented_assign_field()
     test_field_in_expression()
     test_field_as_condition()

@@ -75,6 +75,17 @@ def test_max_float_variadic() -> None:
     assert x == 9.0
 
 
+def test_min_max_mixed_numeric_promote_to_float() -> None:
+    lo: float = min(9, 3.5, 7, 8)
+    hi: float = max(2, 1.5, 9, 3.25)
+    print('CHECK test_builtins lhs:', lo)
+    print('CHECK test_builtins rhs:', 3.5)
+    assert lo == 3.5
+    print('CHECK test_builtins lhs:', hi == 9.0)
+    print('CHECK test_builtins rhs:', True)
+    assert hi == 9.0
+
+
 def test_pow_builtin_int() -> None:
     x: int = pow(2, 10)
     print('CHECK test_builtins lhs:', x)
@@ -140,6 +151,17 @@ def test_print_variadic() -> None:
 
 def test_print_empty() -> None:
     print()
+
+
+def test_dict_set_empty_builtins() -> None:
+    d: dict[int, int] = dict()
+    s: set[int] = set()
+    print('CHECK test_builtins lhs:', len(d))
+    print('CHECK test_builtins rhs:', 0)
+    assert len(d) == 0
+    print('CHECK test_builtins lhs:', len(s))
+    print('CHECK test_builtins rhs:', 0)
+    assert len(s) == 0
 
 
 def test_sorted_float_list() -> None:
@@ -226,6 +248,60 @@ def test_sorted_str_list() -> None:
     assert src[2] == "cherry"
 
 
+def test_sorted_bytes_and_bytearray_lists() -> None:
+    bsrc: list[bytes] = [b"bb", b"aa", b"cc"]
+    ba_src: list[bytearray] = [bytearray(b"bb"), bytearray(b"aa"), bytearray(b"cc")]
+    bsorted: list[bytes] = sorted(bsrc)
+    ba_sorted: list[bytearray] = sorted(ba_src)
+    print('CHECK test_builtins lhs:', bsorted[0])
+    print('CHECK test_builtins rhs:', b'aa')
+    assert bsorted[0] == b"aa"
+    print('CHECK test_builtins lhs:', ba_sorted[0])
+    print('CHECK test_builtins rhs:', bytearray(b'aa'))
+    assert ba_sorted[0] == bytearray(b"aa")
+
+
+def test_range_reversed_and_max_list_paths() -> None:
+    r1: list[int] = range(4)
+    r2: list[int] = range(1, 5)
+    r3: list[int] = range(1, 8, 3)
+    rev: list[int] = reversed([1, 2, 3])
+    mxi: int = max([7, 3, 9, 5])
+    mxf: float = max([1.5, 2.25, 0.75])
+
+    total1: int = 0
+    total2: int = 0
+    total3: int = 0
+    rev_digits: int = 0
+    for x in r1:
+        total1 = total1 + x
+    for x in r2:
+        total2 = total2 + x
+    for x in r3:
+        total3 = total3 + x
+    for x in rev:
+        rev_digits = rev_digits * 10 + x
+
+    print('CHECK test_builtins lhs:', total1)
+    print('CHECK test_builtins rhs:', 6)
+    assert total1 == 6
+    print('CHECK test_builtins lhs:', total2)
+    print('CHECK test_builtins rhs:', 10)
+    assert total2 == 10
+    print('CHECK test_builtins lhs:', total3)
+    print('CHECK test_builtins rhs:', 12)
+    assert total3 == 12
+    print('CHECK test_builtins lhs:', rev_digits)
+    print('CHECK test_builtins rhs:', 321)
+    assert rev_digits == 321
+    print('CHECK test_builtins lhs:', mxi)
+    print('CHECK test_builtins rhs:', 9)
+    assert mxi == 9
+    print('CHECK test_builtins lhs:', mxf)
+    print('CHECK test_builtins rhs:', 2.25)
+    assert mxf == 2.25
+
+
 def test_list_sort_str() -> None:
     xs: list[str] = ["cherry", "apple", "banana"]
     xs.sort()
@@ -259,6 +335,7 @@ def run_tests() -> None:
     test_max_int()
     test_max_float()
     test_max_float_variadic()
+    test_min_max_mixed_numeric_promote_to_float()
     test_pow_builtin_int()
     test_pow_builtin_float()
     test_round_up()
@@ -268,8 +345,11 @@ def run_tests() -> None:
     test_sum_float_list_with_start()
     test_print_variadic()
     test_print_empty()
+    test_dict_set_empty_builtins()
     test_sorted_float_list()
     test_sorted_bool_list()
     test_sorted_str_list()
+    test_sorted_bytes_and_bytearray_lists()
+    test_range_reversed_and_max_list_paths()
     test_list_sort_str()
     test_print_list_bytes_and_bytearray()

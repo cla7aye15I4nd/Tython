@@ -22,7 +22,18 @@ def test_list_subscript_aug_sub() -> None:
     assert xs[2] == 250
     print("sub_aug_sub ok")
 
+
+def test_dict_subscript_aug_add() -> None:
+    d: dict[int, int] = {1: 10, 2: 20}
+    d[1] += 7
+    print('CHECK test_subscript_aug lhs:', d[1])
+    print('CHECK test_subscript_aug rhs:', 17)
+    assert d[1] == 17
+    print("dict_sub_aug_add ok")
+
+
 def run_tests() -> None:
     test_list_subscript_aug_add()
     test_list_subscript_aug_mul()
     test_list_subscript_aug_sub()
+    test_dict_subscript_aug_add()

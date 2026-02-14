@@ -121,6 +121,22 @@ def test_str_assert() -> None:
     assert "hello"
 
 
+def test_str_methods_strip_split_join() -> None:
+    raw: str = "  a,b,c  "
+    stripped: str = raw.strip()
+    parts: list[str] = stripped.split(",")
+    joined: str = "-".join(parts)
+    print('CHECK test_str lhs:', stripped)
+    print('CHECK test_str rhs:', 'a,b,c')
+    assert stripped == "a,b,c"
+    print('CHECK test_str lhs:', parts)
+    print('CHECK test_str rhs:', ['a', 'b', 'c'])
+    assert parts == ["a", "b", "c"]
+    print('CHECK test_str lhs:', joined)
+    print('CHECK test_str rhs:', 'a-b-c')
+    assert joined == "a-b-c"
+
+
 def run_tests() -> None:
     test_str_literal()
     test_str_empty()
@@ -136,3 +152,4 @@ def run_tests() -> None:
     test_str_identity()
     test_str_truthiness()
     test_str_assert()
+    test_str_methods_strip_split_join()

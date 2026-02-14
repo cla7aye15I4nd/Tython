@@ -339,6 +339,40 @@ def test_list_explicit_magic_and_methods() -> None:
     assert rev == [5, 4, 3, 2, 1]
 
 
+def test_list_more_magic_methods() -> None:
+    xs: list[int] = [1, 2]
+
+    same: bool = xs.__eq__([1, 2, 3])
+    print('CHECK test_list lhs:', same)
+    print('CHECK test_list rhs:', False)
+    assert same == False
+
+
+def test_list_slicing_paths() -> None:
+    xs: list[int] = [0, 1, 2, 3, 4]
+    s1: list[int] = xs[1:4]
+    s2: list[int] = xs[:3]
+    s3: list[int] = xs[2:]
+    s4: list[int] = xs[:]
+    s5: list[int] = xs[1:4:1]
+
+    print('CHECK test_list lhs:', s1)
+    print('CHECK test_list rhs:', [1, 2, 3])
+    assert s1 == [1, 2, 3]
+    print('CHECK test_list lhs:', s2)
+    print('CHECK test_list rhs:', [0, 1, 2])
+    assert s2 == [0, 1, 2]
+    print('CHECK test_list lhs:', s3)
+    print('CHECK test_list rhs:', [2, 3, 4])
+    assert s3 == [2, 3, 4]
+    print('CHECK test_list lhs:', s4)
+    print('CHECK test_list rhs:', [0, 1, 2, 3, 4])
+    assert s4 == [0, 1, 2, 3, 4]
+    print('CHECK test_list lhs:', s5)
+    print('CHECK test_list rhs:', [1, 2, 3])
+    assert s5 == [1, 2, 3]
+
+
 def run_tests() -> None:
     test_list_int_literal()
     test_list_float_literal()
@@ -370,3 +404,5 @@ def run_tests() -> None:
     test_list_index_int()
     test_list_count_int()
     test_list_explicit_magic_and_methods()
+    test_list_more_magic_methods()
+    test_list_slicing_paths()

@@ -54,6 +54,42 @@ def test_plus_eq_float() -> None:
     assert x == 4.0
 
 
+def test_true_div_eq_float() -> None:
+    x: float = 9.0
+    x /= 2.0
+    print('CHECK test_augmented lhs:', x)
+    print('CHECK test_augmented rhs:', 4.5)
+    assert x == 4.5
+
+
+def test_bitwise_augmented_int() -> None:
+    x: int = 14
+    x &= 11
+    print('CHECK test_augmented lhs:', x)
+    print('CHECK test_augmented rhs:', 10)
+    assert x == 10
+
+    x |= 1
+    print('CHECK test_augmented lhs:', x)
+    print('CHECK test_augmented rhs:', 11)
+    assert x == 11
+
+    x ^= 3
+    print('CHECK test_augmented lhs:', x)
+    print('CHECK test_augmented rhs:', 8)
+    assert x == 8
+
+    x <<= 2
+    print('CHECK test_augmented lhs:', x)
+    print('CHECK test_augmented rhs:', 32)
+    assert x == 32
+
+    x >>= 3
+    print('CHECK test_augmented lhs:', x)
+    print('CHECK test_augmented rhs:', 4)
+    assert x == 4
+
+
 def test_accumulate() -> None:
     x: int = 0
     x += 1
@@ -72,4 +108,6 @@ def run_tests() -> None:
     test_mod_eq()
     test_pow_eq()
     test_plus_eq_float()
+    test_true_div_eq_float()
+    test_bitwise_augmented_int()
     test_accumulate()

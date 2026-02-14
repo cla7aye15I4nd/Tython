@@ -1,4 +1,5 @@
 """Module-level docstring - should not generate code."""
+...
 
 def test_pass_basic() -> None:
     """Test basic pass statement."""

@@ -67,6 +67,14 @@ def test_fstring_ascii_and_dynamic_spec() -> None:
     assert "12" in s2
 
 
+def test_fstring_literal_format_spec() -> None:
+    n: int = 7
+    s: str = f"{n:03d}"
+    print('CHECK test_fstring lhs:', "7" in s)
+    print('CHECK test_fstring rhs:', True)
+    assert "7" in s
+
+
 def run_tests() -> None:
     test_basic_fstring()
     test_fstring_repr_conversion()
@@ -74,3 +82,4 @@ def run_tests() -> None:
     test_fstring_format_spec_is_accepted()
     test_fstring_class_magic_conversions()
     test_fstring_ascii_and_dynamic_spec()
+    test_fstring_literal_format_spec()

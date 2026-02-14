@@ -86,9 +86,49 @@ def test_primitive_arg_coercions() -> None:
     assert takes_bool(7) == True
 
 
+def test_default_expression_matrix() -> None:
+    def defaults(
+        a: int = -1,
+        b: float = -1.5,
+        c: bool = 1 == 1,
+        d: int = ~1,
+        e: int = 1 + 2 * 3,
+        f: int = 9 // 2,
+        g: int = 9 % 4,
+        h: int = 2 << 3,
+        i: bool = 3 > 2 and 4 >= 4,
+        j: tuple[int, int] = (1, 2),
+        k: list[int] = [3, 4],
+    ) -> int:
+        if c and i:
+            return a + d + e + f + g + h + j[0] + j[1] + k[0] + k[1]
+        return 0
+
+    print('CHECK test_function_call_args lhs:', defaults())
+    print('CHECK test_function_call_args rhs:', 35)
+    assert defaults() == 35
+    print('CHECK test_function_call_args lhs:', defaults(10, -1.5, True, ~0, 4, 3, 2, 1, True, (5, 6), [7, 8]))
+    print('CHECK test_function_call_args rhs:', 45)
+    assert defaults(10, -1.5, True, ~0, 4, 3, 2, 1, True, (5, 6), [7, 8]) == 45
+
+
+def test_empty_list_default_param() -> None:
+    def size(xs: list[int] = []) -> int:
+        return len(xs)
+
+    print('CHECK test_function_call_args lhs:', size())
+    print('CHECK test_function_call_args rhs:', 0)
+    assert size() == 0
+    print('CHECK test_function_call_args lhs:', size([1, 2, 3]))
+    print('CHECK test_function_call_args rhs:', 3)
+    assert size([1, 2, 3]) == 3
+
+
 def run_tests() -> None:
     test_defaults_and_keywords_top_level()
     test_defaults_and_keywords_nested()
     test_nested_keyword_reorder()
     test_nested_multi_level_with_defaults()
     test_primitive_arg_coercions()
+    test_default_expression_matrix()
+    test_empty_list_default_param()
