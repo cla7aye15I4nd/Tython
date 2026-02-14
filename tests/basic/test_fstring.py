@@ -56,9 +56,21 @@ def test_fstring_class_magic_conversions() -> None:
     assert s2 == "Fancy<9>"
 
 
+def test_fstring_ascii_and_dynamic_spec() -> None:
+    x: str = "abc"
+    width: int = 4
+    s1: str = f"{x!a}"
+    s2: str = f"{12:{width}d}"
+    print('CHECK test_fstring lhs:', s1)
+    print('CHECK test_fstring rhs:', "'abc'")
+    assert s1 == "'abc'"
+    assert "12" in s2
+
+
 def run_tests() -> None:
     test_basic_fstring()
     test_fstring_repr_conversion()
     test_fstring_dict_key()
     test_fstring_format_spec_is_accepted()
     test_fstring_class_magic_conversions()
+    test_fstring_ascii_and_dynamic_spec()

@@ -57,8 +57,38 @@ def test_nested_multi_level_with_defaults() -> None:
     assert level1(a=6, b=4) == 10
 
 
+def test_primitive_arg_coercions() -> None:
+    def takes_float(x: float) -> float:
+        return x
+
+    def takes_int(x: int) -> int:
+        return x
+
+    def takes_bool(x: bool) -> bool:
+        return bool(x)
+
+    print('CHECK test_function_call_args lhs:', takes_float(3) == 3.0)
+    print('CHECK test_function_call_args rhs:', True)
+    assert takes_float(3) == 3.0
+    print('CHECK test_function_call_args lhs:', takes_float(True) == 1.0)
+    print('CHECK test_function_call_args rhs:', True)
+    assert takes_float(True) == 1.0
+
+    print('CHECK test_function_call_args lhs:', takes_int(False) == 0)
+    print('CHECK test_function_call_args rhs:', True)
+    assert takes_int(False) == 0
+
+    print('CHECK test_function_call_args lhs:', takes_bool(0.0) == False)
+    print('CHECK test_function_call_args rhs:', True)
+    assert takes_bool(0.0) == False
+    print('CHECK test_function_call_args lhs:', takes_bool(7) == True)
+    print('CHECK test_function_call_args rhs:', True)
+    assert takes_bool(7) == True
+
+
 def run_tests() -> None:
     test_defaults_and_keywords_top_level()
     test_defaults_and_keywords_nested()
     test_nested_keyword_reorder()
     test_nested_multi_level_with_defaults()
+    test_primitive_arg_coercions()

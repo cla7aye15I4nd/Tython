@@ -5,6 +5,16 @@ import math
 def add3(a: int, b: int = 10, c: int = 100) -> int:
     return a + b + c
 
+
+class Acc:
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def __add__(self, other: "Acc") -> "Acc":
+        return Acc(self.value + other.value)
+
 def test_random_native_calls() -> None:
     random.seed(1337)
     g1: float = random.gauss(0.0, 1.0)
@@ -56,8 +66,16 @@ def test_sum_generator_fast_path() -> None:
     assert total == 20
 
 
+def test_sum_class_list_special_case() -> None:
+    total: Acc = sum([Acc(1), Acc(2), Acc(3)], Acc(10))
+    print('CHECK test_call_paths lhs:', total.value)
+    print('CHECK test_call_paths rhs:', 16)
+    assert total.value == 16
+
+
 def run_tests() -> None:
     test_random_native_calls()
     test_keyword_binding_still_works()
     test_math_native_calls()
     test_sum_generator_fast_path()
+    test_sum_class_list_special_case()
