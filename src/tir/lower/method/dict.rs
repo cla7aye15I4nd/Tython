@@ -428,28 +428,56 @@ pub fn lower_dict_method_call(
             })))
         }
 
-        "__or__" | "__ror__" | "__ior__" => {
+        "__or__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
             let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
-            let (func, reversed) = if method_name == "__or__" {
-                (BuiltinFn::DictOrByTag, false)
-            } else if method_name == "__ror__" {
-                (BuiltinFn::DictOrByTag, true)
-            } else {
-                (BuiltinFn::DictIOrByTag, false)
-            };
-            let (lhs, rhs) = if reversed {
-                (args[0].clone(), obj.clone())
-            } else {
-                (obj.clone(), args[0].clone())
-            };
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
-                    func,
+                    func: BuiltinFn::DictOrByTag,
                     args: vec![
-                        lhs,
-                        rhs,
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(key_eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: dict_ty.clone(),
+            }))
+        }
+
+        "__ror__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::DictOrByTag,
+                    args: vec![
+                        args[0].clone(),
+                        obj.clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(key_eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: dict_ty.clone(),
+            }))
+        }
+
+        "__ior__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::DictIOrByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
                         TirExpr {
                             kind: TirExprKind::IntLiteral(key_eq_tag),
                             ty: ValueType::Int,
@@ -488,7 +516,25 @@ pub fn lower_dict_method_call(
             }))
         }
 
-        "__lt__" | "__le__" | "__gt__" | "__ge__" => {
+        "__lt__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
+            Err(ctx.type_error(line, "dict ordering comparison is not supported"))
+        }
+
+        "__le__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
+            Err(ctx.type_error(line, "dict ordering comparison is not supported"))
+        }
+
+        "__gt__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
+            Err(ctx.type_error(line, "dict ordering comparison is not supported"))
+        }
+
+        "__ge__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
             Err(ctx.type_error(line, "dict ordering comparison is not supported"))

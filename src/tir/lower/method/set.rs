@@ -110,22 +110,13 @@ pub fn lower_set_method_call(
             })))
         }
 
-        "difference" | "intersection" | "symmetric_difference" | "union" => {
+        "difference" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = if method_name == "difference" {
-                BuiltinFn::SetDifferenceByTag
-            } else if method_name == "intersection" {
-                BuiltinFn::SetIntersectionByTag
-            } else if method_name == "symmetric_difference" {
-                BuiltinFn::SetSymmetricDifferenceByTag
-            } else {
-                BuiltinFn::SetUnionByTag
-            };
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
-                    func,
+                    func: BuiltinFn::SetDifferenceByTag,
                     args: vec![
                         obj.clone(),
                         args[0].clone(),
@@ -139,21 +130,72 @@ pub fn lower_set_method_call(
             }))
         }
 
-        "difference_update" | "intersection_update" | "symmetric_difference_update" | "update" => {
+        "intersection" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = if method_name == "difference_update" {
-                BuiltinFn::SetDifferenceUpdateByTag
-            } else if method_name == "intersection_update" {
-                BuiltinFn::SetIntersectionUpdateByTag
-            } else if method_name == "symmetric_difference_update" {
-                BuiltinFn::SetSymmetricDifferenceUpdateByTag
-            } else {
-                BuiltinFn::SetUpdateByTag
-            };
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetIntersectionByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "symmetric_difference" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetSymmetricDifferenceByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "union" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetUnionByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "difference_update" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
-                target: CallTarget::Builtin(func),
+                target: CallTarget::Builtin(BuiltinFn::SetDifferenceUpdateByTag),
                 args: vec![
                     obj.clone(),
                     args[0].clone(),
@@ -165,20 +207,104 @@ pub fn lower_set_method_call(
             })))
         }
 
-        "isdisjoint" | "issubset" | "issuperset" => {
+        "intersection_update" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = if method_name == "isdisjoint" {
-                BuiltinFn::SetIsDisjointByTag
-            } else if method_name == "issubset" {
-                BuiltinFn::SetIsSubsetByTag
-            } else {
-                BuiltinFn::SetIsSupersetByTag
-            };
+            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                target: CallTarget::Builtin(BuiltinFn::SetIntersectionUpdateByTag),
+                args: vec![
+                    obj.clone(),
+                    args[0].clone(),
+                    TirExpr {
+                        kind: TirExprKind::IntLiteral(eq_tag),
+                        ty: ValueType::Int,
+                    },
+                ],
+            })))
+        }
+
+        "symmetric_difference_update" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                target: CallTarget::Builtin(BuiltinFn::SetSymmetricDifferenceUpdateByTag),
+                args: vec![
+                    obj.clone(),
+                    args[0].clone(),
+                    TirExpr {
+                        kind: TirExprKind::IntLiteral(eq_tag),
+                        ty: ValueType::Int,
+                    },
+                ],
+            })))
+        }
+
+        "update" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
+                target: CallTarget::Builtin(BuiltinFn::SetUpdateByTag),
+                args: vec![
+                    obj.clone(),
+                    args[0].clone(),
+                    TirExpr {
+                        kind: TirExprKind::IntLiteral(eq_tag),
+                        ty: ValueType::Int,
+                    },
+                ],
+            })))
+        }
+
+        "isdisjoint" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
-                    func,
+                    func: BuiltinFn::SetIsDisjointByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Bool,
+            }))
+        }
+
+        "issubset" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetIsSubsetByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Bool,
+            }))
+        }
+
+        "issuperset" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetIsSupersetByTag,
                     args: vec![
                         obj.clone(),
                         args[0].clone(),
@@ -257,65 +383,13 @@ pub fn lower_set_method_call(
             }))
         }
 
-        "__and__" | "__or__" | "__sub__" | "__xor__" | "__rand__" | "__ror__" | "__rsub__"
-        | "__rxor__" => {
+        "__and__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let (func, reversed) = if method_name == "__and__" {
-                (BuiltinFn::SetIntersectionByTag, false)
-            } else if method_name == "__or__" {
-                (BuiltinFn::SetUnionByTag, false)
-            } else if method_name == "__sub__" {
-                (BuiltinFn::SetDifferenceByTag, false)
-            } else if method_name == "__xor__" {
-                (BuiltinFn::SetSymmetricDifferenceByTag, false)
-            } else if method_name == "__rand__" {
-                (BuiltinFn::SetIntersectionByTag, true)
-            } else if method_name == "__ror__" {
-                (BuiltinFn::SetUnionByTag, true)
-            } else if method_name == "__rsub__" {
-                (BuiltinFn::SetDifferenceByTag, true)
-            } else {
-                (BuiltinFn::SetSymmetricDifferenceByTag, true)
-            };
-            let (lhs, rhs) = if reversed {
-                (args[0].clone(), obj.clone())
-            } else {
-                (obj.clone(), args[0].clone())
-            };
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
-                    func,
-                    args: vec![
-                        lhs,
-                        rhs,
-                        TirExpr {
-                            kind: TirExprKind::IntLiteral(eq_tag),
-                            ty: ValueType::Int,
-                        },
-                    ],
-                },
-                ty: set_ty.clone(),
-            }))
-        }
-
-        "__iand__" | "__ior__" | "__isub__" | "__ixor__" => {
-            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
-            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = if method_name == "__iand__" {
-                BuiltinFn::SetIAndByTag
-            } else if method_name == "__ior__" {
-                BuiltinFn::SetIOrByTag
-            } else if method_name == "__isub__" {
-                BuiltinFn::SetISubByTag
-            } else {
-                BuiltinFn::SetIXorByTag
-            };
-            Ok(CallResult::Expr(TirExpr {
-                kind: TirExprKind::ExternalCall {
-                    func,
+                    func: BuiltinFn::SetIntersectionByTag,
                     args: vec![
                         obj.clone(),
                         args[0].clone(),
@@ -329,22 +403,293 @@ pub fn lower_set_method_call(
             }))
         }
 
-        "__lt__" | "__le__" | "__gt__" | "__ge__" => {
+        "__or__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
             let eq_tag = set_eq_tag(ctx, line, inner_type)?;
-            let func = if method_name == "__lt__" {
-                BuiltinFn::SetLtByTag
-            } else if method_name == "__le__" {
-                BuiltinFn::SetLeByTag
-            } else if method_name == "__gt__" {
-                BuiltinFn::SetGtByTag
-            } else {
-                BuiltinFn::SetGeByTag
-            };
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
-                    func,
+                    func: BuiltinFn::SetUnionByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__sub__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetDifferenceByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__xor__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetSymmetricDifferenceByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__rand__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetIntersectionByTag,
+                    args: vec![
+                        args[0].clone(),
+                        obj.clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__ror__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetUnionByTag,
+                    args: vec![
+                        args[0].clone(),
+                        obj.clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__rsub__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetDifferenceByTag,
+                    args: vec![
+                        args[0].clone(),
+                        obj.clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__rxor__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetSymmetricDifferenceByTag,
+                    args: vec![
+                        args[0].clone(),
+                        obj.clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__iand__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetIAndByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__ior__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetIOrByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__isub__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetISubByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__ixor__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetIXorByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: set_ty.clone(),
+            }))
+        }
+
+        "__lt__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetLtByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Bool,
+            }))
+        }
+
+        "__le__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetLeByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Bool,
+            }))
+        }
+
+        "__gt__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetGtByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(eq_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Bool,
+            }))
+        }
+
+        "__ge__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
+            let eq_tag = set_eq_tag(ctx, line, inner_type)?;
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::SetGeByTag,
                     args: vec![
                         obj.clone(),
                         args[0].clone(),
