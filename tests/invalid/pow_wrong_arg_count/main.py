@@ -1,1 +1,5 @@
-x: int = pow(2)
+def run_case() -> None:
+    x: int = pow(2)
+
+if __name__ == "__main__":
+    run_case()

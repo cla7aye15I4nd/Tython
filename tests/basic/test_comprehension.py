@@ -312,6 +312,38 @@ def test_internal_iter_next_nested_structure() -> None:
     print('CHECK test_comprehension rhs:', 25)
     assert total == 25
 
+def test_comprehension_tuple_unpack_zip_enumerate_valid() -> None:
+    xs: list[int] = [1, 2, 3]
+    ys: list[int] = [10, 20, 30]
+    sums: list[int] = [a + b for (a, b) in zip(xs, ys)]
+    print('CHECK test_comprehension lhs:', sums)
+    print('CHECK test_comprehension rhs:', [11, 22, 33])
+    assert sums == [11, 22, 33]
+
+    encoded: list[int] = [i * 10 + v for (i, v) in enumerate([7, 8, 9])]
+    print('CHECK test_comprehension lhs:', encoded)
+    print('CHECK test_comprehension rhs:', [7, 18, 29])
+    assert encoded == [7, 18, 29]
+
+def test_sum_generator_with_filters_and_tuple_unpack_valid() -> None:
+    score: int = sum((a * b for (a, b) in zip([1, 2, 3, 4], [5, 6, 7, 8]) if a % 2 == 0), 10)
+    print('CHECK test_comprehension lhs:', score)
+    print('CHECK test_comprehension rhs:', 54)
+    assert score == 54
+
+    r1: list[int] = [i for i in range(4)]
+    r2: list[int] = [i for i in range(2, 7)]
+    r3: list[int] = [i for i in range(10, 4, -2)]
+    print('CHECK test_comprehension lhs:', r1)
+    print('CHECK test_comprehension rhs:', [0, 1, 2, 3])
+    assert r1 == [0, 1, 2, 3]
+    print('CHECK test_comprehension lhs:', r2)
+    print('CHECK test_comprehension rhs:', [2, 3, 4, 5, 6])
+    assert r2 == [2, 3, 4, 5, 6]
+    print('CHECK test_comprehension lhs:', r3)
+    print('CHECK test_comprehension rhs:', [10, 8, 6])
+    assert r3 == [10, 8, 6]
+
 
 def run_tests() -> None:
     test_try_except_finally_raise_nested()
@@ -325,3 +357,5 @@ def run_tests() -> None:
     test_deep_nested_comprehensions_with_filters()
     test_internal_iter_next_basic()
     test_internal_iter_next_nested_structure()
+    test_comprehension_tuple_unpack_zip_enumerate_valid()
+    test_sum_generator_with_filters_and_tuple_unpack_valid()

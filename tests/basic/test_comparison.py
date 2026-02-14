@@ -156,6 +156,25 @@ def test_cmp_variables() -> None:
     assert result == 1
 
 
+def test_list_lexicographic_ordering() -> None:
+    a: list[int] = [1, 2]
+    b: list[int] = [1, 3]
+    c: list[int] = [1, 2]
+
+    print('CHECK test_comparison lhs:', a < b)
+    print('CHECK test_comparison rhs:', True)
+    assert (a < b) == True
+    print('CHECK test_comparison lhs:', b > a)
+    print('CHECK test_comparison rhs:', True)
+    assert (b > a) == True
+    print('CHECK test_comparison lhs:', a <= c)
+    print('CHECK test_comparison rhs:', True)
+    assert (a <= c) == True
+    print('CHECK test_comparison lhs:', b >= c)
+    print('CHECK test_comparison rhs:', True)
+    assert (b >= c) == True
+
+
 def run_tests() -> None:
     test_eq_true()
     test_eq_false()
@@ -178,3 +197,4 @@ def run_tests() -> None:
     test_cmp_negative_ordering()
     test_cmp_with_arithmetic()
     test_cmp_variables()
+    test_list_lexicographic_ordering()

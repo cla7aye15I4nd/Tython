@@ -1,4 +1,5 @@
 import random
+import math
 
 
 def add3(a: int, b: int = 10, c: int = 100) -> int:
@@ -38,7 +39,25 @@ def test_keyword_binding_still_works() -> None:
     print('CHECK test_call_paths rhs:', 16)
     assert add3(1, c=5) == 16
 
+def test_math_native_calls() -> None:
+    log_one: float = math.log(1.0)
+    exp_zero: float = math.exp(0.0)
+    print('CHECK test_call_paths lhs:', log_one)
+    print('CHECK test_call_paths rhs:', 0.0)
+    assert log_one == 0.0
+    print('CHECK test_call_paths lhs:', exp_zero)
+    print('CHECK test_call_paths rhs:', 1.0)
+    assert exp_zero == 1.0
+
+def test_sum_generator_fast_path() -> None:
+    total: int = sum((i for i in [1, 2, 3, 4]), 10)
+    print('CHECK test_call_paths lhs:', total)
+    print('CHECK test_call_paths rhs:', 20)
+    assert total == 20
+
 
 def run_tests() -> None:
     test_random_native_calls()
     test_keyword_binding_still_works()
+    test_math_native_calls()
+    test_sum_generator_fast_path()

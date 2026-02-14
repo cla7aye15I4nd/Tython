@@ -6,4 +6,8 @@ class Pair:
         self.x = x
         self.y = y
 
-p: Pair = Pair(1)
+def run_case() -> None:
+    p: Pair = Pair(1)
+
+if __name__ == "__main__":
+    run_case()

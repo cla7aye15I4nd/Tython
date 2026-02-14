@@ -142,6 +142,25 @@ def test_for_tuple_break_continue() -> None:
     print('CHECK test_for rhs:', 8)
     assert total == 8
 
+def test_for_tuple_unpack_zip_enumerate_valid() -> None:
+    total: int = 0
+    for a, b in zip([1, 2, 3], [4, 5, 6]):
+        total = total + a * b
+    else:
+        total = total + 1
+    print('CHECK test_for lhs:', total)
+    print('CHECK test_for rhs:', 33)
+    assert total == 33
+
+    encoded: list[int] = []
+    for i, v in enumerate([7, 8, 9]):
+        encoded.append(i * 10 + v)
+    else:
+        encoded.append(99)
+    print('CHECK test_for lhs:', encoded)
+    print('CHECK test_for rhs:', [7, 18, 29, 99])
+    assert encoded == [7, 18, 29, 99]
+
 
 def run_tests() -> None:
     test_for_range_stop_only()
@@ -158,3 +177,4 @@ def run_tests() -> None:
     test_for_negative_empty_ranges()
     test_for_tuple_iteration()
     test_for_tuple_break_continue()
+    test_for_tuple_unpack_zip_enumerate_valid()

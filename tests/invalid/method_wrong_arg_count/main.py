@@ -7,5 +7,10 @@ class Foo:
     def get_x(self) -> int:
         return self.x
 
-f: Foo = Foo(1)
-f.get_x(42)
+def run_case() -> None:
+    f: Foo = Foo(1)
+
+    f.get_x(42)
+
+if __name__ == "__main__":
+    run_case()

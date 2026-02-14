@@ -1,4 +1,8 @@
 def add(a: int, b: int) -> int:
     return a + b
 
-x: int = add(1, 2, 3)
+def run_case() -> None:
+    x: int = add(1, 2, 3)
+
+if __name__ == "__main__":
+    run_case()

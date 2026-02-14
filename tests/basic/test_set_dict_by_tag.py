@@ -216,6 +216,103 @@ def test_dict_full_methods_int() -> None:
     print("CHECK test_set_dict_by_tag rhs:", (10, 100))
     assert pair == (10, 100)
 
+def test_dict_magic_methods_explicit_calls() -> None:
+    d1: dict[int, int] = {1: 10, 2: 20}
+    d2: dict[int, int] = {2: 20, 1: 10}
+    d3: dict[int, int] = {1: 10, 2: 99}
+
+    has_two: bool = d1.__contains__(2)
+    has_three: bool = d1.__contains__(3)
+    same: bool = d1.__eq__(d2)
+    different: bool = d1.__ne__(d3)
+
+    print("CHECK test_set_dict_by_tag lhs:", has_two)
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert has_two == True
+    print("CHECK test_set_dict_by_tag lhs:", has_three)
+    print("CHECK test_set_dict_by_tag rhs:", False)
+    assert has_three == False
+    print("CHECK test_set_dict_by_tag lhs:", same)
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert same == True
+    print("CHECK test_set_dict_by_tag lhs:", different)
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert different == True
+
+
+def test_set_magic_methods_explicit_calls() -> None:
+    base: set[int] = {1, 2, 3}
+    other: set[int] = {3, 4}
+
+    print("CHECK test_set_dict_by_tag lhs:", base.__contains__(3))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__contains__(3) == True
+    print("CHECK test_set_dict_by_tag lhs:", base.__eq__({1, 2, 3}))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__eq__({1, 2, 3}) == True
+    print("CHECK test_set_dict_by_tag lhs:", base.__ne__(other))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__ne__(other) == True
+
+    print("CHECK test_set_dict_by_tag lhs:", base.__and__(other) == {3})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__and__(other) == {3}
+    print("CHECK test_set_dict_by_tag lhs:", base.__or__(other) == {1, 2, 3, 4})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__or__(other) == {1, 2, 3, 4}
+    print("CHECK test_set_dict_by_tag lhs:", base.__sub__(other) == {1, 2})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__sub__(other) == {1, 2}
+    print("CHECK test_set_dict_by_tag lhs:", base.__xor__(other) == {1, 2, 4})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__xor__(other) == {1, 2, 4}
+
+    print("CHECK test_set_dict_by_tag lhs:", base.__rand__(other) == {3})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__rand__(other) == {3}
+    print("CHECK test_set_dict_by_tag lhs:", base.__ror__(other) == {1, 2, 3, 4})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__ror__(other) == {1, 2, 3, 4}
+    print("CHECK test_set_dict_by_tag lhs:", base.__rsub__(other) == {4})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__rsub__(other) == {4}
+    print("CHECK test_set_dict_by_tag lhs:", base.__rxor__(other) == {1, 2, 4})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert base.__rxor__(other) == {1, 2, 4}
+
+    s1: set[int] = {1, 2, 3}
+    s2: set[int] = {2, 4}
+    s3: set[int] = {1, 2, 3}
+    s4: set[int] = {2, 5}
+    s5: set[int] = {1, 2, 3}
+    s6: set[int] = {2, 3}
+    s7: set[int] = {1, 2, 3}
+    s8: set[int] = {2, 4}
+
+    iand_res: set[int] = s1.__iand__(s2)
+    print("CHECK test_set_dict_by_tag lhs:", iand_res == {2})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert iand_res == {2}
+    ior_res: set[int] = s3.__ior__(s4)
+    print("CHECK test_set_dict_by_tag lhs:", ior_res == {1, 2, 3, 5})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert ior_res == {1, 2, 3, 5}
+    isub_res: set[int] = s5.__isub__(s6)
+    print("CHECK test_set_dict_by_tag lhs:", isub_res == {1})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert isub_res == {1}
+    ixor_res: set[int] = s7.__ixor__(s8)
+    print("CHECK test_set_dict_by_tag lhs:", ixor_res == {1, 3, 4})
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert ixor_res == {1, 3, 4}
+
+    copied_iter = base.__iter__()
+    if copied_iter:
+        pass
+    print("CHECK test_set_dict_by_tag lhs:", base.__len__())
+    print("CHECK test_set_dict_by_tag rhs:", 3)
+    assert base.__len__() == 3
+
 
 def run_tests() -> None:
     test_class_eq_identity_fallback()
@@ -224,3 +321,5 @@ def run_tests() -> None:
     test_dict_eq_by_tag()
     test_set_full_methods_int()
     test_dict_full_methods_int()
+    test_dict_magic_methods_explicit_calls()
+    test_set_magic_methods_explicit_calls()

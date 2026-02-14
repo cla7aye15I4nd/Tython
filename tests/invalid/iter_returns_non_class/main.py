@@ -7,5 +7,10 @@ class Foo:
     def __iter__(self) -> int:
         return 0
 
-f: Foo = Foo(1)
-y: list[int] = [i for i in f]
+def run_case() -> None:
+    f: Foo = Foo(1)
+
+    y: list[int] = [i for i in f]
+
+if __name__ == "__main__":
+    run_case()

@@ -7,5 +7,10 @@ class Foo:
     def __len__(self) -> str:
         return "x"
 
-f: Foo = Foo(1)
-n: int = len(f)
+def run_case() -> None:
+    f: Foo = Foo(1)
+
+    n: int = len(f)
+
+if __name__ == "__main__":
+    run_case()

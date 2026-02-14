@@ -7,5 +7,10 @@ class Foo:
     def add(self, n: int) -> None:
         self.x = self.x + n
 
-f: Foo = Foo(1)
-f.add(1, 2)
+def run_case() -> None:
+    f: Foo = Foo(1)
+
+    f.add(1, 2)
+
+if __name__ == "__main__":
+    run_case()

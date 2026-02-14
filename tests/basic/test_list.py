@@ -285,6 +285,59 @@ def test_list_count_int() -> None:
     print('CHECK test_list rhs:', 3)
     assert c == 3
 
+def test_list_explicit_magic_and_methods() -> None:
+    xs: list[int] = [3, 1, 2]
+    xs.insert(1, 9)
+    xs.remove(9)
+    pos: int = xs.index(1)
+    cnt: int = xs.count(3)
+    xs.reverse()
+    xs.sort()
+    xs.extend([4, 5])
+
+    copy_xs: list[int] = xs.copy()
+    copy_xs[0] = 99
+    print('CHECK test_list lhs:', xs)
+    print('CHECK test_list rhs:', [1, 2, 3, 4, 5])
+    assert xs == [1, 2, 3, 4, 5]
+    print('CHECK test_list lhs:', pos)
+    print('CHECK test_list rhs:', 1)
+    assert pos == 1
+    print('CHECK test_list lhs:', cnt)
+    print('CHECK test_list rhs:', 1)
+    assert cnt == 1
+    print('CHECK test_list lhs:', copy_xs[0])
+    print('CHECK test_list rhs:', 99)
+    assert copy_xs[0] == 99
+
+    plus: list[int] = xs.__add__([6])
+    mul: list[int] = [7, 8].__mul__(2)
+    contains_four: bool = xs.__contains__(4)
+    third: int = xs.__getitem__(2)
+    ln: int = xs.__len__()
+    rev: list[int] = []
+    for item in xs.__reversed__():
+        rev.append(item)
+
+    print('CHECK test_list lhs:', plus)
+    print('CHECK test_list rhs:', [1, 2, 3, 4, 5, 6])
+    assert plus == [1, 2, 3, 4, 5, 6]
+    print('CHECK test_list lhs:', mul)
+    print('CHECK test_list rhs:', [7, 8, 7, 8])
+    assert mul == [7, 8, 7, 8]
+    print('CHECK test_list lhs:', contains_four)
+    print('CHECK test_list rhs:', True)
+    assert contains_four == True
+    print('CHECK test_list lhs:', third)
+    print('CHECK test_list rhs:', 3)
+    assert third == 3
+    print('CHECK test_list lhs:', ln)
+    print('CHECK test_list rhs:', 5)
+    assert ln == 5
+    print('CHECK test_list lhs:', rev)
+    print('CHECK test_list rhs:', [5, 4, 3, 2, 1])
+    assert rev == [5, 4, 3, 2, 1]
+
 
 def run_tests() -> None:
     test_list_int_literal()
@@ -316,3 +369,4 @@ def run_tests() -> None:
     test_list_sort_float()
     test_list_index_int()
     test_list_count_int()
+    test_list_explicit_magic_and_methods()
