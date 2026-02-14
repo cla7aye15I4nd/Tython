@@ -2,8 +2,8 @@ use inkwell::values::PointerValue;
 
 use crate::tir::{TirFunction, ValueType};
 
-use super::runtime_fn::RuntimeFn;
-use super::Codegen;
+use super::super::runtime_fn::RuntimeFn;
+use super::super::Codegen;
 
 impl<'ctx> Codegen<'ctx> {
     pub(crate) fn branch_if_unterminated(

@@ -4,7 +4,7 @@ use inkwell::AddressSpace;
 use crate::ast::ClassInfo;
 use crate::tir::ValueType;
 
-use super::Codegen;
+use super::super::Codegen;
 
 impl<'ctx> Codegen<'ctx> {
     pub fn register_class(&mut self, class_info: &ClassInfo) {
