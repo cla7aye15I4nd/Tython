@@ -156,6 +156,33 @@ def test_default_expression_float_cmp_matrix() -> None:
     assert probe() == 1
 
 
+def test_default_expression_bitwise_bool_and_cast() -> None:
+    def probe(
+        a: int = 9 - 4,
+        b: int = 2 ** 5,
+        c: int = 6 & 3,
+        d: int = 6 | 1,
+        e: int = 6 ^ 3,
+        f: int = 8 >> 2,
+        g: bool = 1 == 1,
+        h: bool = 1 != 2,
+        i: bool = (1 < 2) and (3 > 2),
+        j: bool = (1 == 2) or (2 == 2),
+        k: float = 1 + 2.0,
+        m: float = -1.5,
+        n: bool = not (1 == 2),
+        o: bool = (1 == 1) == (2 == 2),
+        p: bool = (1 == 1) != (2 == 3),
+    ) -> int:
+        if g and h and i and j and n and o and p and k > 0.0 and m < 0.0:
+            return a + b + c + d + e + f
+        return 0
+
+    print('CHECK test_function_call_args lhs:', probe())
+    print('CHECK test_function_call_args rhs:', 53)
+    assert probe() == 53
+
+
 def run_tests() -> None:
     test_defaults_and_keywords_top_level()
     test_defaults_and_keywords_nested()
@@ -165,3 +192,4 @@ def run_tests() -> None:
     test_default_expression_matrix()
     test_empty_list_default_param()
     test_default_expression_float_cmp_matrix()
+    test_default_expression_bitwise_bool_and_cast()

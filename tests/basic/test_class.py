@@ -89,6 +89,18 @@ class DictHolder:
         return self.d[k]
 
 
+class DocAndEllipsis:
+    """Class body docstring should be accepted."""
+    ...
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def get(self) -> int:
+        return self.value
+
+
 def point_distance_sq(p1: Point, p2: Point) -> int:
     dx: int = p1.x - p2.x
     dy: int = p1.y - p2.y
@@ -356,6 +368,13 @@ def test_class_in_while_condition() -> None:
     assert c.get() == 5
 
 
+def test_class_body_docstring_and_ellipsis() -> None:
+    x: DocAndEllipsis = DocAndEllipsis(42)
+    print('CHECK test_class lhs:', x.get())
+    print('CHECK test_class rhs:', 42)
+    assert x.get() == 42
+
+
 def run_tests() -> None:
     test_construct_and_fields()
     test_method_return_value()
@@ -380,3 +399,4 @@ def run_tests() -> None:
     test_field_in_expression()
     test_field_as_condition()
     test_class_in_while_condition()
+    test_class_body_docstring_and_ellipsis()

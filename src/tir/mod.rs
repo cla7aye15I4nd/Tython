@@ -658,15 +658,9 @@ pub enum TirExprKind {
         kind: CastKind,
         arg: Box<TirExpr>,
     },
-    // ── Class and field access ──────────────────────────────────────
+    // ── Class and tuple field access ─────────────────────────────────
     GetField {
         object: Box<TirExpr>,
-        class_name: String,
-        field_index: usize,
-    },
-    GetTupleField {
-        tuple: Box<TirExpr>,
-        tuple_signature: String,
         field_index: usize,
     },
     Construct {

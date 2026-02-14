@@ -348,6 +348,24 @@ def test_list_more_magic_methods() -> None:
     assert same == False
 
 
+def test_list_binary_concat_and_repeat() -> None:
+    left: list[int] = [1, 2]
+    right: list[int] = [3, 4]
+    concat: list[int] = left + right
+    repeat1: list[int] = left * 3
+    repeat2: list[int] = 2 * right
+
+    print('CHECK test_list lhs:', concat)
+    print('CHECK test_list rhs:', [1, 2, 3, 4])
+    assert concat == [1, 2, 3, 4]
+    print('CHECK test_list lhs:', repeat1)
+    print('CHECK test_list rhs:', [1, 2, 1, 2, 1, 2])
+    assert repeat1 == [1, 2, 1, 2, 1, 2]
+    print('CHECK test_list lhs:', repeat2)
+    print('CHECK test_list rhs:', [3, 4, 3, 4])
+    assert repeat2 == [3, 4, 3, 4]
+
+
 def test_list_slicing_paths() -> None:
     xs: list[int] = [0, 1, 2, 3, 4]
     s1: list[int] = xs[1:4]
@@ -405,4 +423,5 @@ def run_tests() -> None:
     test_list_count_int()
     test_list_explicit_magic_and_methods()
     test_list_more_magic_methods()
+    test_list_binary_concat_and_repeat()
     test_list_slicing_paths()

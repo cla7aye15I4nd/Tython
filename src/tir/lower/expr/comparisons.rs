@@ -522,21 +522,17 @@ impl Lowering {
         }
 
         let mut comparisons = Vec::new();
-        let tuple_signature = self.get_or_register_tuple(&elements);
-
         for (i, elem_ty) in elements.iter().enumerate() {
             let left_elem = TirExpr {
-                kind: TirExprKind::GetTupleField {
-                    tuple: Box::new(left.clone()),
-                    tuple_signature: tuple_signature.clone(),
+                kind: TirExprKind::GetField {
+                    object: Box::new(left.clone()),
                     field_index: i,
                 },
                 ty: elem_ty.clone(),
             };
             let right_elem = TirExpr {
-                kind: TirExprKind::GetTupleField {
-                    tuple: Box::new(right.clone()),
-                    tuple_signature: tuple_signature.clone(),
+                kind: TirExprKind::GetField {
+                    object: Box::new(right.clone()),
                     field_index: i,
                 },
                 ty: elem_ty.clone(),

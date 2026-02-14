@@ -208,14 +208,12 @@ impl Lowering {
                 });
             }
 
-            let tuple_signature = self.get_or_register_tuple(&element_types);
             let elem_expr = TirExpr {
-                kind: TirExprKind::GetTupleField {
-                    tuple: Box::new(TirExpr {
+                kind: TirExprKind::GetField {
+                    object: Box::new(TirExpr {
                         kind: TirExprKind::Var(tuple_var.clone()),
                         ty: tuple_ty.clone(),
                     }),
-                    tuple_signature,
                     field_index: i,
                 },
                 ty: elem_ty.clone(),

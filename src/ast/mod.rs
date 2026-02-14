@@ -101,10 +101,3 @@ pub struct ClassInfo {
     pub methods: HashMap<String, ClassMethod>,
     pub field_map: HashMap<String, usize>,
 }
-
-#[derive(Debug, Clone)]
-pub struct TupleInfo {
-    pub signature: String,        // "int|str|bool" - unique identifier
-    pub element_types: Vec<Type>, // Element types
-    pub len: usize,               // Tuple length
-}

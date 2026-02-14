@@ -69,6 +69,26 @@ def nested_tuple_list_class() -> int:
     return nested[0][0] + nested[1][2] + nested[2].value
 
 
+def test_tuple_static_index_with_dict_and_set() -> None:
+    d: dict[int, int] = {1: 10, 2: 20}
+    s: set[int] = {3, 4, 5}
+    t: tuple[dict[int, int], set[int]] = (d, s)
+
+    left_len: int = len(t[0])
+    right_len: int = len(t[1])
+    total: int = left_len + right_len
+
+    print('CHECK test_tuple lhs:', left_len)
+    print('CHECK test_tuple rhs:', 2)
+    assert left_len == 2
+    print('CHECK test_tuple lhs:', right_len)
+    print('CHECK test_tuple rhs:', 3)
+    assert right_len == 3
+    print('CHECK test_tuple lhs:', total)
+    print('CHECK test_tuple rhs:', 5)
+    assert total == 5
+
+
 def run_tests() -> None:
     nums: tuple[int, int, int] = (10, 20, 30)
     mixed: tuple[str, bytes, bool] = ("x", b"ab", True)
@@ -119,6 +139,7 @@ def run_tests() -> None:
     print('CHECK test_tuple lhs:', result2)
     print('CHECK test_tuple rhs:', 21)
     assert result2 == 21
+    test_tuple_static_index_with_dict_and_set()
 
     if nums:
         print(1)

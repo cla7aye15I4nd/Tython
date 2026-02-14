@@ -8,7 +8,7 @@ use super::{
     builtin, ArithBinOp, BitwiseBinOp, CastKind, CmpOp, RawBinOp, TirExpr, TirExprKind,
     TirFunction, TirModule, TirStmt, UnaryOpKind, ValueType,
 };
-use crate::ast::{ClassInfo, TupleInfo, Type};
+use crate::ast::{ClassInfo, Type};
 use crate::errors::{ErrorCategory, TythonError};
 use crate::tir::{intrinsic_tag, IntrinsicOp};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
@@ -47,7 +47,6 @@ pub struct Lowering {
     current_function_name: Option<String>,
 
     class_registry: HashMap<String, ClassInfo>,
-    tuple_registry: HashMap<String, TupleInfo>,
     current_class: Option<String>,
 
     // Accumulated from classes defined inside function/method bodies
@@ -101,7 +100,6 @@ impl Lowering {
             source_lines: Vec::new(),
             current_function_name: None,
             class_registry: HashMap::new(),
-            tuple_registry: HashMap::new(),
             current_class: None,
             deferred_functions: Vec::new(),
             deferred_classes: Vec::new(),
@@ -156,27 +154,6 @@ impl Lowering {
         let name = format!("__tython${}${}", prefix, self.internal_tmp_counter);
         self.internal_tmp_counter += 1;
         name
-    }
-
-    fn get_or_register_tuple(&mut self, element_types: &[ValueType]) -> String {
-        // Create signature from element types (e.g., "int|str|bool")
-        let signature = element_types
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("|");
-
-        // Register tuple if not already in registry
-        if !self.tuple_registry.contains_key(&signature) {
-            let tuple_info = TupleInfo {
-                signature: signature.clone(),
-                element_types: element_types.iter().map(Self::value_type_to_type).collect(),
-                len: element_types.len(),
-            };
-            self.tuple_registry.insert(signature.clone(), tuple_info);
-        }
-
-        signature
     }
 
     fn lookup(&self, name: &str) -> Option<&Type> {
@@ -371,39 +348,6 @@ impl Lowering {
         match ty {
             Type::Unit => None,
             other => Some(Self::to_value_type(other)),
-        }
-    }
-
-    fn value_type_to_type(vt: &ValueType) -> Type {
-        match vt {
-            ValueType::Int => Type::Int,
-            ValueType::Float => Type::Float,
-            ValueType::Bool => Type::Bool,
-            ValueType::Str => Type::Str,
-            ValueType::Bytes => Type::Bytes,
-            ValueType::ByteArray => Type::ByteArray,
-            ValueType::List(inner) => Type::List(Box::new(Self::value_type_to_type(inner))),
-            ValueType::Dict(key, value) => Type::Dict(
-                Box::new(Self::value_type_to_type(key)),
-                Box::new(Self::value_type_to_type(value)),
-            ),
-            ValueType::Set(inner) => Type::Set(Box::new(Self::value_type_to_type(inner))),
-            ValueType::Tuple(elements) => {
-                Type::Tuple(elements.iter().map(Self::value_type_to_type).collect())
-            }
-            ValueType::Class(name) => Type::Class(name.clone()),
-            ValueType::Function {
-                params,
-                return_type,
-            } => Type::Function {
-                params: params.iter().map(Self::value_type_to_type).collect(),
-                return_type: Box::new(
-                    return_type
-                        .as_ref()
-                        .map(|rt| Self::value_type_to_type(rt))
-                        .unwrap_or(Type::Unit),
-                ),
-            },
         }
     }
 

@@ -304,7 +304,6 @@ impl Lowering {
                 Ok(TirExpr {
                     kind: TirExprKind::GetField {
                         object: Box::new(obj_expr),
-                        class_name,
                         field_index,
                     },
                     ty: field_ty,
@@ -649,11 +648,9 @@ impl Lowering {
                             }
                             let idx = normalized as usize;
                             let elem_ty = elements[idx].clone();
-                            let tuple_signature = self.get_or_register_tuple(&elements);
                             Ok(TirExpr {
-                                kind: TirExprKind::GetTupleField {
-                                    tuple: Box::new(obj_expr),
-                                    tuple_signature,
+                                kind: TirExprKind::GetField {
+                                    object: Box::new(obj_expr),
                                     field_index: idx,
                                 },
                                 ty: elem_ty,

@@ -18,6 +18,14 @@ def make_edge(v: int) -> "Edge":
     return Edge(v)
 
 
+class OuterEdge:
+    class InnerEdge:
+        value: int
+
+        def __init__(self, value: int) -> None:
+            self.value = value
+
+
 def test_no_return_annotation_and_nested_import() -> None:
     def inner(v: int) -> int:
         return v + 1
@@ -34,6 +42,13 @@ def test_no_return_annotation_and_nested_import() -> None:
     print('CHECK test_coverage_edges lhs:', e.v)
     print('CHECK test_coverage_edges rhs:', 3)
     assert e.v == 3
+
+
+def test_attribute_annotation_nested_class_valid() -> None:
+    x: OuterEdge.InnerEdge = OuterEdge.InnerEdge(9)
+    print('CHECK test_coverage_edges lhs:', x.value)
+    print('CHECK test_coverage_edges rhs:', 9)
+    assert x.value == 9
 
 
 def test_raise_name_and_except_name() -> None:
@@ -84,6 +99,7 @@ def test_tuple_bytes_compare_and_comprehension_filters() -> None:
 
 def run_tests() -> None:
     test_no_return_annotation_and_nested_import()
+    test_attribute_annotation_nested_class_valid()
     test_raise_name_and_except_name()
     test_assert_tuple_truthiness()
     test_chained_compare_and_print_list()

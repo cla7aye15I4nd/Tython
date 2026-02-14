@@ -94,14 +94,12 @@ impl Lowering {
                         Self::push_print_str_literal(stmts, ", ");
                     }
 
-                    let tuple_signature = self.get_or_register_tuple(&tuple_element_types);
                     let element_expr = TirExpr {
-                        kind: TirExprKind::GetTupleField {
-                            tuple: Box::new(TirExpr {
+                        kind: TirExprKind::GetField {
+                            object: Box::new(TirExpr {
                                 kind: TirExprKind::Var(tuple_var.clone()),
                                 ty: tuple_ty.clone(),
                             }),
-                            tuple_signature,
                             field_index: i,
                         },
                         ty: element_ty.clone(),

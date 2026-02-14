@@ -15,6 +15,17 @@ class Acc:
     def __add__(self, other: "Acc") -> "Acc":
         return Acc(self.value + other.value)
 
+
+class RightAdder:
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def __radd__(self, other: int) -> int:
+        return other + self.value
+
+
 def test_random_native_calls() -> None:
     random.seed(1337)
     g1: float = random.gauss(0.0, 1.0)
@@ -73,6 +84,13 @@ def test_sum_class_list_special_case() -> None:
     assert total.value == 16
 
 
+def test_class_right_magic_binop_path() -> None:
+    out: int = 5 + RightAdder(7)
+    print('CHECK test_call_paths lhs:', out)
+    print('CHECK test_call_paths rhs:', 12)
+    assert out == 12
+
+
 def test_sum_generator_range_fast_path() -> None:
     total: int = sum((i for i in range(1, 6)), 0)
     print('CHECK test_call_paths lhs:', total)
@@ -93,5 +111,6 @@ def run_tests() -> None:
     test_math_native_calls()
     test_sum_generator_fast_path()
     test_sum_class_list_special_case()
+    test_class_right_magic_binop_path()
     test_sum_generator_range_fast_path()
     test_open_read_call_path()
