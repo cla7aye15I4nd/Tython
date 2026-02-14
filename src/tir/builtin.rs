@@ -232,6 +232,9 @@ define_builtins! {
     ReversedList       => "__tython_reversed_list",       params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     ListExtend         => "__tython_list_extend",         params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: None;
     ListCopy           => "__tython_list_copy",           params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    ListIAdd           => "__tython_list_iadd",           params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    ListIMul           => "__tython_list_imul",           params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::List(Box::new(ValueType::Int)));
+    ListDel            => "__tython_list_del",            params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: None;
 
     // dict builtins (all Dict(...) map to ptr in LLVM; key/value types are sentinels)
     DictEmpty          => "__tython_dict_empty",          params: [], ret: Some(ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)));

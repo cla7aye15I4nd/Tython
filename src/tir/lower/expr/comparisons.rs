@@ -5,6 +5,7 @@ use crate::tir::{
     TypedCompare, ValueType,
 };
 
+use crate::tir::lower::expr::binops::Coercion;
 use crate::tir::lower::Lowering;
 
 /// Helper to convert TypedCompare to the appropriate TirExprKind variant
@@ -756,8 +757,8 @@ impl Lowering {
             (ValueType::Int, ValueType::Float) | (ValueType::Float, ValueType::Int)
         ) {
             Ok((
-                Self::apply_coercion(left, type_rules::Coercion::ToFloat),
-                Self::apply_coercion(right, type_rules::Coercion::ToFloat),
+                Self::apply_coercion(left, Coercion::ToFloat),
+                Self::apply_coercion(right, Coercion::ToFloat),
             ))
         } else {
             Err(self.type_error(

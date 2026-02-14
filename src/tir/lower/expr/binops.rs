@@ -1,10 +1,218 @@
 use anyhow::Result;
 
+use crate::ast::Type;
 use crate::tir::{
-    builtin, type_rules, ArithBinOp, CastKind, RawBinOp, TirExpr, TirExprKind, ValueType,
+    builtin, ArithBinOp, BitwiseBinOp, CastKind, FloatArithOp, IntArithOp, RawBinOp, TirExpr,
+    TirExprKind, TypedBinOp, ValueType,
 };
 
 use crate::tir::lower::Lowering;
+
+// ── Type Rules for Binary Operations ────────────────────────────────
+
+/// Describes what coercion to apply to an operand before the operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Coercion {
+    /// No coercion needed; use the operand as-is.
+    None,
+    /// Cast the operand to Float.
+    ToFloat,
+}
+
+/// Result of looking up a valid (RawBinOp, left_type, right_type) combination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinOpRule {
+    pub left_coercion: Coercion,
+    pub right_coercion: Coercion,
+    pub result_type: Type,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClassBinOpMagicRule {
+    pub left_method: &'static str,
+    pub right_method: &'static str,
+}
+
+pub fn lookup_class_binop_magic(op: RawBinOp) -> Option<ClassBinOpMagicRule> {
+    use ArithBinOp::*;
+    use BitwiseBinOp::*;
+    use RawBinOp::*;
+
+    Some(match op {
+        Arith(Add) => ClassBinOpMagicRule {
+            left_method: "__add__",
+            right_method: "__radd__",
+        },
+        Arith(Sub) => ClassBinOpMagicRule {
+            left_method: "__sub__",
+            right_method: "__rsub__",
+        },
+        Arith(Mul) => ClassBinOpMagicRule {
+            left_method: "__mul__",
+            right_method: "__rmul__",
+        },
+        Arith(Div) => ClassBinOpMagicRule {
+            left_method: "__truediv__",
+            right_method: "__rtruediv__",
+        },
+        Arith(FloorDiv) => ClassBinOpMagicRule {
+            left_method: "__floordiv__",
+            right_method: "__rfloordiv__",
+        },
+        Arith(Mod) => ClassBinOpMagicRule {
+            left_method: "__mod__",
+            right_method: "__rmod__",
+        },
+        Arith(Pow) => ClassBinOpMagicRule {
+            left_method: "__pow__",
+            right_method: "__rpow__",
+        },
+        Bitwise(BitAnd) => ClassBinOpMagicRule {
+            left_method: "__and__",
+            right_method: "__rand__",
+        },
+        Bitwise(BitOr) => ClassBinOpMagicRule {
+            left_method: "__or__",
+            right_method: "__ror__",
+        },
+        Bitwise(BitXor) => ClassBinOpMagicRule {
+            left_method: "__xor__",
+            right_method: "__rxor__",
+        },
+        Bitwise(LShift) => ClassBinOpMagicRule {
+            left_method: "__lshift__",
+            right_method: "__rlshift__",
+        },
+        Bitwise(RShift) => ClassBinOpMagicRule {
+            left_method: "__rshift__",
+            right_method: "__rrshift__",
+        },
+    })
+}
+
+/// Look up the type rule for a binary operation.
+/// Returns `None` if the (op, left, right) combination is invalid.
+pub fn lookup_binop(op: RawBinOp, left: &Type, right: &Type) -> Option<BinOpRule> {
+    use Type::*;
+
+    // Helper to create rules
+    let same = |ty| BinOpRule {
+        left_coercion: Coercion::None,
+        right_coercion: Coercion::None,
+        result_type: ty,
+    };
+    let both_to_float = || BinOpRule {
+        left_coercion: Coercion::ToFloat,
+        right_coercion: Coercion::ToFloat,
+        result_type: Float,
+    };
+    let left_to_float = || BinOpRule {
+        left_coercion: Coercion::ToFloat,
+        right_coercion: Coercion::None,
+        result_type: Float,
+    };
+    let right_to_float = || BinOpRule {
+        left_coercion: Coercion::None,
+        right_coercion: Coercion::ToFloat,
+        result_type: Float,
+    };
+
+    // Sequence operations (concat, repeat)
+    match op {
+        RawBinOp::Arith(ArithBinOp::Add) => match (left, right) {
+            (Str, Str) => return Some(same(Str)),
+            (Bytes, Bytes) => return Some(same(Bytes)),
+            (ByteArray, ByteArray) => return Some(same(ByteArray)),
+            (List(a), List(b)) if a == b => return Some(same(List(a.clone()))),
+            _ => {}
+        },
+        RawBinOp::Arith(ArithBinOp::Mul) => match (left, right) {
+            (Str, Int) | (Int, Str) => return Some(same(Str)),
+            (Bytes, Int) | (Int, Bytes) => return Some(same(Bytes)),
+            (ByteArray, Int) | (Int, ByteArray) => return Some(same(ByteArray)),
+            (List(inner), Int) | (Int, List(inner)) => return Some(same(List(inner.clone()))),
+            _ => {}
+        },
+        _ => {}
+    }
+
+    // Arithmetic/bitwise operations
+    match op {
+        RawBinOp::Bitwise(_) => match (left, right) {
+            (Int, Int) => Some(same(Int)),
+            _ => None,
+        },
+        // True division: always produces Float (even Int / Int)
+        RawBinOp::Arith(ArithBinOp::Div) => match (left, right) {
+            (Int, Int) => Some(both_to_float()),
+            (Float, Float) => Some(same(Float)),
+            (Int, Float) => Some(left_to_float()),
+            (Float, Int) => Some(right_to_float()),
+            _ => None,
+        },
+        // All other arithmetic: standard numeric rules
+        RawBinOp::Arith(_) => match (left, right) {
+            (Int, Int) => Some(same(Int)),
+            (Float, Float) => Some(same(Float)),
+            (Int, Float) => Some(left_to_float()),
+            (Float, Int) => Some(right_to_float()),
+            _ => None,
+        },
+    }
+}
+
+/// Generate a descriptive error message for an invalid BinOp type combination.
+pub fn binop_type_error_message(op: RawBinOp, left: &Type, right: &Type) -> String {
+    match op {
+        RawBinOp::Bitwise(_) => {
+            format!(
+                "bitwise operator `{}` requires `int` operands, got `{}` and `{}`",
+                op, left, right
+            )
+        }
+        RawBinOp::Arith(_) => {
+            format!(
+                "operator `{}` requires numeric operands, got `{}` and `{}`",
+                op, left, right
+            )
+        }
+    }
+}
+
+/// Convert a raw binary operator + result type into a fully-typed `TypedBinOp`.
+/// Must only be called after `lookup_binop` has validated the combination.
+pub fn resolve_typed_binop(raw_op: RawBinOp, result_ty: &Type) -> TypedBinOp {
+    use Type::*;
+
+    match raw_op {
+        RawBinOp::Bitwise(bw) => TypedBinOp::Bitwise(bw),
+        RawBinOp::Arith(arith) => {
+            if *result_ty == Float {
+                TypedBinOp::FloatArith(match arith {
+                    ArithBinOp::Add => FloatArithOp::Add,
+                    ArithBinOp::Sub => FloatArithOp::Sub,
+                    ArithBinOp::Mul => FloatArithOp::Mul,
+                    ArithBinOp::Div => FloatArithOp::Div,
+                    ArithBinOp::FloorDiv => FloatArithOp::FloorDiv,
+                    ArithBinOp::Mod => FloatArithOp::Mod,
+                    ArithBinOp::Pow => FloatArithOp::Pow,
+                })
+            } else {
+                TypedBinOp::IntArith(match arith {
+                    ArithBinOp::Add => IntArithOp::Add,
+                    ArithBinOp::Sub => IntArithOp::Sub,
+                    ArithBinOp::Mul => IntArithOp::Mul,
+                    ArithBinOp::Div => unreachable!("ICE: int result for true division"),
+                    ArithBinOp::FloorDiv => IntArithOp::FloorDiv,
+                    ArithBinOp::Mod => IntArithOp::Mod,
+                    ArithBinOp::Pow => IntArithOp::Pow,
+                })
+            }
+        }
+    }
+}
+
+// ── Binary Operation Lowering ────────────────────────────────────────
 
 impl Lowering {
     /// Resolve a binary operation into a TIR expression.
@@ -25,10 +233,10 @@ impl Lowering {
 
         let left_ast = left.ty.to_type();
         let right_ast = right.ty.to_type();
-        let rule = type_rules::lookup_binop(raw_op, &left_ast, &right_ast).ok_or_else(|| {
+        let rule = lookup_binop(raw_op, &left_ast, &right_ast).ok_or_else(|| {
             self.type_error(
                 line,
-                type_rules::binop_type_error_message(raw_op, &left_ast, &right_ast),
+                binop_type_error_message(raw_op, &left_ast, &right_ast),
             )
         })?;
 
@@ -51,7 +259,7 @@ impl Lowering {
         }
 
         // Arithmetic/bitwise → BinOp
-        let typed_op = type_rules::resolve_typed_binop(raw_op, &rule.result_type);
+        let typed_op = resolve_typed_binop(raw_op, &rule.result_type);
         let final_left = Self::apply_coercion(left, rule.left_coercion);
         let final_right = Self::apply_coercion(right, rule.right_coercion);
 
@@ -155,8 +363,8 @@ impl Lowering {
         left: TirExpr,
         right: TirExpr,
     ) -> Result<Option<TirExpr>> {
-        let magic = type_rules::lookup_class_binop_magic(raw_op)
-            .expect("ICE: missing class binop magic mapping");
+        let magic =
+            lookup_class_binop_magic(raw_op).expect("ICE: missing class binop magic mapping");
 
         let mut found_class_side = false;
 
@@ -207,13 +415,10 @@ impl Lowering {
         Ok(None)
     }
 
-    pub(in crate::tir::lower) fn apply_coercion(
-        expr: TirExpr,
-        coercion: type_rules::Coercion,
-    ) -> TirExpr {
+    pub(in crate::tir::lower) fn apply_coercion(expr: TirExpr, coercion: Coercion) -> TirExpr {
         match coercion {
-            type_rules::Coercion::None => expr,
-            type_rules::Coercion::ToFloat => {
+            Coercion::None => expr,
+            Coercion::ToFloat => {
                 if expr.ty == ValueType::Float {
                     expr
                 } else {

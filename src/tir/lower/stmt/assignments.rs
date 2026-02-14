@@ -3,11 +3,33 @@ use pyo3::prelude::*;
 
 use crate::ast::Type;
 use crate::tir::{
-    builtin, ArithBinOp, CallTarget, RawBinOp, TirExpr, TirExprKind, TirStmt, ValueType,
+    builtin, ArithBinOp, BitwiseBinOp, CallResult, CallTarget, RawBinOp, TirExpr, TirExprKind,
+    TirStmt, ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 use crate::tir::lower::Lowering;
+
+/// Map augmented assignment operators to their corresponding magic method names.
+fn aug_op_to_dunder(op: RawBinOp) -> Option<&'static str> {
+    use ArithBinOp::*;
+    use BitwiseBinOp::*;
+    use RawBinOp::*;
+    Some(match op {
+        Arith(Add) => "__iadd__",
+        Arith(Sub) => "__isub__",
+        Arith(Mul) => "__imul__",
+        Arith(Div) => "__itruediv__",
+        Arith(FloorDiv) => "__ifloordiv__",
+        Arith(Mod) => "__imod__",
+        Arith(Pow) => "__ipow__",
+        Bitwise(BitAnd) => "__iand__",
+        Bitwise(BitOr) => "__ior__",
+        Bitwise(BitXor) => "__ixor__",
+        Bitwise(LShift) => "__ilshift__",
+        Bitwise(RShift) => "__irshift__",
+    })
+}
 
 impl Lowering {
     pub(in crate::tir::lower) fn handle_ann_assign(
@@ -299,13 +321,42 @@ impl Lowering {
                     ty: Self::to_value_type(&target_ty),
                 };
 
-                let binop_expr = self.resolve_binop(line, op, target_ref, value_expr)?;
-                self.declare(target.clone(), binop_expr.ty.to_type());
+                // Try to use magic method for augmented assignment
+                let result_expr = if let Some(dunder) = aug_op_to_dunder(op) {
+                    match &target_ref.ty {
+                        ValueType::List(_inner) => {
+                            // Try to call the in-place magic method
+                            match self.lower_method_call(
+                                line,
+                                target_ref.clone(),
+                                dunder,
+                                vec![value_expr.clone()],
+                            ) {
+                                Ok(CallResult::Expr(e)) => e,
+                                Ok(CallResult::VoidStmt(_)) => {
+                                    unreachable!("in-place methods should return self")
+                                }
+                                Err(_) => {
+                                    // Fallback to binop if magic method not available
+                                    self.resolve_binop(line, op, target_ref, value_expr)?
+                                }
+                            }
+                        }
+                        _ => {
+                            // For other types, use regular binop
+                            self.resolve_binop(line, op, target_ref, value_expr)?
+                        }
+                    }
+                } else {
+                    self.resolve_binop(line, op, target_ref, value_expr)?
+                };
+
+                self.declare(target.clone(), result_expr.ty.to_type());
 
                 Ok(vec![TirStmt::Let {
                     name: target,
-                    ty: binop_expr.ty.clone(),
-                    value: binop_expr,
+                    ty: result_expr.ty.clone(),
+                    value: result_expr,
                 }])
             }
             "Attribute" => self.lower_attribute_aug_assign(&target_node, node, line),

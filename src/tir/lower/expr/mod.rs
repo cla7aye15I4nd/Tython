@@ -1,4 +1,4 @@
-mod binops;
+pub mod binops;
 mod comparisons;
 mod comprehensions;
 mod core;

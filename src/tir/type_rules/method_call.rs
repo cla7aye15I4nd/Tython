@@ -100,6 +100,86 @@ pub fn lookup_list_method(inner: &ValueType, name: &str) -> Option<Result<Method
                 return_type: ValueType::List(Box::new(inner.clone())),
             },
         })),
+        // Magic methods
+        "__add__" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::List(Box::new(inner.clone()))],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ListConcat,
+                return_type: ValueType::List(Box::new(inner.clone())),
+            },
+        })),
+        "__iadd__" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::List(Box::new(inner.clone()))],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ListIAdd,
+                return_type: ValueType::List(Box::new(inner.clone())),
+            },
+        })),
+        "__mul__" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Int],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ListRepeat,
+                return_type: ValueType::List(Box::new(inner.clone())),
+            },
+        })),
+        "__imul__" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Int],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ListIMul,
+                return_type: ValueType::List(Box::new(inner.clone())),
+            },
+        })),
+        "__contains__" => Some(Ok(MethodCallRule {
+            params: vec![inner.clone()],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ListContains,
+                return_type: ValueType::Bool,
+            },
+        })),
+        "__eq__" => {
+            // Choose shallow or deep equality based on inner type
+            let eq_fn = match inner {
+                ValueType::Int
+                | ValueType::Float
+                | ValueType::Bool
+                | ValueType::Str
+                | ValueType::Bytes
+                | ValueType::ByteArray => BuiltinFn::ListEqShallow,
+                _ => BuiltinFn::ListEqDeep,
+            };
+            Some(Ok(MethodCallRule {
+                params: vec![ValueType::List(Box::new(inner.clone()))],
+                result: MethodCallResult::Expr {
+                    func: eq_fn,
+                    return_type: ValueType::Bool,
+                },
+            }))
+        }
+        "__getitem__" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Int],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ListGet,
+                return_type: inner.clone(),
+            },
+        })),
+        "__delitem__" => Some(Ok(MethodCallRule {
+            params: vec![ValueType::Int],
+            result: MethodCallResult::Void(BuiltinFn::ListDel),
+        })),
+        "__len__" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ListLen,
+                return_type: ValueType::Int,
+            },
+        })),
+        "__reversed__" => Some(Ok(MethodCallRule {
+            params: vec![],
+            result: MethodCallResult::Expr {
+                func: BuiltinFn::ReversedList,
+                return_type: ValueType::List(Box::new(inner.clone())),
+            },
+        })),
         _ => None,
     }
 }

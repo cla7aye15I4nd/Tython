@@ -14,8 +14,9 @@ use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 mod calls;
 mod classes;
-mod expr;
+pub mod expr;
 mod functions;
+pub mod method;
 mod stmt;
 
 #[derive(Clone)]

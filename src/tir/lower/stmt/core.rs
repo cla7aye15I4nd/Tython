@@ -26,13 +26,10 @@ impl Lowering {
             "Expr" => self.handle_expr_stmt(node, line),
             "If" => {
                 let raw_condition = self.lower_expr(&ast_getattr!(node, "test"))?;
-                let condition = self.lower_truthy_to_bool(line, raw_condition, "if condition")?;
-                let then_body = self.lower_block(&ast_get_list!(node, "body"))?;
-                let else_body = self.lower_block(&ast_get_list!(node, "orelse"))?;
                 Ok(vec![TirStmt::If {
-                    condition,
-                    then_body,
-                    else_body,
+                    condition: self.lower_truthy_to_bool(line, raw_condition, "if condition")?,
+                    then_body: self.lower_block(&ast_get_list!(node, "body"))?,
+                    else_body: self.lower_block(&ast_get_list!(node, "orelse"))?,
                 }])
             }
             "While" => {

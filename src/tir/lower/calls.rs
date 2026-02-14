@@ -661,17 +661,9 @@ impl Lowering {
                             }))
                         }
                     }
-                    ref ty => {
-                        let type_name = type_rules::builtin_type_display_name(ty);
-                        let lookup = type_rules::lookup_builtin_method(ty, &attr);
-                        self.lower_builtin_method_call(
-                            line,
-                            obj_expr,
-                            positional_args,
-                            &attr,
-                            &type_name,
-                            lookup,
-                        )
+                    ref _ty => {
+                        // Use new method dispatch system
+                        self.lower_method_call(line, obj_expr, &attr, positional_args)
                     }
                 }
             }
@@ -1204,7 +1196,7 @@ impl Lowering {
     }
 
     /// Lower a method call on a builtin type using a resolved `MethodCallRule`.
-    fn lower_builtin_method_call(
+    pub(in crate::tir::lower) fn lower_builtin_method_call(
         &self,
         line: usize,
         obj_expr: TirExpr,
