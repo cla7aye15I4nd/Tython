@@ -33,12 +33,12 @@ fn main() {
         std::process::exit(1);
     }
 
-    let output = std::process::Command::new(&exe_path)
-        .output()
+    let status = std::process::Command::new(&exe_path)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
         .expect("failed to execute compiled binary");
 
-    std::io::Write::write_all(&mut std::io::stdout(), &output.stdout).ok();
-    std::io::Write::write_all(&mut std::io::stderr(), &output.stderr).ok();
-
-    std::process::exit(output.status.code().unwrap_or(1));
+    std::process::exit(status.code().unwrap_or(1));
 }
