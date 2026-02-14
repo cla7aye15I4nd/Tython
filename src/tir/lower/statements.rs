@@ -676,6 +676,9 @@ impl Lowering {
             ValueType::List(inner) => {
                 self.handle_for_list(node, line, &loop_var, iterable_expr, (*inner).clone())
             }
+            ValueType::Str => self.handle_for_str(node, line, &loop_var, iterable_expr),
+            ValueType::Bytes => self.handle_for_bytes(node, line, &loop_var, iterable_expr),
+            ValueType::ByteArray => self.handle_for_bytearray(node, line, &loop_var, iterable_expr),
             ValueType::Class(class_name) => {
                 self.handle_for_class_iter(node, line, &loop_var, iterable_expr, &class_name)
             }
@@ -1319,6 +1322,114 @@ impl Lowering {
                 stop_var: stop_name,
                 step_var: step_name,
                 body: full_body,
+                else_body,
+            },
+        ])
+    }
+
+    fn handle_for_str(
+        &mut self,
+        node: &Bound<PyAny>,
+        _line: usize,
+        loop_var: &str,
+        str_expr: TirExpr,
+    ) -> Result<Vec<TirStmt>> {
+        let str_var = self.fresh_internal("for_str");
+        let idx_var = self.fresh_internal("for_str_idx");
+        let len_var = self.fresh_internal("for_str_len");
+
+        self.declare(str_var.clone(), str_expr.ty.to_type());
+        self.declare(idx_var.clone(), Type::Int);
+        self.declare(len_var.clone(), Type::Int);
+        self.declare(loop_var.to_string(), Type::Str);
+
+        let body = self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?;
+        let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
+
+        Ok(vec![
+            TirStmt::Let {
+                name: str_var.clone(),
+                ty: str_expr.ty.clone(),
+                value: str_expr,
+            },
+            TirStmt::ForStr {
+                loop_var: loop_var.to_string(),
+                str_var,
+                index_var: idx_var,
+                len_var,
+                body,
+                else_body,
+            },
+        ])
+    }
+
+    fn handle_for_bytes(
+        &mut self,
+        node: &Bound<PyAny>,
+        _line: usize,
+        loop_var: &str,
+        bytes_expr: TirExpr,
+    ) -> Result<Vec<TirStmt>> {
+        let bytes_var = self.fresh_internal("for_bytes");
+        let idx_var = self.fresh_internal("for_bytes_idx");
+        let len_var = self.fresh_internal("for_bytes_len");
+
+        self.declare(bytes_var.clone(), bytes_expr.ty.to_type());
+        self.declare(idx_var.clone(), Type::Int);
+        self.declare(len_var.clone(), Type::Int);
+        self.declare(loop_var.to_string(), Type::Int);
+
+        let body = self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?;
+        let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
+
+        Ok(vec![
+            TirStmt::Let {
+                name: bytes_var.clone(),
+                ty: bytes_expr.ty.clone(),
+                value: bytes_expr,
+            },
+            TirStmt::ForBytes {
+                loop_var: loop_var.to_string(),
+                bytes_var,
+                index_var: idx_var,
+                len_var,
+                body,
+                else_body,
+            },
+        ])
+    }
+
+    fn handle_for_bytearray(
+        &mut self,
+        node: &Bound<PyAny>,
+        _line: usize,
+        loop_var: &str,
+        bytearray_expr: TirExpr,
+    ) -> Result<Vec<TirStmt>> {
+        let bytearray_var = self.fresh_internal("for_bytearray");
+        let idx_var = self.fresh_internal("for_bytearray_idx");
+        let len_var = self.fresh_internal("for_bytearray_len");
+
+        self.declare(bytearray_var.clone(), bytearray_expr.ty.to_type());
+        self.declare(idx_var.clone(), Type::Int);
+        self.declare(len_var.clone(), Type::Int);
+        self.declare(loop_var.to_string(), Type::Int);
+
+        let body = self.lower_block_in_current_scope(&ast_get_list!(node, "body"))?;
+        let else_body = self.lower_block_in_current_scope(&ast_get_list!(node, "orelse"))?;
+
+        Ok(vec![
+            TirStmt::Let {
+                name: bytearray_var.clone(),
+                ty: bytearray_expr.ty.clone(),
+                value: bytearray_expr,
+            },
+            TirStmt::ForByteArray {
+                loop_var: loop_var.to_string(),
+                bytearray_var,
+                index_var: idx_var,
+                len_var,
+                body,
                 else_body,
             },
         ])

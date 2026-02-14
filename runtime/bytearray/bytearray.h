@@ -76,6 +76,7 @@ TythonByteArray* TYTHON_FN(bytearray_title)(TythonByteArray* ba);
 TythonByteArray* TYTHON_FN(bytearray_translate)(TythonByteArray* ba, TythonBytes* table);
 TythonByteArray* TYTHON_FN(bytearray_upper)(TythonByteArray* ba);
 TythonByteArray* TYTHON_FN(bytearray_zfill)(TythonByteArray* ba, int64_t width);
+int64_t TYTHON_FN(bytearray_get)(TythonByteArray* ba, int64_t index);
 
 #ifdef __cplusplus
 }

@@ -146,6 +146,21 @@ def test_list_and_tuple_comprehensions_nested() -> None:
     assert tuple_from_comp == ((1, 1), (2, 4), (3, 9))
 
 
+def test_nested_comprehensions_reused_loop_name() -> None:
+    # Reusing the same loop name in nested comprehensions should still produce
+    # independent iteration state for each loop.
+    matrix: list[list[int]] = [[x * 10 + x for x in range(3)] for x in range(4)]
+    print('CHECK test_comprehension lhs:', len(matrix))
+    print('CHECK test_comprehension rhs:', 4)
+    assert len(matrix) == 4
+    print('CHECK test_comprehension lhs:', matrix[0])
+    print('CHECK test_comprehension rhs:', [0, 11, 22])
+    assert matrix[0] == [0, 11, 22]
+    print('CHECK test_comprehension lhs:', matrix[3])
+    print('CHECK test_comprehension rhs:', [0, 11, 22])
+    assert matrix[3] == [0, 11, 22]
+
+
 def test_stopiteration_repeated_after_exhaustion() -> None:
     c: Countdown = Countdown(2, 1)
     seen: list[int] = []
@@ -303,6 +318,7 @@ def run_tests() -> None:
     test_iter_next_stopiteration_manual_and_for()
     test_for_over_iterable_object_nested()
     test_list_and_tuple_comprehensions_nested()
+    test_nested_comprehensions_reused_loop_name()
     test_stopiteration_repeated_after_exhaustion()
     test_try_except_finally_with_nested_for_and_raise()
     test_iterator_consumption_in_comprehensions()

@@ -66,6 +66,7 @@ TythonBytes* TYTHON_FN(bytes_title)(TythonBytes* b);
 TythonBytes* TYTHON_FN(bytes_translate)(TythonBytes* b, TythonBytes* table);
 TythonBytes* TYTHON_FN(bytes_upper)(TythonBytes* b);
 TythonBytes* TYTHON_FN(bytes_zfill)(TythonBytes* b, int64_t width);
+int64_t TYTHON_FN(bytes_get)(TythonBytes* b, int64_t index);
 void print_bytes_repr(const uint8_t* data, int64_t len);
 int64_t bytes_repr_body_len(const uint8_t* data, int64_t len);
 char* bytes_repr_body_write(char* out, const uint8_t* data, int64_t len);

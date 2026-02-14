@@ -100,18 +100,24 @@ impl<'ctx> Codegen<'ctx> {
             self.variables.insert(loop_var.to_string(), alloca);
             alloca
         };
+        // Keep loop progress in a dedicated induction slot, separate from the
+        // user-visible loop variable. This matches Python semantics where
+        // rebinding/mutating the loop variable does not control iteration.
+        let induction_ptr =
+            self.build_entry_block_alloca(self.get_llvm_type(&ValueType::Int), "for.induction");
         let start_ptr = self.variables[start_var];
         let stop_ptr = self.variables[stop_var];
         let step_ptr = self.variables[step_var];
         let start_val =
             emit!(self.build_load(self.get_llvm_type(&ValueType::Int), start_ptr, "for.start"))
                 .into_int_value();
-        emit!(self.build_store(loop_ptr, start_val));
+        emit!(self.build_store(induction_ptr, start_val));
         emit!(self.build_unconditional_branch(header_bb));
 
         self.builder.position_at_end(header_bb);
-        let i_val = emit!(self.build_load(self.get_llvm_type(&ValueType::Int), loop_ptr, "for.i"))
-            .into_int_value();
+        let i_val =
+            emit!(self.build_load(self.get_llvm_type(&ValueType::Int), induction_ptr, "for.i",))
+                .into_int_value();
         let stop_loaded =
             emit!(self.build_load(self.get_llvm_type(&ValueType::Int), stop_ptr, "for.stop"))
                 .into_int_value();
@@ -131,16 +137,18 @@ impl<'ctx> Codegen<'ctx> {
         emit!(self.build_conditional_branch(cond, body_bb, false_dest));
 
         self.builder.position_at_end(body_bb);
+        emit!(self.build_store(loop_ptr, i_val));
         loop_body!(self, incr_bb, after_bb, body);
 
         self.builder.position_at_end(incr_bb);
-        let i_curr = emit!(self.build_load(self.get_llvm_type(&ValueType::Int), loop_ptr, "for.i"))
-            .into_int_value();
+        let i_curr =
+            emit!(self.build_load(self.get_llvm_type(&ValueType::Int), induction_ptr, "for.i",))
+                .into_int_value();
         let step_curr =
             emit!(self.build_load(self.get_llvm_type(&ValueType::Int), step_ptr, "for.step"))
                 .into_int_value();
         let i_next = emit!(self.build_int_add(i_curr, step_curr, "for.next"));
-        emit!(self.build_store(loop_ptr, i_next));
+        emit!(self.build_store(induction_ptr, i_next));
         emit!(self.build_unconditional_branch(header_bb));
 
         else_body!(self, else_bb, else_body, after_bb);

@@ -708,3 +708,12 @@ TythonBytes* TYTHON_FN(bytes_zfill)(TythonBytes* b, int64_t width) {
     std::memcpy(u(out)->data + dst, u(b)->data + src, static_cast<size_t>(u(b)->len - src));
     return out;
 }
+
+int64_t TYTHON_FN(bytes_get)(TythonBytes* b, int64_t index) {
+    int64_t len = u(b)->len;
+    if (index < 0 || index >= len) {
+        TYTHON_FN(raise)(TYTHON_EXC_INDEX_ERROR, TYTHON_FN(str_new)("bytes index out of range", 25));
+        __builtin_unreachable();
+    }
+    return static_cast<int64_t>(u(b)->data[index]);
+}

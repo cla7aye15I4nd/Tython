@@ -318,3 +318,12 @@ TythonByteArray* TYTHON_FN(bytearray_upper)(TythonByteArray* ba) {
 TythonByteArray* TYTHON_FN(bytearray_zfill)(TythonByteArray* ba, int64_t width) {
     return ba_from_bytes(TYTHON_FN(bytes_zfill)(ba_as_bytes(ba), width));
 }
+
+int64_t TYTHON_FN(bytearray_get)(TythonByteArray* ba, int64_t index) {
+    auto* vec = v(ba);
+    if (index < 0 || index >= vec->len) {
+        TYTHON_FN(raise)(TYTHON_EXC_INDEX_ERROR, TYTHON_FN(str_new)("bytearray index out of range", 29));
+        __builtin_unreachable();
+    }
+    return static_cast<int64_t>(vec->data[index]);
+}

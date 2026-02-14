@@ -90,6 +90,38 @@ impl<'ctx> Codegen<'ctx> {
                 body,
                 else_body,
             ),
+            TirStmt::ForStr {
+                loop_var,
+                str_var,
+                index_var,
+                len_var,
+                body,
+                else_body,
+            } => self.codegen_for_str_stmt(loop_var, str_var, index_var, len_var, body, else_body),
+            TirStmt::ForBytes {
+                loop_var,
+                bytes_var,
+                index_var,
+                len_var,
+                body,
+                else_body,
+            } => self
+                .codegen_for_bytes_stmt(loop_var, bytes_var, index_var, len_var, body, else_body),
+            TirStmt::ForByteArray {
+                loop_var,
+                bytearray_var,
+                index_var,
+                len_var,
+                body,
+                else_body,
+            } => self.codegen_for_bytearray_stmt(
+                loop_var,
+                bytearray_var,
+                index_var,
+                len_var,
+                body,
+                else_body,
+            ),
             TirStmt::Break => self.codegen_break_stmt(),
             TirStmt::Continue => self.codegen_continue_stmt(),
         }

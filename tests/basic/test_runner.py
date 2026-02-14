@@ -50,6 +50,9 @@ import basic.test_dict_set as test_dict_set
 import basic.test_function_call_args as test_function_call_args
 import basic.test_fstring as test_fstring
 import basic.test_pass_ellipsis_docstring as test_pass_ellipsis_docstring
+import basic.test_iteration_no_exceptions as test_iteration_no_exceptions
+import basic.test_iteration_performance as test_iteration_performance
+import basic.test_iteration_edge_cases as test_iteration_edge_cases
 
 
 def run_all_tests() -> None:
@@ -105,3 +108,6 @@ def run_all_tests() -> None:
     test_function_call_args.run_tests()
     test_fstring.run_tests()
     test_pass_ellipsis_docstring.run_tests()
+    test_iteration_no_exceptions.run_tests()
+    test_iteration_performance.run_tests()
+    test_iteration_edge_cases.run_tests()

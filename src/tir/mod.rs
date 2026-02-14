@@ -513,6 +513,30 @@ pub enum TirStmt {
         body: Vec<TirStmt>,
         else_body: Vec<TirStmt>,
     },
+    ForStr {
+        loop_var: String,
+        str_var: String,
+        index_var: String,
+        len_var: String,
+        body: Vec<TirStmt>,
+        else_body: Vec<TirStmt>,
+    },
+    ForBytes {
+        loop_var: String,
+        bytes_var: String,
+        index_var: String,
+        len_var: String,
+        body: Vec<TirStmt>,
+        else_body: Vec<TirStmt>,
+    },
+    ForByteArray {
+        loop_var: String,
+        bytearray_var: String,
+        index_var: String,
+        len_var: String,
+        body: Vec<TirStmt>,
+        else_body: Vec<TirStmt>,
+    },
 }
 
 #[derive(Debug, Clone)]

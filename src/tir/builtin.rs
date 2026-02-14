@@ -128,6 +128,7 @@ define_builtins! {
     BytesTranslate => "__tython_bytes_translate", params: [ValueType::Bytes, ValueType::Bytes],    ret: Some(ValueType::Bytes);
     BytesUpper    => "__tython_bytes_upper",    params: [ValueType::Bytes],                        ret: Some(ValueType::Bytes);
     BytesZFill    => "__tython_bytes_zfill",    params: [ValueType::Bytes, ValueType::Int],        ret: Some(ValueType::Bytes);
+    BytesGet      => "__tython_bytes_get",      params: [ValueType::Bytes, ValueType::Int],        ret: Some(ValueType::Int);
 
     // bytearray builtins
     ByteArrayConcat    => "__tython_bytearray_concat",     params: [ValueType::ByteArray, ValueType::ByteArray], ret: Some(ValueType::ByteArray);
@@ -188,6 +189,7 @@ define_builtins! {
     ByteArrayTranslate => "__tython_bytearray_translate",  params: [ValueType::ByteArray, ValueType::Bytes],     ret: Some(ValueType::ByteArray);
     ByteArrayUpper     => "__tython_bytearray_upper",      params: [ValueType::ByteArray],                       ret: Some(ValueType::ByteArray);
     ByteArrayZFill     => "__tython_bytearray_zfill",      params: [ValueType::ByteArray, ValueType::Int],       ret: Some(ValueType::ByteArray);
+    ByteArrayGet       => "__tython_bytearray_get",       params: [ValueType::ByteArray, ValueType::Int],       ret: Some(ValueType::Int);
 
     // list builtins (all List(...) map to ptr in LLVM; inner type is a sentinel)
     ListEmpty          => "__tython_list_empty",          params: [],                                                                                ret: Some(ValueType::List(Box::new(ValueType::Int)));
