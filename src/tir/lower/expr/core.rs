@@ -232,20 +232,8 @@ impl Lowering {
 
                 let mut exprs: Vec<TirExpr> = Vec::new();
                 for val in values_list.iter() {
-                    exprs.push(self.lower_expr(&val)?);
-                }
-
-                let result_ty = exprs[0].ty.clone();
-                for (i, e) in exprs.iter().enumerate().skip(1) {
-                    if e.ty != result_ty {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "all operands of `{}` must have the same type: operand {} is `{}`, expected `{}`",
-                                op_type, i, e.ty, result_ty
-                            ),
-                        ));
-                    }
+                    let raw = self.lower_expr(&val)?;
+                    exprs.push(self.lower_truthy_to_bool(line, raw, "logical operator")?);
                 }
 
                 let mut result = exprs.remove(0);
@@ -259,7 +247,7 @@ impl Lowering {
                                 TirExprKind::LogicalOr(Box::new(result), Box::new(operand))
                             }
                         },
-                        ty: result_ty.clone(),
+                        ty: ValueType::Bool,
                     };
                 }
 

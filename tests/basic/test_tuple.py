@@ -89,6 +89,19 @@ def test_tuple_static_index_with_dict_and_set() -> None:
     assert total == 5
 
 
+def test_tuple_bool_dynamic_index() -> None:
+    flags: tuple[bool, bool, bool] = (True, False, True)
+    i: int = 1
+    j: int = i - 2
+
+    print('CHECK test_tuple lhs:', flags[i])
+    print('CHECK test_tuple rhs:', False)
+    assert flags[i] == False
+    print('CHECK test_tuple lhs:', flags[j])
+    print('CHECK test_tuple rhs:', True)
+    assert flags[j] == True
+
+
 def run_tests() -> None:
     nums: tuple[int, int, int] = (10, 20, 30)
     mixed: tuple[str, bytes, bool] = ("x", b"ab", True)
@@ -140,6 +153,7 @@ def run_tests() -> None:
     print('CHECK test_tuple rhs:', 21)
     assert result2 == 21
     test_tuple_static_index_with_dict_and_set()
+    test_tuple_bool_dynamic_index()
 
     if nums:
         print(1)

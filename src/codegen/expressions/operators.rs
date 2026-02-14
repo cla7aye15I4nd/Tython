@@ -121,29 +121,13 @@ impl<'ctx> Codegen<'ctx> {
         op: &LogicalOp,
         left: &TirExpr,
         right: &TirExpr,
-        result_ty: &ValueType,
+        _result_ty: &ValueType,
     ) -> BasicValueEnum<'ctx> {
         let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
-        // Evaluate left side
+        // Both operands are already bool (i1) after TIR lowering
         let left_val = self.codegen_expr(left);
-        let left_truth = if left.ty == ValueType::Bool {
-            left_val.into_int_value()
-        } else if left.ty == ValueType::Float {
-            emit!(self.build_float_compare(
-                inkwell::FloatPredicate::ONE,
-                left_val.into_float_value(),
-                self.f64_type().const_float(0.0),
-                "log_left",
-            ))
-        } else {
-            emit!(self.build_int_compare(
-                IntPredicate::NE,
-                left_val.into_int_value(),
-                self.i64_type().const_int(0, false),
-                "log_left",
-            ))
-        };
+        let left_bool = left_val.into_int_value();
         let left_bb = emit!(self.get_insert_block());
 
         let right_bb = self.context.append_basic_block(function, "log_right");
@@ -151,12 +135,12 @@ impl<'ctx> Codegen<'ctx> {
 
         match op {
             LogicalOp::And => {
-                // If left is falsy, short-circuit; else evaluate right
-                emit!(self.build_conditional_branch(left_truth, right_bb, merge_bb));
+                // If left is false, short-circuit; else evaluate right
+                emit!(self.build_conditional_branch(left_bool, right_bb, merge_bb));
             }
             LogicalOp::Or => {
-                // If left is truthy, short-circuit; else evaluate right
-                emit!(self.build_conditional_branch(left_truth, merge_bb, right_bb));
+                // If left is true, short-circuit; else evaluate right
+                emit!(self.build_conditional_branch(left_bool, merge_bb, right_bb));
             }
         }
 
@@ -166,10 +150,9 @@ impl<'ctx> Codegen<'ctx> {
         let right_end_bb = emit!(self.get_insert_block());
         emit!(self.build_unconditional_branch(merge_bb));
 
-        // Merge: phi node selects left_val or right_val
+        // Merge: phi node selects between two bool (i1) values
         self.builder.position_at_end(merge_bb);
-        let llvm_type = self.get_llvm_type(result_ty);
-        let phi = emit!(self.build_phi(llvm_type, "log_result"));
+        let phi = emit!(self.build_phi(self.bool_type(), "log_result"));
         phi.add_incoming(&[(&left_val, left_bb), (&right_val, right_end_bb)]);
 
         phi.as_basic_value()
