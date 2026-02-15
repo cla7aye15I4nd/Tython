@@ -292,6 +292,7 @@ impl Lowering {
                 Ok(TirExpr {
                     kind: TirExprKind::GetField {
                         object: Box::new(obj_expr),
+                        class_name,
                         field_index,
                     },
                     ty: field_ty,
@@ -643,6 +644,7 @@ impl Lowering {
                             Ok(TirExpr {
                                 kind: TirExprKind::GetField {
                                     object: Box::new(obj_expr),
+                                    class_name: name.clone(),
                                     field_index: idx,
                                 },
                                 ty: elem_ty,
@@ -686,6 +688,7 @@ impl Lowering {
                                             kind: TirExprKind::Var(tuple_var.clone()),
                                             ty: tuple_ty.clone(),
                                         }),
+                                        class_name: name.clone(),
                                         field_index: 0,
                                     },
                                     ty: elem_ty.clone(),

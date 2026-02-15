@@ -83,8 +83,9 @@ impl<'ctx> Codegen<'ctx> {
             } => self.codegen_construct(class_name, init_mangled_name, args),
             TirExprKind::GetField {
                 object,
+                class_name,
                 field_index,
-            } => self.codegen_get_field(object, *field_index, &expr.ty),
+            } => self.codegen_get_field(object, class_name, *field_index, &expr.ty),
             TirExprKind::ListLiteral {
                 element_type,
                 elements,

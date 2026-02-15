@@ -6,10 +6,12 @@ use crate::tir::{
 
 use super::Lowering;
 
+pub mod bytearray;
+pub mod bytes;
 pub mod dict;
 pub mod list;
-pub mod rules;
 pub mod set;
+pub mod r#str;
 
 // ── Helper Functions ─────────────────────────────────────────────────
 
@@ -86,6 +88,55 @@ pub fn expr_call(
     })
 }
 
+fn lower_fixed_void_method(
+    ctx: &Lowering,
+    line: usize,
+    type_name: &str,
+    obj: TirExpr,
+    method_name: &str,
+    args: Vec<TirExpr>,
+    expected: &[ValueType],
+    func: BuiltinFn,
+) -> Result<CallResult> {
+    check_arity(
+        ctx,
+        line,
+        type_name,
+        method_name,
+        expected.len(),
+        args.len(),
+    )?;
+    for (arg, ty) in args.iter().zip(expected.iter()) {
+        check_type(ctx, line, type_name, method_name, arg, ty)?;
+    }
+    Ok(void_call(func, obj, args))
+}
+
+fn lower_fixed_expr_method(
+    ctx: &Lowering,
+    line: usize,
+    type_name: &str,
+    obj: TirExpr,
+    method_name: &str,
+    args: Vec<TirExpr>,
+    expected: &[ValueType],
+    func: BuiltinFn,
+    return_type: ValueType,
+) -> Result<CallResult> {
+    check_arity(
+        ctx,
+        line,
+        type_name,
+        method_name,
+        expected.len(),
+        args.len(),
+    )?;
+    for (arg, ty) in args.iter().zip(expected.iter()) {
+        check_type(ctx, line, type_name, method_name, arg, ty)?;
+    }
+    Ok(expr_call(func, return_type, obj, args))
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────
 
 impl Lowering {
@@ -110,12 +161,12 @@ impl Lowering {
             ValueType::Set(inner) => {
                 set::lower_set_method_call(self, line, obj_expr, method_name, args, &inner)
             }
-            ValueType::Str => rules::lower_str_method_call(self, line, obj_expr, method_name, args),
+            ValueType::Str => r#str::lower_str_method_call(self, line, obj_expr, method_name, args),
             ValueType::Bytes => {
-                rules::lower_bytes_method_call(self, line, obj_expr, method_name, args)
+                bytes::lower_bytes_method_call(self, line, obj_expr, method_name, args)
             }
             ValueType::ByteArray => {
-                rules::lower_bytearray_method_call(self, line, obj_expr, method_name, args)
+                bytearray::lower_bytearray_method_call(self, line, obj_expr, method_name, args)
             }
             ty => {
                 Err(self.attribute_error(line, format!("{} has no method `{}`", ty, method_name)))

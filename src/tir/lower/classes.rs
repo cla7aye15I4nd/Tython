@@ -268,12 +268,7 @@ impl Lowering {
         let params: Vec<FunctionParam> = init_params
             .iter()
             .enumerate()
-            .map(|(i, ty)| {
-                FunctionParam::new(
-                    format!("__arg{}", i),
-                    ValueType::from_type(ty).expect("ICE: non-value param type in new()"),
-                )
-            })
+            .map(|(i, ty)| FunctionParam::new(format!("__arg{}", i), self.value_type_from_type(ty)))
             .collect();
 
         let arg_exprs: Vec<TirExpr> = params

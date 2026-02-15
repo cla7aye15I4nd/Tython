@@ -1,20 +1,16 @@
 use inkwell::types::{FloatType, IntType};
 use inkwell::AddressSpace;
 
-use crate::ast::ClassInfo;
-use crate::tir::ValueType;
+use crate::tir::{TirClassInfo, ValueType};
 
 use super::super::Codegen;
 
 impl<'ctx> Codegen<'ctx> {
-    pub fn register_class(&mut self, class_info: &ClassInfo) {
+    pub fn register_class(&mut self, class_info: &TirClassInfo) {
         let field_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> = class_info
             .fields
             .iter()
-            .map(|f| {
-                let vty = ValueType::from_type(&f.ty).expect("ICE: class field has non-value type");
-                self.get_llvm_type(&vty)
-            })
+            .map(|f| self.get_llvm_type(&f.ty))
             .collect();
 
         let struct_type = self.context.opaque_struct_type(&class_info.name);

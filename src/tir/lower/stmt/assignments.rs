@@ -724,6 +724,7 @@ impl Lowering {
         let current_val = TirExpr {
             kind: TirExprKind::GetField {
                 object: Box::new(obj_expr.clone()),
+                class_name: class_name.clone(),
                 field_index,
             },
             ty: field_vty.clone(),

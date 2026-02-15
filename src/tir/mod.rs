@@ -1,7 +1,7 @@
 pub mod builtin;
 pub mod lower;
 
-use crate::ast::{ClassInfo, Type};
+use crate::ast::Type;
 use std::collections::HashMap;
 
 // ── Value types (types with LLVM register representations) ──────────
@@ -91,10 +91,6 @@ impl ValueType {
         }
     }
 
-    pub fn is_primitive(&self) -> bool {
-        matches!(self, ValueType::Int | ValueType::Float | ValueType::Bool)
-    }
-
     /// Returns `true` if the type supports ordering comparisons (`<`, `>`, `<=`, `>=`),
     /// i.e. the type conceptually has a `__lt__` method.
     pub fn supports_ordering(&self) -> bool {
@@ -107,16 +103,6 @@ impl ValueType {
                 | ValueType::Bytes
                 | ValueType::ByteArray
         )
-    }
-
-    pub fn unwrap_function(&self) -> (&Vec<ValueType>, &Option<Box<ValueType>>) {
-        match self {
-            ValueType::Function {
-                params,
-                return_type,
-            } => (params, return_type),
-            _ => panic!("ICE: expected Function type, got {self}"),
-        }
     }
 
     pub fn is_ref_type(&self) -> bool {
@@ -435,9 +421,22 @@ impl FunctionParam {
 }
 
 #[derive(Debug, Clone)]
+pub struct TirClassField {
+    pub name: String,
+    pub ty: ValueType,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct TirClassInfo {
+    pub name: String,
+    pub fields: Vec<TirClassField>,
+}
+
+#[derive(Debug, Clone)]
 pub struct TirModule {
     pub functions: HashMap<String, TirFunction>,
-    pub classes: HashMap<String, ClassInfo>,
+    pub classes: HashMap<String, TirClassInfo>,
     pub intrinsic_instances: Vec<IntrinsicInstance>,
 }
 
@@ -639,6 +638,7 @@ pub enum TirExprKind {
     // ── Class and tuple field access ─────────────────────────────────
     GetField {
         object: Box<TirExpr>,
+        class_name: String,
         field_index: usize,
     },
     Construct {

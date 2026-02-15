@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::{
-    builtin, ArithBinOp, BitwiseBinOp, CastKind, CmpOp, RawBinOp, TirExpr, TirExprKind,
-    TirFunction, TirModule, TirStmt, UnaryOpKind, ValueType,
+    builtin, ArithBinOp, BitwiseBinOp, CastKind, CmpOp, RawBinOp, TirClassField, TirClassInfo,
+    TirExpr, TirExprKind, TirFunction, TirModule, TirStmt, UnaryOpKind, ValueType,
 };
 use crate::ast::{ClassInfo, Type};
 use crate::errors::{ErrorCategory, TythonError};
@@ -160,6 +160,21 @@ impl Lowering {
         let name = format!("__tython${}${}", prefix, self.internal_tmp_counter);
         self.internal_tmp_counter += 1;
         name
+    }
+
+    fn lower_class_info(&mut self, ci: &ClassInfo) -> TirClassInfo {
+        TirClassInfo {
+            name: ci.name.clone(),
+            fields: ci
+                .fields
+                .iter()
+                .map(|f| TirClassField {
+                    name: f.name.clone(),
+                    ty: self.value_type_from_type(&f.ty),
+                    index: f.index,
+                })
+                .collect(),
+        }
     }
 
     fn lookup(&self, name: &str) -> Option<&Type> {
@@ -514,8 +529,9 @@ impl Lowering {
                     for func in class_functions {
                         functions.insert(func.name.clone(), func);
                     }
-                    for ci in class_infos {
-                        classes.insert(ci.name.clone(), ci);
+                    for ci in &class_infos {
+                        let tir_ci = self.lower_class_info(ci);
+                        classes.insert(tir_ci.name.clone(), tir_ci);
                     }
                 }
                 "FunctionDef" => {
@@ -589,8 +605,10 @@ impl Lowering {
         functions.insert(main_func.name.clone(), main_func);
 
         // Drain classes/functions discovered inside function/method bodies
-        for ci in self.deferred_classes.drain(..) {
-            classes.insert(ci.name.clone(), ci);
+        let deferred: Vec<_> = self.deferred_classes.drain(..).collect();
+        for ci in &deferred {
+            let tir_ci = self.lower_class_info(ci);
+            classes.insert(tir_ci.name.clone(), tir_ci);
         }
         for func in self.deferred_functions.drain(..) {
             functions.insert(func.name.clone(), func);

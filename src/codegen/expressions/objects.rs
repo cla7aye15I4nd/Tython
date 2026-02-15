@@ -39,15 +39,12 @@ impl<'ctx> Codegen<'ctx> {
     pub(crate) fn codegen_get_field(
         &mut self,
         object: &TirExpr,
+        class_name: &str,
         field_index: usize,
         field_ty: &ValueType,
     ) -> BasicValueEnum<'ctx> {
         let obj_ptr = self.codegen_expr(object).into_pointer_value();
-
-        let struct_type = match &object.ty {
-            ValueType::Class(name) => self.struct_types[name.as_str()],
-            other => panic!("ICE: GetField on unsupported type `{}`", other),
-        };
+        let struct_type = self.struct_types[class_name];
 
         let field_ptr =
             emit!(self.build_struct_gep(struct_type, obj_ptr, field_index as u32, "field_ptr"));

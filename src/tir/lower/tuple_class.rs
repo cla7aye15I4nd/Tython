@@ -35,6 +35,10 @@ impl Lowering {
         // Build nested if-else from the last field down to the first.
         // Match both positive indices [0..len-1] and negative indices [-len..-1].
         // Raise IndexError for anything outside that range.
+        let class_name = match tuple_ty {
+            ValueType::Class(n) => n.clone(),
+            _ => unreachable!(),
+        };
         let make_assign = |field_index: usize| -> TirStmt {
             TirStmt::Let {
                 name: result_var.to_string(),
@@ -45,6 +49,7 @@ impl Lowering {
                             kind: TirExprKind::Var(tuple_var.to_string()),
                             ty: tuple_ty.clone(),
                         }),
+                        class_name: class_name.clone(),
                         field_index,
                     },
                     ty: elem_ty.clone(),
@@ -412,6 +417,7 @@ impl Lowering {
                         kind: TirExprKind::Var("self".to_string()),
                         ty: class_vty.clone(),
                     }),
+                    class_name: class_name.to_string(),
                     field_index: i,
                 },
                 ty: elem_ty.clone(),
@@ -422,6 +428,7 @@ impl Lowering {
                         kind: TirExprKind::Var("other".to_string()),
                         ty: class_vty.clone(),
                     }),
+                    class_name: class_name.to_string(),
                     field_index: i,
                 },
                 ty: elem_ty.clone(),
@@ -591,6 +598,7 @@ impl Lowering {
                         kind: TirExprKind::Var("self".to_string()),
                         ty: class_vty.clone(),
                     }),
+                    class_name: class_name.to_string(),
                     field_index: i,
                 },
                 ty: elem_ty.clone(),
