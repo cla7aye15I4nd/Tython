@@ -313,6 +313,27 @@ pub fn lower_list_method_call(
             ))
         }
 
+        "__lt__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(ctx, line, &type_name, method_name, &args[0], &list_ty)?;
+            ctx.require_list_leaf_lt_support(line, inner_type)?;
+            let lt_tag = ctx.register_intrinsic_instance(IntrinsicOp::Lt, inner_type);
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::ListLtByTag,
+                    args: vec![
+                        obj.clone(),
+                        args[0].clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(lt_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Bool,
+            }))
+        }
+
         "__reversed__" => {
             super::check_arity(ctx, line, &type_name, method_name, 0, args.len())?;
             Ok(super::expr_call(

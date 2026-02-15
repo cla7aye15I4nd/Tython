@@ -156,12 +156,10 @@ fn binop_to_dunder(raw_op: RawBinOp) -> (&'static str, &'static str) {
     }
 }
 
-fn is_arith_primitive(ty: &ValueType) -> bool {
-    matches!(ty, ValueType::Int | ValueType::Float)
-}
-
 impl Lowering {
-    /// Resolve a binary operation directly into a TIR expression.
+    /// Resolve a binary operation into a TIR expression.
+    /// Primitives (int/float) are handled directly; everything else dispatches
+    /// through dunder methods.
     pub(in crate::tir::lower) fn resolve_binop(
         &mut self,
         line: usize,
@@ -169,69 +167,50 @@ impl Lowering {
         left: TirExpr,
         right: TirExpr,
     ) -> Result<TirExpr> {
-        if is_arith_primitive(&left.ty) && is_arith_primitive(&right.ty) {
-            return self.resolve_primitive_binop(line, raw_op, left, right);
-        }
-        self.resolve_method_binop(line, raw_op, left, right)
-    }
+        match (raw_op, &left.ty, &right.ty) {
+            // ── Bitwise: int × int ──────────────────────────────────────
+            (RawBinOp::Bitwise(bw), ValueType::Int, ValueType::Int) => Ok(TirExpr {
+                kind: bitwise_kind(bw, left, right),
+                ty: ValueType::Int,
+            }),
 
-    /// Handle arithmetic/bitwise on int/float primitives.
-    fn resolve_primitive_binop(
-        &mut self,
-        line: usize,
-        raw_op: RawBinOp,
-        left: TirExpr,
-        right: TirExpr,
-    ) -> Result<TirExpr> {
-        match raw_op {
-            RawBinOp::Bitwise(bw) => {
-                if left.ty != ValueType::Int || right.ty != ValueType::Int {
-                    let left_ast = left.ty.to_type();
-                    let right_ast = right.ty.to_type();
-                    return Err(self.type_error(
-                        line,
-                        binop_type_error_message(raw_op, &left_ast, &right_ast),
-                    ));
-                }
+            // ── Arithmetic: int × int ───────────────────────────────────
+            (RawBinOp::Arith(ArithBinOp::Div), ValueType::Int, ValueType::Int) => {
+                let fl = coerce_to_float(left);
+                let fr = coerce_to_float(right);
                 Ok(TirExpr {
-                    kind: bitwise_kind(bw, left, right),
-                    ty: ValueType::Int,
+                    kind: TirExprKind::FloatDiv(Box::new(fl), Box::new(fr)),
+                    ty: ValueType::Float,
                 })
             }
-            RawBinOp::Arith(arith) => match (&left.ty, &right.ty) {
-                (ValueType::Int, ValueType::Int) => {
-                    if arith == ArithBinOp::Div {
-                        let fl = coerce_to_float(left);
-                        let fr = coerce_to_float(right);
-                        Ok(TirExpr {
-                            kind: TirExprKind::FloatDiv(Box::new(fl), Box::new(fr)),
-                            ty: ValueType::Float,
-                        })
-                    } else {
-                        Ok(TirExpr {
-                            kind: int_arith_kind(arith, left, right),
-                            ty: ValueType::Int,
-                        })
-                    }
-                }
-                (ValueType::Float, ValueType::Float) => Ok(TirExpr {
-                    kind: float_arith_kind(arith, left, right),
+            (RawBinOp::Arith(arith), ValueType::Int, ValueType::Int) => Ok(TirExpr {
+                kind: int_arith_kind(arith, left, right),
+                ty: ValueType::Int,
+            }),
+
+            // ── Arithmetic: float × float ───────────────────────────────
+            (RawBinOp::Arith(arith), ValueType::Float, ValueType::Float) => Ok(TirExpr {
+                kind: float_arith_kind(arith, left, right),
+                ty: ValueType::Float,
+            }),
+
+            // ── Arithmetic: mixed int/float ─────────────────────────────
+            (RawBinOp::Arith(arith), ValueType::Int, ValueType::Float)
+            | (RawBinOp::Arith(arith), ValueType::Float, ValueType::Int) => {
+                let fl = coerce_to_float(left);
+                let fr = coerce_to_float(right);
+                Ok(TirExpr {
+                    kind: float_arith_kind(arith, fl, fr),
                     ty: ValueType::Float,
-                }),
-                (ValueType::Int, ValueType::Float) | (ValueType::Float, ValueType::Int) => {
-                    let fl = coerce_to_float(left);
-                    let fr = coerce_to_float(right);
-                    Ok(TirExpr {
-                        kind: float_arith_kind(arith, fl, fr),
-                        ty: ValueType::Float,
-                    })
-                }
-                _ => unreachable!("resolve_primitive_binop called with non-primitive types"),
-            },
+                })
+            }
+
+            // ── Everything else: method dispatch ────────────────────────
+            _ => self.resolve_method_binop(line, raw_op, left, right),
         }
     }
 
-    /// Dispatch a binary operation through method calls (dunder methods).
+    /// Dispatch a binary operation through dunder methods.
     /// Handles both user-defined classes and builtin ref types (str, list, etc.).
     fn resolve_method_binop(
         &mut self,
@@ -262,8 +241,6 @@ impl Lowering {
     }
 
     /// Try to dispatch a binary operation on a single operand via its dunder method.
-    /// Returns `Ok(Some(expr))` if the method exists, `Ok(None)` if it doesn't,
-    /// or propagates type errors from method call validation.
     fn try_binop_dispatch(
         &mut self,
         line: usize,
@@ -288,16 +265,11 @@ impl Lowering {
                     Ok(None)
                 }
             }
-            ty if !is_arith_primitive(ty) => {
-                match self.lower_method_call(line, obj.clone(), method, vec![arg.clone()]) {
-                    Ok(CallResult::Expr(e)) => Ok(Some(e)),
-                    Ok(CallResult::VoidStmt(_)) => {
-                        unreachable!("binop dunder methods must return a value")
-                    }
-                    Err(_) => Ok(None),
-                }
-            }
-            _ => Ok(None),
+            ValueType::Int | ValueType::Float | ValueType::Bool => Ok(None),
+            _ => match self.lower_method_call(line, obj.clone(), method, vec![arg.clone()]) {
+                Ok(CallResult::Expr(e)) => Ok(Some(e)),
+                _ => Ok(None),
+            },
         }
     }
 }

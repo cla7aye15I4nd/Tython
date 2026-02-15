@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::tir::lower::Lowering;
-use crate::tir::{builtin::BuiltinFn, CallResult, TirExpr, ValueType};
+use crate::tir::{builtin::BuiltinFn, CallResult, TirExpr, TirExprKind, ValueType};
 
 use super::lower_fixed_expr_method;
 
@@ -511,6 +511,38 @@ pub fn lower_bytes_method_call(
             BuiltinFn::BytesRepeat,
             ValueType::Bytes,
         ),
+        "__eq__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "bytes",
+            obj,
+            method_name,
+            args,
+            &[ValueType::Bytes],
+            BuiltinFn::BytesEq,
+            ValueType::Bool,
+        ),
+        "__lt__" => {
+            super::check_arity(ctx, line, "bytes", method_name, 1, args.len())?;
+            super::check_type(ctx, line, "bytes", method_name, &args[0], &ValueType::Bytes)?;
+            let cmp_result = TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::BytesCmp,
+                    args: vec![obj, args.into_iter().next().unwrap()],
+                },
+                ty: ValueType::Int,
+            };
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::IntLt(
+                    Box::new(cmp_result),
+                    Box::new(TirExpr {
+                        kind: TirExprKind::IntLiteral(0),
+                        ty: ValueType::Int,
+                    }),
+                ),
+                ty: ValueType::Bool,
+            }))
+        }
         _ => Err(ctx.attribute_error(line, format!("{} has no method `{}`", "bytes", method_name))),
     }
 }

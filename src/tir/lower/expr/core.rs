@@ -1,7 +1,7 @@
 use anyhow::Result;
 use pyo3::prelude::*;
 
-use super::unaryops::{class_unary_magic, is_valid_unaryop, unaryop_type_error_message};
+use super::unaryops::class_unary_magic;
 use crate::tir::{
     builtin, CallResult, CallTarget, IntrinsicOp, LogicalOp, TirExpr, TirExprKind, TirStmt,
     ValueType,
@@ -144,73 +144,58 @@ impl Lowering {
 
                 let op = Self::convert_unaryop(&op_type);
 
-                // Class magic dispatch
-                if matches!(operand.ty, ValueType::Class(_)) {
-                    let (method_name, expected_return_type, negate_result) = class_unary_magic(op);
-                    let mut expr = self.lower_class_magic_method_with_args(
-                        line,
-                        operand,
-                        &[method_name],
-                        expected_return_type,
-                        "unary operator",
-                        vec![],
-                    )?;
-                    if negate_result {
-                        expr = TirExpr {
-                            kind: TirExprKind::Not(Box::new(expr)),
-                            ty: ValueType::Bool,
-                        };
-                    }
-                    return Ok(expr);
-                }
-
-                // Handle Pos (unary +) as a no-op after validating operand type.
-                if op == crate::tir::UnaryOpKind::Pos {
-                    if !is_valid_unaryop(op, &operand.ty.to_type()) {
-                        return Err(self.type_error(
-                            line,
-                            unaryop_type_error_message(op, &operand.ty.to_type()),
-                        ));
-                    }
-                    return Ok(operand);
-                }
-
-                let lowered_operand = if op == crate::tir::UnaryOpKind::Not {
-                    // `not` works on truthiness, so validate after truthy-to-bool lowering.
-                    self.lower_truthy_to_bool(line, operand, "unary `not` operand")?
-                } else {
-                    if !is_valid_unaryop(op, &operand.ty.to_type()) {
-                        return Err(self.type_error(
-                            line,
-                            unaryop_type_error_message(op, &operand.ty.to_type()),
-                        ));
-                    }
-                    operand
-                };
-
-                // Directly construct typed TIR based on (op, operand_type)
                 use crate::tir::UnaryOpKind::*;
-                let (kind, ty) = match (op, &lowered_operand.ty) {
-                    (Neg, ValueType::Int) => (
-                        TirExprKind::IntNeg(Box::new(lowered_operand)),
-                        ValueType::Int,
-                    ),
-                    (Neg, ValueType::Float) => (
-                        TirExprKind::FloatNeg(Box::new(lowered_operand)),
-                        ValueType::Float,
-                    ),
-                    (Not, _) => (TirExprKind::Not(Box::new(lowered_operand)), ValueType::Bool),
-                    (BitNot, ValueType::Int) => (
-                        TirExprKind::BitNot(Box::new(lowered_operand)),
-                        ValueType::Int,
-                    ),
-                    _ => panic!(
-                        "ICE: unary op {:?} on {:?} should have been rejected earlier",
-                        op, lowered_operand.ty
-                    ),
-                };
 
-                Ok(TirExpr { kind, ty })
+                // `not` — truthiness for all types
+                if op == Not {
+                    if matches!(operand.ty, ValueType::Class(_)) {
+                        let (method_name, expected_return_type, negate_result) =
+                            class_unary_magic(op);
+                        let mut expr = self.lower_class_magic_method_with_args(
+                            line,
+                            operand,
+                            &[method_name],
+                            expected_return_type,
+                            "unary operator",
+                            vec![],
+                        )?;
+                        if negate_result {
+                            expr = TirExpr {
+                                kind: TirExprKind::Not(Box::new(expr)),
+                                ty: ValueType::Bool,
+                            };
+                        }
+                        return Ok(expr);
+                    }
+                    let bool_expr =
+                        self.lower_truthy_to_bool(line, operand, "unary `not` operand")?;
+                    return Ok(TirExpr {
+                        kind: TirExprKind::Not(Box::new(bool_expr)),
+                        ty: ValueType::Bool,
+                    });
+                }
+
+                // Primitive direct lowering
+                match (op, &operand.ty) {
+                    (Pos, ValueType::Int | ValueType::Float) => Ok(operand),
+                    (Neg, ValueType::Int) => Ok(TirExpr {
+                        kind: TirExprKind::IntNeg(Box::new(operand)),
+                        ty: ValueType::Int,
+                    }),
+                    (Neg, ValueType::Float) => Ok(TirExpr {
+                        kind: TirExprKind::FloatNeg(Box::new(operand)),
+                        ty: ValueType::Float,
+                    }),
+                    (BitNot, ValueType::Int) => Ok(TirExpr {
+                        kind: TirExprKind::BitNot(Box::new(operand)),
+                        ty: ValueType::Int,
+                    }),
+                    // Non-primitive → method dispatch (__neg__, __pos__, __invert__)
+                    _ => {
+                        let (method_name, expected_return_type, _negate) = class_unary_magic(op);
+                        self.dispatch_unary_method(line, operand, method_name, expected_return_type)
+                    }
+                }
             }
 
             "BoolOp" => {
@@ -516,104 +501,62 @@ impl Lowering {
                 let obj_expr = self.lower_expr(&value_node)?;
 
                 match obj_expr.ty.clone() {
-                    ValueType::List(inner) => {
-                        if ast_type_name!(slice_node) == "Slice" {
-                            let step_node = ast_getattr!(slice_node, "step");
-                            if !step_node.is_none() {
-                                let step_expr = self.lower_expr(&step_node)?;
-                                if step_expr.ty != ValueType::Int
-                                    || !matches!(step_expr.kind, TirExprKind::IntLiteral(1))
-                                {
-                                    return Err(self
-                                        .syntax_error(line, "list slicing step is not supported"));
-                                }
+                    // List slicing — special syntax with no dunder equivalent
+                    ValueType::List(inner) if ast_type_name!(slice_node) == "Slice" => {
+                        let step_node = ast_getattr!(slice_node, "step");
+                        if !step_node.is_none() {
+                            let step_expr = self.lower_expr(&step_node)?;
+                            if step_expr.ty != ValueType::Int
+                                || !matches!(step_expr.kind, TirExprKind::IntLiteral(1))
+                            {
+                                return Err(
+                                    self.syntax_error(line, "list slicing step is not supported")
+                                );
                             }
-                            let lower_node = ast_getattr!(slice_node, "lower");
-                            let upper_node = ast_getattr!(slice_node, "upper");
-                            let lower_expr = if lower_node.is_none() {
-                                TirExpr {
-                                    kind: TirExprKind::IntLiteral(0),
-                                    ty: ValueType::Int,
-                                }
-                            } else {
-                                let e = self.lower_expr(&lower_node)?;
-                                if e.ty != ValueType::Int {
-                                    return Err(self.type_error(
-                                        line,
-                                        format!("list slice start must be `int`, got `{}`", e.ty),
-                                    ));
-                                }
-                                e
-                            };
-                            let upper_expr = if upper_node.is_none() {
-                                TirExpr {
-                                    kind: TirExprKind::IntLiteral(i64::MAX),
-                                    ty: ValueType::Int,
-                                }
-                            } else {
-                                let e = self.lower_expr(&upper_node)?;
-                                if e.ty != ValueType::Int {
-                                    return Err(self.type_error(
-                                        line,
-                                        format!("list slice end must be `int`, got `{}`", e.ty),
-                                    ));
-                                }
-                                e
-                            };
-                            let out_ty = ValueType::List(inner.clone());
-                            Ok(TirExpr {
-                                kind: TirExprKind::ExternalCall {
-                                    func: builtin::BuiltinFn::ListSlice,
-                                    args: vec![obj_expr, lower_expr, upper_expr],
-                                },
-                                ty: out_ty,
-                            })
+                        }
+                        let lower_node = ast_getattr!(slice_node, "lower");
+                        let upper_node = ast_getattr!(slice_node, "upper");
+                        let lower_expr = if lower_node.is_none() {
+                            TirExpr {
+                                kind: TirExprKind::IntLiteral(0),
+                                ty: ValueType::Int,
+                            }
                         } else {
-                            let index_expr = self.lower_expr(&slice_node)?;
-                            if index_expr.ty != ValueType::Int {
+                            let e = self.lower_expr(&lower_node)?;
+                            if e.ty != ValueType::Int {
                                 return Err(self.type_error(
                                     line,
-                                    format!("list index must be `int`, got `{}`", index_expr.ty),
+                                    format!("list slice start must be `int`, got `{}`", e.ty),
                                 ));
                             }
-                            let elem_ty = (*inner).clone();
-                            Ok(TirExpr {
-                                kind: TirExprKind::ExternalCall {
-                                    func: builtin::BuiltinFn::ListGet,
-                                    args: vec![obj_expr, index_expr],
-                                },
-                                ty: elem_ty,
-                            })
-                        }
-                    }
-                    ValueType::Dict(key_ty, value_ty) => {
-                        let index_expr = self.lower_expr(&slice_node)?;
-                        if index_expr.ty != *key_ty {
-                            return Err(self.type_error(
-                                line,
-                                format!(
-                                    "dict key index must be `{}`, got `{}`",
-                                    key_ty, index_expr.ty
-                                ),
-                            ));
-                        }
-                        self.require_intrinsic_eq_support(line, &key_ty)?;
-                        let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, &key_ty);
+                            e
+                        };
+                        let upper_expr = if upper_node.is_none() {
+                            TirExpr {
+                                kind: TirExprKind::IntLiteral(i64::MAX),
+                                ty: ValueType::Int,
+                            }
+                        } else {
+                            let e = self.lower_expr(&upper_node)?;
+                            if e.ty != ValueType::Int {
+                                return Err(self.type_error(
+                                    line,
+                                    format!("list slice end must be `int`, got `{}`", e.ty),
+                                ));
+                            }
+                            e
+                        };
+                        let out_ty = ValueType::List(inner.clone());
                         Ok(TirExpr {
                             kind: TirExprKind::ExternalCall {
-                                func: builtin::BuiltinFn::DictGetByTag,
-                                args: vec![
-                                    obj_expr,
-                                    index_expr,
-                                    TirExpr {
-                                        kind: TirExprKind::IntLiteral(key_eq_tag),
-                                        ty: ValueType::Int,
-                                    },
-                                ],
+                                func: builtin::BuiltinFn::ListSlice,
+                                args: vec![obj_expr, lower_expr, upper_expr],
                             },
-                            ty: (*value_ty).clone(),
+                            ty: out_ty,
                         })
                     }
+
+                    // Tuple indexing — field access, not method dispatch
                     ValueType::Class(ref name) if self.is_tuple_class(name) => {
                         let elements = self.tuple_element_types(name).to_vec();
                         let index_expr = self.lower_expr(&slice_node)?;
@@ -710,8 +653,19 @@ impl Lowering {
                             })
                         }
                     }
-                    other => {
-                        Err(self.type_error(line, format!("type `{}` is not subscriptable", other)))
+
+                    // Everything else → __getitem__ method dispatch
+                    _ => {
+                        let index_expr = self.lower_expr(&slice_node)?;
+                        match self.lower_method_call(
+                            line,
+                            obj_expr,
+                            "__getitem__",
+                            vec![index_expr],
+                        )? {
+                            CallResult::Expr(e) => Ok(e),
+                            CallResult::VoidStmt(_) => unreachable!(),
+                        }
                     }
                 }
             }

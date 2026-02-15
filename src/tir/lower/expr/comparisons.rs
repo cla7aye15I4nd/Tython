@@ -1,8 +1,7 @@
 use anyhow::Result;
 
 use crate::tir::{
-    builtin, CastKind, CmpOp, IntrinsicOp, OrderedCmpOp, TirExpr, TirExprKind, TypedCompare,
-    ValueType,
+    CallResult, CastKind, CmpOp, OrderedCmpOp, TirExpr, TirExprKind, TypedCompare, ValueType,
 };
 
 use super::binops::coerce_to_float;
@@ -70,128 +69,25 @@ impl Lowering {
         left: TirExpr,
         right: TirExpr,
     ) -> Result<TirExpr> {
-        // `in` / `not in` — containment check (must be before seq comparison)
+        // `in` / `not in` — containment check via __contains__
         if matches!(cmp_op, CmpOp::In | CmpOp::NotIn) {
-            let contains_expr = match &right.ty {
-                ValueType::List(inner) => {
-                    self.require_list_leaf_eq_support(line, inner)?;
-                    let eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, inner);
-                    TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::ListContainsByTag,
-                            args: vec![
-                                right,
-                                left,
-                                TirExpr {
-                                    kind: TirExprKind::IntLiteral(eq_tag),
-                                    ty: ValueType::Int,
-                                },
-                            ],
-                        },
-                        ty: ValueType::Bool,
-                    }
-                }
-                ValueType::Dict(key_ty, _value_ty) => {
-                    if left.ty != **key_ty {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "`in <dict>` requires key type `{}`, got `{}`",
-                                key_ty, left.ty
-                            ),
-                        ));
-                    }
-                    self.require_intrinsic_eq_support(line, key_ty)?;
-                    let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, key_ty);
-                    TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::DictContainsByTag,
-                            args: vec![
-                                right,
-                                left,
-                                TirExpr {
-                                    kind: TirExprKind::IntLiteral(key_eq_tag),
-                                    ty: ValueType::Int,
-                                },
-                            ],
-                        },
-                        ty: ValueType::Bool,
-                    }
-                }
-                ValueType::Set(elem_ty) => {
-                    if left.ty != **elem_ty {
-                        return Err(self.type_error(
-                            line,
-                            format!(
-                                "`in <set>` requires element type `{}`, got `{}`",
-                                elem_ty, left.ty
-                            ),
-                        ));
-                    }
-                    self.require_intrinsic_eq_support(line, elem_ty)?;
-                    let elem_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, elem_ty);
-                    TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::SetContainsByTag,
-                            args: vec![
-                                right,
-                                left,
-                                TirExpr {
-                                    kind: TirExprKind::IntLiteral(elem_eq_tag),
-                                    ty: ValueType::Int,
-                                },
-                            ],
-                        },
-                        ty: ValueType::Bool,
-                    }
-                }
-                ValueType::Str => {
-                    if left.ty != ValueType::Str {
-                        return Err(self.type_error(
-                            line,
-                            format!("`in <str>` requires str operand, got `{}`", left.ty),
-                        ));
-                    }
-                    TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::StrContains,
-                            args: vec![right, left],
-                        },
-                        ty: ValueType::Bool,
-                    }
-                }
-                _ => {
-                    return Err(self
-                        .type_error(line, format!("`in` not supported for type `{}`", right.ty)));
-                }
-            };
-            if cmp_op == CmpOp::NotIn {
-                return Ok(TirExpr {
-                    kind: TirExprKind::Not(Box::new(contains_expr)),
-                    ty: ValueType::Bool,
-                });
-            }
-            return Ok(contains_expr);
+            return self.resolve_contains(line, cmp_op, left, right);
         }
 
         // `is` / `is not` — identity (pointer equality for ref types, value equality for primitives)
         if matches!(cmp_op, CmpOp::Is | CmpOp::IsNot) {
-            let ordered_op = if cmp_op == CmpOp::Is {
-                OrderedCmpOp::Eq
-            } else {
-                OrderedCmpOp::NotEq
-            };
-
-            // For reference types, we'll compare pointers as integers in codegen
-            // For primitive types, use direct comparison
             let typed_op = if left.ty.is_ref_type() {
-                // Pointer comparison - codegen will convert to int and compare
                 if cmp_op == CmpOp::Is {
                     TypedCompare::IntEq
                 } else {
                     TypedCompare::IntNotEq
                 }
             } else {
+                let ordered_op = if cmp_op == CmpOp::Is {
+                    OrderedCmpOp::Eq
+                } else {
+                    OrderedCmpOp::NotEq
+                };
                 resolve_typed_compare(ordered_op, &left.ty)
             };
 
@@ -201,416 +97,228 @@ impl Lowering {
             });
         }
 
-        // Sequence comparison: dispatch to runtime functions
-        if let Some((eq_fn, cmp_fn)) = Self::seq_compare_builtins(&left.ty) {
-            if left.ty != right.ty {
-                return Err(self.type_error(
-                    line,
-                    format!(
-                        "comparison operands must have compatible types: `{}` vs `{}`",
-                        left.ty, right.ty
-                    ),
-                ));
-            }
-            return Ok(Self::build_seq_comparison(
-                OrderedCmpOp::from_cmp_op(cmp_op),
-                eq_fn,
-                cmp_fn,
-                left,
-                right,
-            ));
-        }
-
-        // List comparison (equality + lexicographic ordering)
-        if matches!(&left.ty, ValueType::List(_)) && matches!(&right.ty, ValueType::List(_)) {
-            if left.ty != right.ty {
-                return Err(self.type_error(
-                    line,
-                    format!(
-                        "comparison operands must have compatible types: `{}` vs `{}`",
-                        left.ty, right.ty
-                    ),
-                ));
-            }
-            let ValueType::List(inner) = &left.ty else {
-                unreachable!();
-            };
-            match cmp_op {
-                CmpOp::Eq | CmpOp::NotEq => {
-                    self.require_list_leaf_eq_support(line, inner)?;
-                    let eq_expr = self.generate_list_eq(left, right);
-                    if cmp_op == CmpOp::NotEq {
-                        return Ok(TirExpr {
-                            kind: TirExprKind::Not(Box::new(eq_expr)),
-                            ty: ValueType::Bool,
-                        });
-                    }
-                    return Ok(eq_expr);
-                }
-                CmpOp::Lt | CmpOp::LtEq | CmpOp::Gt | CmpOp::GtEq => {
-                    self.require_list_leaf_lt_support(line, inner)?;
-                    let lt_tag = self.register_intrinsic_instance(IntrinsicOp::Lt, inner);
-                    let left_lt_right = TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::ListLtByTag,
-                            args: vec![
-                                left.clone(),
-                                right.clone(),
-                                TirExpr {
-                                    kind: TirExprKind::IntLiteral(lt_tag),
-                                    ty: ValueType::Int,
-                                },
-                            ],
-                        },
-                        ty: ValueType::Bool,
-                    };
-                    let right_lt_left = TirExpr {
-                        kind: TirExprKind::ExternalCall {
-                            func: builtin::BuiltinFn::ListLtByTag,
-                            args: vec![
-                                right.clone(),
-                                left.clone(),
-                                TirExpr {
-                                    kind: TirExprKind::IntLiteral(lt_tag),
-                                    ty: ValueType::Int,
-                                },
-                            ],
-                        },
-                        ty: ValueType::Bool,
-                    };
-                    let out = match cmp_op {
-                        CmpOp::Lt => left_lt_right,
-                        CmpOp::Gt => right_lt_left,
-                        CmpOp::LtEq => TirExpr {
-                            kind: TirExprKind::Not(Box::new(right_lt_left)),
-                            ty: ValueType::Bool,
-                        },
-                        CmpOp::GtEq => TirExpr {
-                            kind: TirExprKind::Not(Box::new(left_lt_right)),
-                            ty: ValueType::Bool,
-                        },
-                        _ => unreachable!(),
-                    };
-                    return Ok(out);
-                }
-                _ => {}
-            }
-        }
-
-        // Dict equality
-        if matches!(&left.ty, ValueType::Dict(_, _)) && matches!(&right.ty, ValueType::Dict(_, _)) {
-            if left.ty != right.ty {
-                return Err(self.type_error(
-                    line,
-                    format!(
-                        "comparison operands must have compatible types: `{}` vs `{}`",
-                        left.ty, right.ty
-                    ),
-                ));
-            }
-            if cmp_op != CmpOp::Eq && cmp_op != CmpOp::NotEq {
-                return Err(
-                    self.type_error(line, "only `==` and `!=` are supported for dict comparison")
-                );
-            }
-            let ValueType::Dict(key_ty, value_ty) = &left.ty else {
-                unreachable!();
-            };
-            self.require_intrinsic_eq_support(line, key_ty)?;
-            self.require_intrinsic_eq_support(line, value_ty)?;
-            let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, key_ty);
-            let value_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, value_ty);
-            let eq_expr = TirExpr {
-                kind: TirExprKind::ExternalCall {
-                    func: builtin::BuiltinFn::DictEqByTag,
-                    args: vec![
-                        left,
-                        right,
-                        TirExpr {
-                            kind: TirExprKind::IntLiteral(key_eq_tag),
-                            ty: ValueType::Int,
-                        },
-                        TirExpr {
-                            kind: TirExprKind::IntLiteral(value_eq_tag),
-                            ty: ValueType::Int,
-                        },
-                    ],
-                },
-                ty: ValueType::Bool,
-            };
-            if cmp_op == CmpOp::NotEq {
-                return Ok(TirExpr {
-                    kind: TirExprKind::Not(Box::new(eq_expr)),
+        // Primitive comparison (Int, Float, Bool) with optional promotion
+        match (&left.ty, &right.ty) {
+            (ValueType::Int, ValueType::Int)
+            | (ValueType::Float, ValueType::Float)
+            | (ValueType::Bool, ValueType::Bool) => {
+                let ordered_op = OrderedCmpOp::from_cmp_op(cmp_op);
+                let typed_op = resolve_typed_compare(ordered_op, &left.ty);
+                Ok(TirExpr {
+                    kind: typed_compare_to_kind(typed_op, left, right),
                     ty: ValueType::Bool,
-                });
+                })
             }
-            return Ok(eq_expr);
-        }
-
-        // Set equality
-        if matches!(&left.ty, ValueType::Set(_)) && matches!(&right.ty, ValueType::Set(_)) {
-            if left.ty != right.ty {
-                return Err(self.type_error(
-                    line,
-                    format!(
-                        "comparison operands must have compatible types: `{}` vs `{}`",
-                        left.ty, right.ty
-                    ),
-                ));
-            }
-            if cmp_op != CmpOp::Eq && cmp_op != CmpOp::NotEq {
-                return Err(
-                    self.type_error(line, "only `==` and `!=` are supported for set comparison")
-                );
-            }
-            let ValueType::Set(elem_ty) = &left.ty else {
-                unreachable!();
-            };
-            self.require_intrinsic_eq_support(line, elem_ty)?;
-            let elem_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, elem_ty);
-            let eq_expr = TirExpr {
-                kind: TirExprKind::ExternalCall {
-                    func: builtin::BuiltinFn::SetEqByTag,
-                    args: vec![
-                        left,
-                        right,
-                        TirExpr {
-                            kind: TirExprKind::IntLiteral(elem_eq_tag),
-                            ty: ValueType::Int,
-                        },
-                    ],
-                },
-                ty: ValueType::Bool,
-            };
-            if cmp_op == CmpOp::NotEq {
-                return Ok(TirExpr {
-                    kind: TirExprKind::Not(Box::new(eq_expr)),
+            (ValueType::Int, ValueType::Float) | (ValueType::Float, ValueType::Int) => {
+                let fl = coerce_to_float(left);
+                let fr = coerce_to_float(right);
+                let ordered_op = OrderedCmpOp::from_cmp_op(cmp_op);
+                let typed_op = resolve_typed_compare(ordered_op, &ValueType::Float);
+                Ok(TirExpr {
+                    kind: typed_compare_to_kind(typed_op, fl, fr),
                     ty: ValueType::Bool,
-                });
+                })
             }
-            return Ok(eq_expr);
-        }
 
-        // Class comparison via intrinsic Eq/Lt dispatch
-        if matches!(&left.ty, ValueType::Class(_)) && matches!(&right.ty, ValueType::Class(_)) {
-            if left.ty != right.ty {
-                return Err(self.type_error(
-                    line,
-                    format!(
-                        "comparison operands must have compatible types: `{}` vs `{}`",
-                        left.ty, right.ty
-                    ),
-                ));
-            }
-            let out = match cmp_op {
-                CmpOp::Eq => {
-                    self.register_intrinsic_instance(IntrinsicOp::Eq, &left.ty);
-                    TirExpr {
-                        kind: TirExprKind::IntrinsicCmp {
-                            op: IntrinsicOp::Eq,
-                            lhs: Box::new(left),
-                            rhs: Box::new(right),
-                        },
-                        ty: ValueType::Bool,
-                    }
-                }
-                CmpOp::NotEq => {
-                    self.register_intrinsic_instance(IntrinsicOp::Eq, &left.ty);
-                    let eq = TirExpr {
-                        kind: TirExprKind::IntrinsicCmp {
-                            op: IntrinsicOp::Eq,
-                            lhs: Box::new(left),
-                            rhs: Box::new(right),
-                        },
-                        ty: ValueType::Bool,
-                    };
-                    TirExpr {
-                        kind: TirExprKind::Not(Box::new(eq)),
-                        ty: ValueType::Bool,
-                    }
-                }
-                CmpOp::Lt | CmpOp::LtEq | CmpOp::Gt | CmpOp::GtEq => {
-                    if let ValueType::Class(class_name) = &left.ty {
-                        self.require_class_magic_method(line, class_name, "__lt__")?;
-                    }
-                    self.register_intrinsic_instance(IntrinsicOp::Lt, &left.ty);
-                    let left_lt_right = TirExpr {
-                        kind: TirExprKind::IntrinsicCmp {
-                            op: IntrinsicOp::Lt,
-                            lhs: Box::new(left.clone()),
-                            rhs: Box::new(right.clone()),
-                        },
-                        ty: ValueType::Bool,
-                    };
-                    let right_lt_left = TirExpr {
-                        kind: TirExprKind::IntrinsicCmp {
-                            op: IntrinsicOp::Lt,
-                            lhs: Box::new(right.clone()),
-                            rhs: Box::new(left.clone()),
-                        },
-                        ty: ValueType::Bool,
-                    };
-                    match cmp_op {
-                        CmpOp::Lt => left_lt_right,
-                        CmpOp::Gt => right_lt_left,
-                        CmpOp::LtEq => TirExpr {
-                            kind: TirExprKind::Not(Box::new(right_lt_left)),
-                            ty: ValueType::Bool,
-                        },
-                        CmpOp::GtEq => TirExpr {
-                            kind: TirExprKind::Not(Box::new(left_lt_right)),
-                            ty: ValueType::Bool,
-                        },
-                        _ => unreachable!(),
-                    }
-                }
-                _ => {
-                    return Err(self.type_error(
-                        line,
-                        format!(
-                            "comparison operator `{:?}` is not supported for class values",
-                            cmp_op
-                        ),
-                    ));
-                }
-            };
-            return Ok(out);
-        }
-
-        // Numeric comparison with optional promotion
-        let (fl, fr) = self.promote_for_comparison(line, left, right)?;
-        let ordered_op = OrderedCmpOp::from_cmp_op(cmp_op);
-
-        // Resolve to typed comparison for primitive types
-        let typed_op = resolve_typed_compare(ordered_op, &fl.ty);
-
-        Ok(TirExpr {
-            kind: typed_compare_to_kind(typed_op, fl, fr),
-            ty: ValueType::Bool,
-        })
-    }
-
-    /// Generate equality check for two lists.
-    /// Lowered as a generic list-equality call; codegen monomorphizes by element type.
-    fn generate_list_eq(&mut self, left: TirExpr, right: TirExpr) -> TirExpr {
-        let ValueType::List(inner) = &left.ty else {
-            unreachable!();
-        };
-        let eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, inner);
-        TirExpr {
-            kind: TirExprKind::ExternalCall {
-                func: builtin::BuiltinFn::ListEqByTag,
-                args: vec![
-                    left,
-                    right,
-                    TirExpr {
-                        kind: TirExprKind::IntLiteral(eq_tag),
-                        ty: ValueType::Int,
-                    },
-                ],
-            },
-            ty: ValueType::Bool,
+            // Everything else — method dispatch
+            _ => self.resolve_method_comparison(line, cmp_op, left, right),
         }
     }
 
-    fn seq_compare_builtins(ty: &ValueType) -> Option<(builtin::BuiltinFn, builtin::BuiltinFn)> {
-        match ty {
-            ValueType::Str => Some((builtin::BuiltinFn::StrEq, builtin::BuiltinFn::StrCmp)),
-            ValueType::Bytes => Some((builtin::BuiltinFn::BytesEq, builtin::BuiltinFn::BytesCmp)),
-            ValueType::ByteArray => Some((
-                builtin::BuiltinFn::ByteArrayEq,
-                builtin::BuiltinFn::ByteArrayCmp,
-            )),
-            _ => None,
-        }
-    }
-
-    fn build_seq_comparison(
-        cmp_op: OrderedCmpOp,
-        eq_fn: builtin::BuiltinFn,
-        cmp_fn: builtin::BuiltinFn,
-        left: TirExpr,
-        right: TirExpr,
-    ) -> TirExpr {
-        let zero = TirExpr {
-            kind: TirExprKind::IntLiteral(0),
-            ty: ValueType::Int,
-        };
-
-        match cmp_op {
-            OrderedCmpOp::Eq => {
-                // str_eq returns 1 if equal, 0 if not — usable directly as Bool.
-                TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func: eq_fn,
-                        args: vec![left, right],
-                    },
-                    ty: ValueType::Bool,
-                }
-            }
-            OrderedCmpOp::NotEq => {
-                // str_eq(a,b) == 0 means "not equal"
-                let eq_call = TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func: eq_fn,
-                        args: vec![left, right],
-                    },
-                    ty: ValueType::Int,
-                };
-                TirExpr {
-                    kind: TirExprKind::Not(Box::new(eq_call)),
-                    ty: ValueType::Bool,
-                }
-            }
-            ordered => {
-                // str_cmp(a,b) <op> 0 — all comparisons are on Int values
-                let cmp_call = TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func: cmp_fn,
-                        args: vec![left, right],
-                    },
-                    ty: ValueType::Int,
-                };
-                let typed_op = resolve_typed_compare(ordered, &ValueType::Int);
-                TirExpr {
-                    kind: typed_compare_to_kind(typed_op, cmp_call, zero),
-                    ty: ValueType::Bool,
-                }
-            }
-        }
-    }
-
-    fn promote_for_comparison(
-        &self,
+    /// Dispatch `in` / `not in` via `__contains__` on the right operand.
+    fn resolve_contains(
+        &mut self,
         line: usize,
+        cmp_op: CmpOp,
         left: TirExpr,
         right: TirExpr,
-    ) -> Result<(TirExpr, TirExpr)> {
-        if left.ty == right.ty {
-            if left.ty.supports_ordering() {
-                Ok((left, right))
-            } else {
-                Err(self.type_error(
-                    line,
-                    format!(
-                        "type `{}` does not support ordering comparisons (no `__lt__`)",
-                        left.ty
-                    ),
-                ))
-            }
-        } else if matches!(
-            (&left.ty, &right.ty),
-            (ValueType::Int, ValueType::Float) | (ValueType::Float, ValueType::Int)
-        ) {
-            Ok((coerce_to_float(left), coerce_to_float(right)))
+    ) -> Result<TirExpr> {
+        let contains_expr = self
+            .try_comparison_dispatch(line, &right, "__contains__", &left)?
+            .ok_or_else(|| {
+                self.type_error(line, format!("`in` not supported for type `{}`", right.ty))
+            })?;
+
+        if cmp_op == CmpOp::NotIn {
+            Ok(TirExpr {
+                kind: TirExprKind::Not(Box::new(contains_expr)),
+                ty: ValueType::Bool,
+            })
         } else {
-            Err(self.type_error(
+            Ok(contains_expr)
+        }
+    }
+
+    /// Dispatch ordered comparisons via `__eq__` / `__lt__` methods.
+    fn resolve_method_comparison(
+        &mut self,
+        line: usize,
+        cmp_op: CmpOp,
+        left: TirExpr,
+        right: TirExpr,
+    ) -> Result<TirExpr> {
+        if left.ty != right.ty {
+            return Err(self.type_error(
                 line,
                 format!(
                     "comparison operands must have compatible types: `{}` vs `{}`",
                     left.ty, right.ty
                 ),
-            ))
+            ));
+        }
+
+        match cmp_op {
+            CmpOp::Eq | CmpOp::NotEq => {
+                let eq_result = self.try_comparison_dispatch(line, &left, "__eq__", &right)?;
+                let eq_expr = match eq_result {
+                    Some(e) => e,
+                    None => {
+                        // No __eq__ → fall back to identity comparison
+                        let typed_op = if left.ty.is_ref_type() {
+                            if cmp_op == CmpOp::Eq {
+                                TypedCompare::IntEq
+                            } else {
+                                TypedCompare::IntNotEq
+                            }
+                        } else {
+                            return Err(self.type_error(
+                                line,
+                                format!("type `{}` does not support equality comparison", left.ty),
+                            ));
+                        };
+                        return Ok(TirExpr {
+                            kind: typed_compare_to_kind(typed_op, left, right),
+                            ty: ValueType::Bool,
+                        });
+                    }
+                };
+                if cmp_op == CmpOp::NotEq {
+                    Ok(TirExpr {
+                        kind: TirExprKind::Not(Box::new(eq_expr)),
+                        ty: ValueType::Bool,
+                    })
+                } else {
+                    Ok(eq_expr)
+                }
+            }
+            CmpOp::Lt | CmpOp::LtEq | CmpOp::Gt | CmpOp::GtEq => {
+                let dispatch_lt = |this: &mut Self, a: &TirExpr, b: &TirExpr| -> Result<TirExpr> {
+                    this.try_comparison_dispatch(line, a, "__lt__", b)?
+                        .ok_or_else(|| {
+                            this.type_error(
+                                line,
+                                format!(
+                                    "type `{}` does not support ordering comparisons (no `__lt__`)",
+                                    a.ty
+                                ),
+                            )
+                        })
+                };
+                match cmp_op {
+                    CmpOp::Lt => dispatch_lt(self, &left, &right),
+                    CmpOp::Gt => dispatch_lt(self, &right, &left),
+                    CmpOp::LtEq => {
+                        let gt = dispatch_lt(self, &right, &left)?;
+                        Ok(TirExpr {
+                            kind: TirExprKind::Not(Box::new(gt)),
+                            ty: ValueType::Bool,
+                        })
+                    }
+                    CmpOp::GtEq => {
+                        let lt = dispatch_lt(self, &left, &right)?;
+                        Ok(TirExpr {
+                            kind: TirExprKind::Not(Box::new(lt)),
+                            ty: ValueType::Bool,
+                        })
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => Err(self.type_error(
+                line,
+                format!(
+                    "comparison operator `{:?}` is not supported for type `{}`",
+                    cmp_op, left.ty
+                ),
+            )),
+        }
+    }
+
+    /// Try to dispatch a comparison operation on a single operand via its dunder method.
+    fn try_comparison_dispatch(
+        &mut self,
+        line: usize,
+        obj: &TirExpr,
+        method: &str,
+        arg: &TirExpr,
+    ) -> Result<Option<TirExpr>> {
+        match &obj.ty {
+            ValueType::Class(class_name) => {
+                let class_info = self.lookup_class(line, class_name)?;
+                if class_info.methods.contains_key(method) {
+                    self.lower_class_magic_method_with_args(
+                        line,
+                        obj.clone(),
+                        &[method],
+                        Some(ValueType::Bool),
+                        "comparison operator",
+                        vec![arg.clone()],
+                    )
+                    .map(Some)
+                } else {
+                    Ok(None)
+                }
+            }
+            ValueType::Int | ValueType::Float | ValueType::Bool => Ok(None),
+            _ => match self.lower_method_call(line, obj.clone(), method, vec![arg.clone()]) {
+                Ok(CallResult::Expr(e)) => Ok(Some(e)),
+                Ok(CallResult::VoidStmt(_)) => Ok(None),
+                Err(e) => Err(e),
+            },
+        }
+    }
+
+    /// Dispatch a unary operation through a dunder method (__neg__, __pos__, __invert__).
+    pub(in crate::tir::lower) fn dispatch_unary_method(
+        &mut self,
+        line: usize,
+        operand: TirExpr,
+        method: &str,
+        expected_return_type: Option<ValueType>,
+    ) -> Result<TirExpr> {
+        match &operand.ty {
+            ValueType::Class(class_name) => {
+                let class_info = self.lookup_class(line, class_name)?;
+                if class_info.methods.contains_key(method) {
+                    self.lower_class_magic_method_with_args(
+                        line,
+                        operand,
+                        &[method],
+                        expected_return_type,
+                        "unary operator",
+                        vec![],
+                    )
+                } else {
+                    Err(self.type_error(
+                        line,
+                        format!(
+                            "type `{}` does not support this unary operator (no `{}`)",
+                            operand.ty, method
+                        ),
+                    ))
+                }
+            }
+            _ => match self.lower_method_call(line, operand.clone(), method, vec![]) {
+                Ok(CallResult::Expr(e)) => Ok(e),
+                Ok(CallResult::VoidStmt(_)) => Err(self.type_error(
+                    line,
+                    format!(
+                        "unary `{}` is not supported for type `{}`",
+                        method, operand.ty
+                    ),
+                )),
+                Err(e) => Err(e),
+            },
         }
     }
 
