@@ -104,17 +104,16 @@ impl<'ctx> Codegen<'ctx> {
         emit!(self.build_call(end_catch, &[], label));
     }
 
-    /// Emit a function call. When inside a try block (`try_depth > 0`) and
-    /// `may_throw` is true, emits an `invoke` instruction that unwinds to the
-    /// current landing pad; otherwise emits a regular `call`.
+    /// Emit a function call. When inside a try block (`try_depth > 0`),
+    /// emits an `invoke` instruction that unwinds to the current landing pad;
+    /// otherwise emits a regular `call`.
     pub(crate) fn build_call_maybe_invoke(
         &self,
         function: FunctionValue<'ctx>,
         args: &[BasicValueEnum<'ctx>],
         name: &str,
-        may_throw: bool,
     ) -> CallSiteValue<'ctx> {
-        if may_throw && self.try_depth > 0 {
+        if self.try_depth > 0 {
             let current_fn = emit!(self.get_insert_block()).get_parent().unwrap();
             let cont_bb = self
                 .context

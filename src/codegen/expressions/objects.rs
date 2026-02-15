@@ -31,7 +31,7 @@ impl<'ctx> Codegen<'ctx> {
         param_types.extend(args.iter().map(|a| a.ty.clone()));
         let init_fn = self.get_or_declare_function(init_mangled_name, &param_types, None);
 
-        self.build_call_maybe_invoke(init_fn, &init_args, "init", true);
+        self.build_call_maybe_invoke(init_fn, &init_args, "init");
 
         ptr.into()
     }

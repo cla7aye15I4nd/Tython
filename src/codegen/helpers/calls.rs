@@ -250,7 +250,7 @@ impl<'ctx> Codegen<'ctx> {
         let arg_types: Vec<ValueType> = args.iter().map(|a| a.ty.clone()).collect();
         let function = self.get_or_declare_function(func, &arg_types, return_type.cloned());
         let arg_values = self.codegen_call_args(args);
-        let call_site = self.build_call_maybe_invoke(function, &arg_values, "call", true);
+        let call_site = self.build_call_maybe_invoke(function, &arg_values, "call");
         return_type.map(|_| self.extract_call_value(call_site))
     }
 
