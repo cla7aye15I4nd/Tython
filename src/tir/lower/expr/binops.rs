@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::ast::Type;
 use crate::tir::{
-    builtin, ArithBinOp, BitwiseBinOp, CastKind, RawBinOp, TirExpr, TirExprKind, ValueType,
+    ArithBinOp, BitwiseBinOp, CallResult, CastKind, RawBinOp, TirExpr, TirExprKind, ValueType,
 };
 
 use crate::tir::lower::Lowering;
@@ -13,34 +13,50 @@ use crate::tir::lower::Lowering;
 pub fn is_valid_binop(op: RawBinOp, left: &Type, right: &Type) -> bool {
     use Type::*;
 
-    // Sequence operations (concat, repeat)
+    // Primitive arithmetic/bitwise (int, float)
     match op {
-        RawBinOp::Arith(ArithBinOp::Add) => match (left, right) {
-            (Str, Str) | (Bytes, Bytes) | (ByteArray, ByteArray) => return true,
-            (List(a), List(b)) if a == b => return true,
-            _ => {}
-        },
-        RawBinOp::Arith(ArithBinOp::Mul) => match (left, right) {
-            (Str, Int)
-            | (Int, Str)
-            | (Bytes, Int)
-            | (Int, Bytes)
-            | (ByteArray, Int)
-            | (Int, ByteArray)
-            | (List(_), Int)
-            | (Int, List(_)) => return true,
-            _ => {}
-        },
-        _ => {}
+        RawBinOp::Bitwise(_) => {
+            if matches!((left, right), (Int, Int)) {
+                return true;
+            }
+        }
+        RawBinOp::Arith(_) => {
+            if matches!(
+                (left, right),
+                (Int, Int) | (Float, Float) | (Int, Float) | (Float, Int)
+            ) {
+                return true;
+            }
+        }
     }
 
-    // Arithmetic/bitwise
+    // Method-dispatched operations (ref types with dunder methods)
+    has_method_binop(op, left, right)
+}
+
+/// Check whether a binary operation is supported via dunder method dispatch
+/// for builtin ref types.
+fn has_method_binop(op: RawBinOp, left: &Type, right: &Type) -> bool {
+    use Type::*;
     match op {
-        RawBinOp::Bitwise(_) => matches!((left, right), (Int, Int)),
-        RawBinOp::Arith(_) => matches!(
+        RawBinOp::Arith(ArithBinOp::Add) => {
+            matches!(
+                (left, right),
+                (Str, Str) | (Bytes, Bytes) | (ByteArray, ByteArray)
+            ) || matches!((left, right), (List(a), List(b)) if a == b)
+        }
+        RawBinOp::Arith(ArithBinOp::Mul) => matches!(
             (left, right),
-            (Int, Int) | (Float, Float) | (Int, Float) | (Float, Int)
+            (Str, Int)
+                | (Int, Str)
+                | (Bytes, Int)
+                | (Int, Bytes)
+                | (ByteArray, Int)
+                | (Int, ByteArray)
+                | (List(_), Int)
+                | (Int, List(_))
         ),
+        _ => false,
     }
 }
 
@@ -122,6 +138,28 @@ pub(in crate::tir::lower) fn coerce_to_float(expr: TirExpr) -> TirExpr {
 
 // ── Binary Operation Lowering ────────────────────────────────────────
 
+/// Map a binary operator to its (forward, reflected) dunder method names.
+fn binop_to_dunder(raw_op: RawBinOp) -> (&'static str, &'static str) {
+    match raw_op {
+        RawBinOp::Arith(ArithBinOp::Add) => ("__add__", "__radd__"),
+        RawBinOp::Arith(ArithBinOp::Sub) => ("__sub__", "__rsub__"),
+        RawBinOp::Arith(ArithBinOp::Mul) => ("__mul__", "__rmul__"),
+        RawBinOp::Arith(ArithBinOp::Div) => ("__truediv__", "__rtruediv__"),
+        RawBinOp::Arith(ArithBinOp::FloorDiv) => ("__floordiv__", "__rfloordiv__"),
+        RawBinOp::Arith(ArithBinOp::Mod) => ("__mod__", "__rmod__"),
+        RawBinOp::Arith(ArithBinOp::Pow) => ("__pow__", "__rpow__"),
+        RawBinOp::Bitwise(BitwiseBinOp::BitAnd) => ("__and__", "__rand__"),
+        RawBinOp::Bitwise(BitwiseBinOp::BitOr) => ("__or__", "__ror__"),
+        RawBinOp::Bitwise(BitwiseBinOp::BitXor) => ("__xor__", "__rxor__"),
+        RawBinOp::Bitwise(BitwiseBinOp::LShift) => ("__lshift__", "__rlshift__"),
+        RawBinOp::Bitwise(BitwiseBinOp::RShift) => ("__rshift__", "__rrshift__"),
+    }
+}
+
+fn is_arith_primitive(ty: &ValueType) -> bool {
+    matches!(ty, ValueType::Int | ValueType::Float)
+}
+
 impl Lowering {
     /// Resolve a binary operation directly into a TIR expression.
     pub(in crate::tir::lower) fn resolve_binop(
@@ -131,19 +169,20 @@ impl Lowering {
         left: TirExpr,
         right: TirExpr,
     ) -> Result<TirExpr> {
-        // Class magic dispatch
-        if let Some(class_expr) =
-            self.try_lower_class_binop_magic(line, raw_op, left.clone(), right.clone())?
-        {
-            return Ok(class_expr);
+        if is_arith_primitive(&left.ty) && is_arith_primitive(&right.ty) {
+            return self.resolve_primitive_binop(line, raw_op, left, right);
         }
+        self.resolve_method_binop(line, raw_op, left, right)
+    }
 
-        // Sequence operations (concat, repeat)
-        if let Some(seq_expr) = Self::try_lower_seq_binop(raw_op, left.clone(), right.clone()) {
-            return Ok(seq_expr);
-        }
-
-        // Arithmetic/bitwise on primitives
+    /// Handle arithmetic/bitwise on int/float primitives.
+    fn resolve_primitive_binop(
+        &mut self,
+        line: usize,
+        raw_op: RawBinOp,
+        left: TirExpr,
+        right: TirExpr,
+    ) -> Result<TirExpr> {
         match raw_op {
             RawBinOp::Bitwise(bw) => {
                 if left.ty != ValueType::Int || right.ty != ValueType::Int {
@@ -162,7 +201,6 @@ impl Lowering {
             RawBinOp::Arith(arith) => match (&left.ty, &right.ty) {
                 (ValueType::Int, ValueType::Int) => {
                     if arith == ArithBinOp::Div {
-                        // True division always produces Float
                         let fl = coerce_to_float(left);
                         let fr = coerce_to_float(right);
                         Ok(TirExpr {
@@ -188,164 +226,78 @@ impl Lowering {
                         ty: ValueType::Float,
                     })
                 }
-                _ => {
-                    let left_ast = left.ty.to_type();
-                    let right_ast = right.ty.to_type();
-                    Err(self.type_error(
-                        line,
-                        binop_type_error_message(raw_op, &left_ast, &right_ast),
-                    ))
-                }
+                _ => unreachable!("resolve_primitive_binop called with non-primitive types"),
             },
         }
     }
 
-    fn try_lower_seq_binop(raw_op: RawBinOp, left: TirExpr, right: TirExpr) -> Option<TirExpr> {
-        match raw_op {
-            RawBinOp::Arith(ArithBinOp::Add) => {
-                let (func, ty) = match (&left.ty, &right.ty) {
-                    (ValueType::Str, ValueType::Str) => {
-                        (builtin::BuiltinFn::StrConcat, ValueType::Str)
-                    }
-                    (ValueType::Bytes, ValueType::Bytes) => {
-                        (builtin::BuiltinFn::BytesConcat, ValueType::Bytes)
-                    }
-                    (ValueType::ByteArray, ValueType::ByteArray) => {
-                        (builtin::BuiltinFn::ByteArrayConcat, ValueType::ByteArray)
-                    }
-                    (ValueType::List(a), ValueType::List(b)) if a == b => {
-                        (builtin::BuiltinFn::ListConcat, left.ty.clone())
-                    }
-                    _ => return None,
-                };
-                Some(TirExpr {
-                    kind: TirExprKind::ExternalCall {
-                        func,
-                        args: vec![left, right],
-                    },
-                    ty,
-                })
-            }
-            RawBinOp::Arith(ArithBinOp::Mul) => {
-                let (func, ty, args) = match (&left.ty, &right.ty) {
-                    (ValueType::Str, ValueType::Int) => (
-                        builtin::BuiltinFn::StrRepeat,
-                        ValueType::Str,
-                        vec![left, right],
-                    ),
-                    (ValueType::Int, ValueType::Str) => (
-                        builtin::BuiltinFn::StrRepeat,
-                        ValueType::Str,
-                        vec![right, left],
-                    ),
-                    (ValueType::Bytes, ValueType::Int) => (
-                        builtin::BuiltinFn::BytesRepeat,
-                        ValueType::Bytes,
-                        vec![left, right],
-                    ),
-                    (ValueType::Int, ValueType::Bytes) => (
-                        builtin::BuiltinFn::BytesRepeat,
-                        ValueType::Bytes,
-                        vec![right, left],
-                    ),
-                    (ValueType::ByteArray, ValueType::Int) => (
-                        builtin::BuiltinFn::ByteArrayRepeat,
-                        ValueType::ByteArray,
-                        vec![left, right],
-                    ),
-                    (ValueType::Int, ValueType::ByteArray) => (
-                        builtin::BuiltinFn::ByteArrayRepeat,
-                        ValueType::ByteArray,
-                        vec![right, left],
-                    ),
-                    (ValueType::List(_), ValueType::Int) => {
-                        let ty = left.ty.clone();
-                        (builtin::BuiltinFn::ListRepeat, ty, vec![left, right])
-                    }
-                    (ValueType::Int, ValueType::List(_)) => {
-                        let ty = right.ty.clone();
-                        (builtin::BuiltinFn::ListRepeat, ty, vec![right, left])
-                    }
-                    _ => return None,
-                };
-                Some(TirExpr {
-                    kind: TirExprKind::ExternalCall { func, args },
-                    ty,
-                })
-            }
-            _ => None,
-        }
-    }
-
-    fn try_lower_class_binop_magic(
+    /// Dispatch a binary operation through method calls (dunder methods).
+    /// Handles both user-defined classes and builtin ref types (str, list, etc.).
+    fn resolve_method_binop(
         &mut self,
         line: usize,
         raw_op: RawBinOp,
         left: TirExpr,
         right: TirExpr,
+    ) -> Result<TirExpr> {
+        let (left_method, right_method) = binop_to_dunder(raw_op);
+
+        // Try left operand's forward method
+        if let Some(expr) = self.try_binop_dispatch(line, &left, left_method, &right)? {
+            return Ok(expr);
+        }
+
+        // Try right operand's reflected method
+        if let Some(expr) = self.try_binop_dispatch(line, &right, right_method, &left)? {
+            return Ok(expr);
+        }
+
+        Err(self.type_error(
+            line,
+            format!(
+                "unsupported operand type(s) for `{}`: `{}` and `{}`",
+                raw_op, left.ty, right.ty
+            ),
+        ))
+    }
+
+    /// Try to dispatch a binary operation on a single operand via its dunder method.
+    /// Returns `Ok(Some(expr))` if the method exists, `Ok(None)` if it doesn't,
+    /// or propagates type errors from method call validation.
+    fn try_binop_dispatch(
+        &mut self,
+        line: usize,
+        obj: &TirExpr,
+        method: &str,
+        arg: &TirExpr,
     ) -> Result<Option<TirExpr>> {
-        // Inline the op → (left_method, right_method) mapping
-        let (left_method, right_method) = match raw_op {
-            RawBinOp::Arith(ArithBinOp::Add) => ("__add__", "__radd__"),
-            RawBinOp::Arith(ArithBinOp::Sub) => ("__sub__", "__rsub__"),
-            RawBinOp::Arith(ArithBinOp::Mul) => ("__mul__", "__rmul__"),
-            RawBinOp::Arith(ArithBinOp::Div) => ("__truediv__", "__rtruediv__"),
-            RawBinOp::Arith(ArithBinOp::FloorDiv) => ("__floordiv__", "__rfloordiv__"),
-            RawBinOp::Arith(ArithBinOp::Mod) => ("__mod__", "__rmod__"),
-            RawBinOp::Arith(ArithBinOp::Pow) => ("__pow__", "__rpow__"),
-            RawBinOp::Bitwise(BitwiseBinOp::BitAnd) => ("__and__", "__rand__"),
-            RawBinOp::Bitwise(BitwiseBinOp::BitOr) => ("__or__", "__ror__"),
-            RawBinOp::Bitwise(BitwiseBinOp::BitXor) => ("__xor__", "__rxor__"),
-            RawBinOp::Bitwise(BitwiseBinOp::LShift) => ("__lshift__", "__rlshift__"),
-            RawBinOp::Bitwise(BitwiseBinOp::RShift) => ("__rshift__", "__rrshift__"),
-        };
-
-        let mut found_class_side = false;
-
-        if let ValueType::Class(class_name) = &left.ty {
-            found_class_side = true;
-            let class_info = self.lookup_class(line, class_name)?;
-            if class_info.methods.contains_key(left_method) {
-                return self
-                    .lower_class_magic_method_with_args(
+        match &obj.ty {
+            ValueType::Class(class_name) => {
+                let class_info = self.lookup_class(line, class_name)?;
+                if class_info.methods.contains_key(method) {
+                    self.lower_class_magic_method_with_args(
                         line,
-                        left,
-                        &[left_method],
+                        obj.clone(),
+                        &[method],
                         None,
                         "binary operator",
-                        vec![right],
+                        vec![arg.clone()],
                     )
-                    .map(Some);
+                    .map(Some)
+                } else {
+                    Ok(None)
+                }
             }
-        }
-
-        if let ValueType::Class(class_name) = &right.ty {
-            found_class_side = true;
-            let class_info = self.lookup_class(line, class_name)?;
-            if class_info.methods.contains_key(right_method) {
-                return self
-                    .lower_class_magic_method_with_args(
-                        line,
-                        right,
-                        &[right_method],
-                        None,
-                        "binary operator",
-                        vec![left],
-                    )
-                    .map(Some);
+            ty if !is_arith_primitive(ty) => {
+                match self.lower_method_call(line, obj.clone(), method, vec![arg.clone()]) {
+                    Ok(CallResult::Expr(e)) => Ok(Some(e)),
+                    Ok(CallResult::VoidStmt(_)) => {
+                        unreachable!("binop dunder methods must return a value")
+                    }
+                    Err(_) => Ok(None),
+                }
             }
+            _ => Ok(None),
         }
-
-        if found_class_side {
-            return Err(self.type_error(
-                line,
-                format!(
-                    "operator `{}` requires class magic methods `{}` or `{}` for operand types `{}` and `{}`",
-                    raw_op, left_method, right_method, left.ty, right.ty
-                ),
-            ));
-        }
-
-        Ok(None)
     }
 }

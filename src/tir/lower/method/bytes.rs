@@ -489,6 +489,28 @@ pub fn lower_bytes_method_call(
             BuiltinFn::BytesZFill,
             ValueType::Bytes,
         ),
+        "__add__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "bytes",
+            obj,
+            method_name,
+            args,
+            &[ValueType::Bytes],
+            BuiltinFn::BytesConcat,
+            ValueType::Bytes,
+        ),
+        "__mul__" | "__rmul__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "bytes",
+            obj,
+            method_name,
+            args,
+            &[ValueType::Int],
+            BuiltinFn::BytesRepeat,
+            ValueType::Bytes,
+        ),
         _ => Err(ctx.attribute_error(line, format!("{} has no method `{}`", "bytes", method_name))),
     }
 }

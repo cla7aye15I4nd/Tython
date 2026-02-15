@@ -194,6 +194,24 @@ pub fn lower_list_method_call(
             ))
         }
 
+        "__rmul__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
+            super::check_type(
+                ctx,
+                line,
+                &type_name,
+                method_name,
+                &args[0],
+                &ValueType::Int,
+            )?;
+            Ok(super::expr_call(
+                BuiltinFn::ListRepeat,
+                list_ty,
+                obj.clone(),
+                args,
+            ))
+        }
+
         "__imul__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(

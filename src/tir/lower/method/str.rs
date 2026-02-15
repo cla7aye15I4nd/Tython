@@ -57,6 +57,28 @@ pub fn lower_str_method_call(
             BuiltinFn::StrJoin,
             ValueType::Str,
         ),
+        "__add__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "str",
+            obj,
+            method_name,
+            args,
+            &[ValueType::Str],
+            BuiltinFn::StrConcat,
+            ValueType::Str,
+        ),
+        "__mul__" | "__rmul__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "str",
+            obj,
+            method_name,
+            args,
+            &[ValueType::Int],
+            BuiltinFn::StrRepeat,
+            ValueType::Str,
+        ),
         _ => Err(ctx.attribute_error(line, format!("{} has no method `{}`", "str", method_name))),
     }
 }
