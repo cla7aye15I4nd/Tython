@@ -19,7 +19,7 @@ const DEFAULT_METRICS: &[&str] = &[
 ];
 
 #[derive(Parser, Debug)]
-#[command(name = "cargo-cmin")]
+#[command(name = "pycmin")]
 #[command(about = "Coverage-based testcase minimizer for invalid corpus")]
 struct Args {
     #[arg(long, default_value = "tests/invalid")]
@@ -53,8 +53,6 @@ struct Args {
     dry_run: bool,
     #[arg(long, default_value_t = false)]
     clean: bool,
-    #[arg(long, default_value_t = false)]
-    rebuild: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -622,21 +620,8 @@ fn main() -> Result<(), String> {
             clean_repo(&args.cargo, &repo_root)?;
         }
 
-        let default_bin = repo_root
-            .join("target")
-            .join("debug")
-            .join(if is_windows() {
-                format!("{}.exe", args.target_bin)
-            } else {
-                args.target_bin.clone()
-            });
-
-        if args.rebuild || !default_bin.exists() {
-            println!("[2/5] Building instrumented binary...");
-            build_instrumented_binary(&args.cargo, &repo_root, &args.target_bin)?
-        } else {
-            default_bin
-        }
+        println!("[2/5] Building instrumented binary...");
+        build_instrumented_binary(&args.cargo, &repo_root, &args.target_bin)?
     };
 
     let cases = discover_cases(&input_dir)?;
@@ -653,7 +638,7 @@ fn main() -> Result<(), String> {
     let mut skipped_success = 0usize;
     let mut skipped_no_profile = 0usize;
 
-    let temp_root = env::temp_dir().join(format!("tython-cmin-{}", std::process::id()));
+    let temp_root = env::temp_dir().join(format!("pycmin-{}", std::process::id()));
     if temp_root.exists() {
         fs::remove_dir_all(&temp_root).ok();
     }
