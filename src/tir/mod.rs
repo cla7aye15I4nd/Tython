@@ -1,7 +1,5 @@
 pub mod builtin;
 pub mod lower;
-#[path = "type_rules/mod.rs"]
-pub mod type_rules;
 
 use crate::ast::{ClassInfo, Type};
 use std::collections::HashMap;

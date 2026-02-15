@@ -1,8 +1,9 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use std::collections::HashMap;
 use tython::ast::Type;
+use tython::tir::lower::expr::binops::is_valid_binop;
+use tython::tir::lower::expr::unaryops::is_valid_unaryop;
 use tython::tir::lower::Lowering;
-use tython::tir::type_rules;
 use tython::tir::{ArithBinOp, BitwiseBinOp, RawBinOp, UnaryOpKind};
 
 #[test]
@@ -235,7 +236,7 @@ fn test_invalid_op_type_combinations() {
     for &op in ALL_BINOPS {
         for left_ty in TESTABLE_TYPES {
             for right_ty in TESTABLE_TYPES {
-                if type_rules::lookup_binop(op, left_ty, right_ty).is_some() {
+                if is_valid_binop(op, left_ty, right_ty) {
                     continue;
                 }
 
@@ -267,7 +268,7 @@ fn test_invalid_op_type_combinations() {
     // UnaryOp: test all invalid (op, operand_type) combinations
     for &op in ALL_UNARYOPS {
         for operand_ty in TESTABLE_TYPES {
-            if type_rules::lookup_unaryop(op, operand_ty).is_some() {
+            if is_valid_unaryop(op, operand_ty) {
                 continue;
             }
 

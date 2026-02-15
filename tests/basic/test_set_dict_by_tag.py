@@ -357,6 +357,259 @@ def test_dict_pop_default_and_magic_index_len() -> None:
     assert ln == 1
 
 
+def test_set_identity_add_contains_discard_remove() -> None:
+    a: NoEq = NoEq(1)
+    b: NoEq = NoEq(1)
+    s: set[NoEq] = set()
+    s.add(a)
+    s.add(b)
+    s.add(a)
+    print("CHECK test_set_dict_by_tag lhs:", len(s))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(s) == 2
+    print("CHECK test_set_dict_by_tag lhs:", a in s)
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert (a in s) == True
+    print("CHECK test_set_dict_by_tag lhs:", NoEq(1) in s)
+    print("CHECK test_set_dict_by_tag rhs:", False)
+    assert (NoEq(1) in s) == False
+    s.discard(a)
+    print("CHECK test_set_dict_by_tag lhs:", len(s))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(s) == 1
+    s.add(a)
+    s.remove(a)
+    print("CHECK test_set_dict_by_tag lhs:", len(s))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(s) == 1
+
+
+def test_set_identity_algebra() -> None:
+    a: NoEq = NoEq(1)
+    b: NoEq = NoEq(2)
+    c: NoEq = NoEq(3)
+    s1: set[NoEq] = set()
+    s1.add(a)
+    s1.add(b)
+    s2: set[NoEq] = set()
+    s2.add(b)
+    s2.add(c)
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.union(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 3)
+    assert len(s1.union(s2)) == 3
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.intersection(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(s1.intersection(s2)) == 1
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.difference(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(s1.difference(s2)) == 1
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.symmetric_difference(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(s1.symmetric_difference(s2)) == 2
+
+
+def test_set_identity_update_ops() -> None:
+    a: NoEq = NoEq(1)
+    b: NoEq = NoEq(2)
+    c: NoEq = NoEq(3)
+    upd: set[NoEq] = set()
+    upd.add(b)
+    s1: set[NoEq] = set()
+    s1.add(a)
+    s1.update(upd)
+    print("CHECK test_set_dict_by_tag lhs:", len(s1))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(s1) == 2
+    s2: set[NoEq] = set()
+    s2.add(a)
+    s2.add(b)
+    s2.add(c)
+    rem: set[NoEq] = set()
+    rem.add(b)
+    s2.difference_update(rem)
+    print("CHECK test_set_dict_by_tag lhs:", len(s2))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(s2) == 2
+    s3: set[NoEq] = set()
+    s3.add(a)
+    s3.add(b)
+    keep: set[NoEq] = set()
+    keep.add(a)
+    s3.intersection_update(keep)
+    print("CHECK test_set_dict_by_tag lhs:", len(s3))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(s3) == 1
+    s4: set[NoEq] = set()
+    s4.add(a)
+    s4.add(b)
+    other4: set[NoEq] = set()
+    other4.add(b)
+    other4.add(c)
+    s4.symmetric_difference_update(other4)
+    print("CHECK test_set_dict_by_tag lhs:", len(s4))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(s4) == 2
+
+
+def test_set_identity_relations() -> None:
+    a: NoEq = NoEq(1)
+    b: NoEq = NoEq(2)
+    c: NoEq = NoEq(3)
+    s1: set[NoEq] = set()
+    s1.add(a)
+    s2: set[NoEq] = set()
+    s2.add(a)
+    s2.add(b)
+    s3: set[NoEq] = set()
+    s3.add(c)
+    s4: set[NoEq] = set()
+    s4.add(a)
+    print("CHECK test_set_dict_by_tag lhs:", s1.issubset(s2))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s1.issubset(s2) == True
+    print("CHECK test_set_dict_by_tag lhs:", s2.issuperset(s1))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s2.issuperset(s1) == True
+    print("CHECK test_set_dict_by_tag lhs:", s1.isdisjoint(s3))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s1.isdisjoint(s3) == True
+    print("CHECK test_set_dict_by_tag lhs:", s1.isdisjoint(s2))
+    print("CHECK test_set_dict_by_tag rhs:", False)
+    assert s1.isdisjoint(s2) == False
+    print("CHECK test_set_dict_by_tag lhs:", s1.__eq__(s4))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s1.__eq__(s4) == True
+    print("CHECK test_set_dict_by_tag lhs:", s1.__ne__(s2))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s1.__ne__(s2) == True
+    print("CHECK test_set_dict_by_tag lhs:", s1.__lt__(s2))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s1.__lt__(s2) == True
+    print("CHECK test_set_dict_by_tag lhs:", s1.__le__(s2))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s1.__le__(s2) == True
+    print("CHECK test_set_dict_by_tag lhs:", s2.__gt__(s1))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s2.__gt__(s1) == True
+    print("CHECK test_set_dict_by_tag lhs:", s2.__ge__(s1))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s2.__ge__(s1) == True
+    print("CHECK test_set_dict_by_tag lhs:", s1.__contains__(a))
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert s1.__contains__(a) == True
+
+
+def test_set_identity_magic_ops() -> None:
+    a: NoEq = NoEq(1)
+    b: NoEq = NoEq(2)
+    c: NoEq = NoEq(3)
+    s1: set[NoEq] = set()
+    s1.add(a)
+    s1.add(b)
+    s2: set[NoEq] = set()
+    s2.add(b)
+    s2.add(c)
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.__and__(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(s1.__and__(s2)) == 1
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.__or__(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 3)
+    assert len(s1.__or__(s2)) == 3
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.__sub__(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(s1.__sub__(s2)) == 1
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.__xor__(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(s1.__xor__(s2)) == 2
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.__rand__(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(s1.__rand__(s2)) == 1
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.__ror__(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 3)
+    assert len(s1.__ror__(s2)) == 3
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.__rsub__(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(s1.__rsub__(s2)) == 1
+    print("CHECK test_set_dict_by_tag lhs:", len(s1.__rxor__(s2)))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(s1.__rxor__(s2)) == 2
+
+
+def test_set_identity_inplace_ops() -> None:
+    a: NoEq = NoEq(1)
+    b: NoEq = NoEq(2)
+    c: NoEq = NoEq(3)
+    ia: set[NoEq] = set()
+    ia.add(a)
+    ia.add(b)
+    ia_o: set[NoEq] = set()
+    ia_o.add(b)
+    ia = ia.__iand__(ia_o)
+    print("CHECK test_set_dict_by_tag lhs:", len(ia))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(ia) == 1
+    io: set[NoEq] = set()
+    io.add(a)
+    io_o: set[NoEq] = set()
+    io_o.add(c)
+    io = io.__ior__(io_o)
+    print("CHECK test_set_dict_by_tag lhs:", len(io))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(io) == 2
+    isb: set[NoEq] = set()
+    isb.add(a)
+    isb.add(b)
+    isb_o: set[NoEq] = set()
+    isb_o.add(b)
+    isb = isb.__isub__(isb_o)
+    print("CHECK test_set_dict_by_tag lhs:", len(isb))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert len(isb) == 1
+    ix: set[NoEq] = set()
+    ix.add(a)
+    ix.add(b)
+    ix_o: set[NoEq] = set()
+    ix_o.add(b)
+    ix_o.add(c)
+    ix = ix.__ixor__(ix_o)
+    print("CHECK test_set_dict_by_tag lhs:", len(ix))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(ix) == 2
+
+
+def test_dict_identity_key() -> None:
+    a: NoEq = NoEq(1)
+    b: NoEq = NoEq(1)
+    d: dict[NoEq, int] = {}
+    d[a] = 10
+    d[b] = 20
+    d[a] = 30
+    print("CHECK test_set_dict_by_tag lhs:", len(d))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert len(d) == 2
+    print("CHECK test_set_dict_by_tag lhs:", d[a])
+    print("CHECK test_set_dict_by_tag rhs:", 30)
+    assert d[a] == 30
+    print("CHECK test_set_dict_by_tag lhs:", a in d)
+    print("CHECK test_set_dict_by_tag rhs:", True)
+    assert (a in d) == True
+    print("CHECK test_set_dict_by_tag lhs:", NoEq(1) in d)
+    print("CHECK test_set_dict_by_tag rhs:", False)
+    assert (NoEq(1) in d) == False
+
+
+def test_list_count_identity() -> None:
+    a: NoEq = NoEq(1)
+    b: NoEq = NoEq(1)
+    xs: list[NoEq] = [a, b, a]
+    print("CHECK test_set_dict_by_tag lhs:", xs.count(a))
+    print("CHECK test_set_dict_by_tag rhs:", 2)
+    assert xs.count(a) == 2
+    print("CHECK test_set_dict_by_tag lhs:", xs.count(b))
+    print("CHECK test_set_dict_by_tag rhs:", 1)
+    assert xs.count(b) == 1
+
+
 def run_tests() -> None:
     test_class_eq_identity_fallback()
     test_set_eq_by_tag_class()
@@ -368,3 +621,11 @@ def run_tests() -> None:
     test_set_magic_methods_explicit_calls()
     test_dict_more_magic_methods()
     test_dict_pop_default_and_magic_index_len()
+    test_set_identity_add_contains_discard_remove()
+    test_set_identity_algebra()
+    test_set_identity_update_ops()
+    test_set_identity_relations()
+    test_set_identity_magic_ops()
+    test_set_identity_inplace_ops()
+    test_dict_identity_key()
+    test_list_count_identity()

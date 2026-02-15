@@ -48,15 +48,13 @@ impl Lowering {
     }
 
     fn lower_print_class_as_str(&mut self, line: usize, object: TirExpr) -> Result<TirExpr> {
-        let rule = crate::tir::type_rules::lookup_builtin_call("str", &[&object.ty])
-            .expect("ICE: missing builtin rule for str() on class");
-        match rule {
-            crate::tir::type_rules::BuiltinCallRule::ClassMagic {
-                method_names,
-                return_type,
-            } => self.lower_class_magic_method(line, object, method_names, return_type, "str"),
-            _ => unreachable!("ICE: str() on class should resolve to ClassMagic"),
-        }
+        self.lower_class_magic_method(
+            line,
+            object,
+            &["__str__", "__repr__"],
+            Some(ValueType::Str),
+            "str",
+        )
     }
 
     fn lower_print_value_stmts(

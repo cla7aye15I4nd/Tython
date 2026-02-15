@@ -1,12 +1,46 @@
 use anyhow::Result;
 
 use crate::tir::{
-    builtin, type_rules, CastKind, CmpOp, IntrinsicOp, OrderedCmpOp, TirExpr, TirExprKind,
-    TypedCompare, ValueType,
+    builtin, CastKind, CmpOp, IntrinsicOp, OrderedCmpOp, TirExpr, TirExprKind, TypedCompare,
+    ValueType,
 };
 
-use crate::tir::lower::expr::binops::Coercion;
+use super::binops::coerce_to_float;
 use crate::tir::lower::Lowering;
+
+/// Convert an ordered comparison operator + operand type into a fully-typed `TypedCompare`.
+fn resolve_typed_compare(op: OrderedCmpOp, operand_ty: &ValueType) -> TypedCompare {
+    use OrderedCmpOp::*;
+    use ValueType::*;
+
+    match operand_ty {
+        Int => match op {
+            Eq => TypedCompare::IntEq,
+            NotEq => TypedCompare::IntNotEq,
+            Lt => TypedCompare::IntLt,
+            LtEq => TypedCompare::IntLtEq,
+            Gt => TypedCompare::IntGt,
+            GtEq => TypedCompare::IntGtEq,
+        },
+        Float => match op {
+            Eq => TypedCompare::FloatEq,
+            NotEq => TypedCompare::FloatNotEq,
+            Lt => TypedCompare::FloatLt,
+            LtEq => TypedCompare::FloatLtEq,
+            Gt => TypedCompare::FloatGt,
+            GtEq => TypedCompare::FloatGtEq,
+        },
+        Bool => match op {
+            Eq => TypedCompare::BoolEq,
+            NotEq => TypedCompare::BoolNotEq,
+            _ => panic!("ICE: bool only supports Eq/NotEq comparisons, got {:?}", op),
+        },
+        _ => panic!(
+            "ICE: resolve_typed_compare called for non-primitive type: {:?}",
+            operand_ty
+        ),
+    }
+}
 
 /// Helper to convert TypedCompare to the appropriate TirExprKind variant
 fn typed_compare_to_kind(op: TypedCompare, left: TirExpr, right: TirExpr) -> TirExprKind {
@@ -158,7 +192,7 @@ impl Lowering {
                     TypedCompare::IntNotEq
                 }
             } else {
-                type_rules::resolve_typed_compare(ordered_op, &left.ty)
+                resolve_typed_compare(ordered_op, &left.ty)
             };
 
             return Ok(TirExpr {
@@ -448,7 +482,7 @@ impl Lowering {
         let ordered_op = OrderedCmpOp::from_cmp_op(cmp_op);
 
         // Resolve to typed comparison for primitive types
-        let typed_op = type_rules::resolve_typed_compare(ordered_op, &fl.ty);
+        let typed_op = resolve_typed_compare(ordered_op, &fl.ty);
 
         Ok(TirExpr {
             kind: typed_compare_to_kind(typed_op, fl, fr),
@@ -537,7 +571,7 @@ impl Lowering {
                     },
                     ty: ValueType::Int,
                 };
-                let typed_op = type_rules::resolve_typed_compare(ordered, &ValueType::Int);
+                let typed_op = resolve_typed_compare(ordered, &ValueType::Int);
                 TirExpr {
                     kind: typed_compare_to_kind(typed_op, cmp_call, zero),
                     ty: ValueType::Bool,
@@ -568,10 +602,7 @@ impl Lowering {
             (&left.ty, &right.ty),
             (ValueType::Int, ValueType::Float) | (ValueType::Float, ValueType::Int)
         ) {
-            Ok((
-                Self::apply_coercion(left, Coercion::ToFloat),
-                Self::apply_coercion(right, Coercion::ToFloat),
-            ))
+            Ok((coerce_to_float(left), coerce_to_float(right)))
         } else {
             Err(self.type_error(
                 line,

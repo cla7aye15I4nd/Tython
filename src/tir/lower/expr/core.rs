@@ -1,9 +1,10 @@
 use anyhow::Result;
 use pyo3::prelude::*;
 
+use super::unaryops::{class_unary_magic, is_valid_unaryop, unaryop_type_error_message};
 use crate::tir::{
-    builtin, type_rules, CallResult, CallTarget, IntrinsicOp, LogicalOp, TirExpr, TirExprKind,
-    TirStmt, ValueType,
+    builtin, CallResult, CallTarget, IntrinsicOp, LogicalOp, TirExpr, TirExprKind, TirStmt,
+    ValueType,
 };
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
@@ -143,18 +144,18 @@ impl Lowering {
 
                 let op = Self::convert_unaryop(&op_type);
 
+                // Class magic dispatch
                 if matches!(operand.ty, ValueType::Class(_)) {
-                    let magic = type_rules::lookup_class_unary_magic(op)
-                        .expect("ICE: missing class unary magic mapping");
+                    let (method_name, expected_return_type, negate_result) = class_unary_magic(op);
                     let mut expr = self.lower_class_magic_method_with_args(
                         line,
                         operand,
-                        &[magic.method_name],
-                        magic.expected_return_type,
+                        &[method_name],
+                        expected_return_type,
                         "unary operator",
                         vec![],
                     )?;
-                    if magic.negate_result {
+                    if negate_result {
                         expr = TirExpr {
                             kind: TirExprKind::Not(Box::new(expr)),
                             ty: ValueType::Bool,
@@ -165,12 +166,12 @@ impl Lowering {
 
                 // Handle Pos (unary +) as a no-op after validating operand type.
                 if op == crate::tir::UnaryOpKind::Pos {
-                    type_rules::lookup_unaryop(op, &operand.ty.to_type()).ok_or_else(|| {
-                        self.type_error(
+                    if !is_valid_unaryop(op, &operand.ty.to_type()) {
+                        return Err(self.type_error(
                             line,
-                            type_rules::unaryop_type_error_message(op, &operand.ty.to_type()),
-                        )
-                    })?;
+                            unaryop_type_error_message(op, &operand.ty.to_type()),
+                        ));
+                    }
                     return Ok(operand);
                 }
 
@@ -178,40 +179,38 @@ impl Lowering {
                     // `not` works on truthiness, so validate after truthy-to-bool lowering.
                     self.lower_truthy_to_bool(line, operand, "unary `not` operand")?
                 } else {
-                    type_rules::lookup_unaryop(op, &operand.ty.to_type()).ok_or_else(|| {
-                        self.type_error(
+                    if !is_valid_unaryop(op, &operand.ty.to_type()) {
+                        return Err(self.type_error(
                             line,
-                            type_rules::unaryop_type_error_message(op, &operand.ty.to_type()),
-                        )
-                    })?;
+                            unaryop_type_error_message(op, &operand.ty.to_type()),
+                        ));
+                    }
                     operand
                 };
 
-                let rule = type_rules::lookup_unaryop(op, &lowered_operand.ty.to_type())
-                    .expect("ICE: unary op should be valid after operand lowering");
-
-                // Resolve to typed operation
-                let typed_op = type_rules::resolve_typed_unaryop(op, &lowered_operand.ty.to_type())
-                    .expect("ICE: resolve_typed_unaryop failed after successful lookup");
-
-                // Construct typed operation variant
-                let kind = match typed_op {
-                    crate::tir::TypedUnaryOp::IntNeg => {
-                        TirExprKind::IntNeg(Box::new(lowered_operand))
-                    }
-                    crate::tir::TypedUnaryOp::FloatNeg => {
-                        TirExprKind::FloatNeg(Box::new(lowered_operand))
-                    }
-                    crate::tir::TypedUnaryOp::Not => TirExprKind::Not(Box::new(lowered_operand)),
-                    crate::tir::TypedUnaryOp::BitNot => {
-                        TirExprKind::BitNot(Box::new(lowered_operand))
-                    }
+                // Directly construct typed TIR based on (op, operand_type)
+                use crate::tir::UnaryOpKind::*;
+                let (kind, ty) = match (op, &lowered_operand.ty) {
+                    (Neg, ValueType::Int) => (
+                        TirExprKind::IntNeg(Box::new(lowered_operand)),
+                        ValueType::Int,
+                    ),
+                    (Neg, ValueType::Float) => (
+                        TirExprKind::FloatNeg(Box::new(lowered_operand)),
+                        ValueType::Float,
+                    ),
+                    (Not, _) => (TirExprKind::Not(Box::new(lowered_operand)), ValueType::Bool),
+                    (BitNot, ValueType::Int) => (
+                        TirExprKind::BitNot(Box::new(lowered_operand)),
+                        ValueType::Int,
+                    ),
+                    _ => panic!(
+                        "ICE: unary op {:?} on {:?} should have been rejected earlier",
+                        op, lowered_operand.ty
+                    ),
                 };
 
-                Ok(TirExpr {
-                    kind,
-                    ty: self.value_type_from_type(&rule.result_type),
-                })
+                Ok(TirExpr { kind, ty })
             }
 
             "BoolOp" => {

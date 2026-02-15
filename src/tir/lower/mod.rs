@@ -242,33 +242,16 @@ impl Lowering {
 
     pub(in crate::tir::lower) fn require_intrinsic_eq_support(
         &self,
-        line: usize,
-        ty: &ValueType,
+        _line: usize,
+        _ty: &ValueType,
     ) -> Result<()> {
-        match ty {
-            ValueType::Int
-            | ValueType::Float
-            | ValueType::Bool
-            | ValueType::Str
-            | ValueType::Bytes
-            | ValueType::ByteArray => Ok(()),
-            ValueType::List(inner) => self.require_intrinsic_eq_support(line, inner),
-            ValueType::Class(name) if self.is_tuple_class(name) => {
-                let fields = self.tuple_element_types(name).to_vec();
-                for field in &fields {
-                    self.require_intrinsic_eq_support(line, field)?;
-                }
-                Ok(())
-            }
-            ValueType::Class(_) => Ok(()),
-            _ => Err(self.type_error(
-                line,
-                format!(
-                    "type `{}` does not support structural equality in generic containers",
-                    ty
-                ),
-            )),
-        }
+        // All types support equality comparison:
+        // - Primitives (Int, Float, Bool, Str, Bytes, ByteArray): structural equality
+        // - List, Class with __eq__: structural equality via registered intrinsic
+        // - Everything else (Set, Dict, Function, Class without __eq__):
+        //   identity-based equality/hash fallback (pointer comparison),
+        //   matching Python's default object.__eq__ and object.__hash__
+        Ok(())
     }
 
     pub(in crate::tir::lower) fn require_list_leaf_lt_support(

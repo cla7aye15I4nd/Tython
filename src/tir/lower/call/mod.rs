@@ -3,6 +3,7 @@ use crate::tir::TirExpr;
 
 mod args;
 mod bind;
+pub mod builtin_call;
 mod emit;
 mod native;
 mod resolve;

@@ -3,8 +3,10 @@ use pyo3::prelude::*;
 use std::path::Path;
 
 use crate::ast::Type;
-use crate::tir::{type_rules, CallResult, IntrinsicOp, TirExpr, TirExprKind, ValueType};
+use crate::tir::{CallResult, IntrinsicOp, TirExpr, TirExprKind, ValueType};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
+
+use super::builtin_call::is_builtin_call;
 
 use super::super::Lowering;
 use super::{NormalizedCallArgs, ResolvedCall, ResolvedCallee};
@@ -54,7 +56,7 @@ impl Lowering {
     ) -> Result<ResolvedCall> {
         let func_name = ast_get_string!(func_node, "id");
 
-        if func_name == "print" || func_name == "open" || type_rules::is_builtin_call(&func_name) {
+        if func_name == "print" || func_name == "open" || is_builtin_call(&func_name) {
             return Ok(ResolvedCall {
                 callee: ResolvedCallee::GlobalName(func_name),
                 args,
@@ -338,7 +340,7 @@ impl Lowering {
             }));
         }
 
-        if !type_rules::is_builtin_call(name) {
+        if !is_builtin_call(name) {
             return Err(self.name_error(line, format!("undefined function `{}`", name)));
         }
 
@@ -414,15 +416,7 @@ impl Lowering {
             }
         }
 
-        let arg_types: Vec<&ValueType> = positional_args.iter().map(|a| &a.ty).collect();
-        let rule = type_rules::lookup_builtin_call(name, &arg_types).ok_or_else(|| {
-            self.type_error(
-                line,
-                type_rules::builtin_call_error_message(name, &arg_types, positional_args.len()),
-            )
-        })?;
-
-        self.lower_builtin_rule_with_special_cases(line, name, rule, positional_args)
+        self.lower_builtin_call(line, name, positional_args)
     }
 
     fn lower_callable_symbol_call(
