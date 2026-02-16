@@ -43,7 +43,8 @@ jobs:
             lld-21 \
             llvm-21 \
             llvm-21-dev \
-            llvm-21-tools
+            llvm-21-tools \
+            libpolly-21-dev
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 210
           sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 210
           sudo update-alternatives --install /usr/bin/llvm-as llvm-as /usr/bin/llvm-as-21 210
