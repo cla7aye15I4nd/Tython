@@ -246,61 +246,6 @@ impl<'ctx> Codegen<'ctx> {
         g
     }
 
-    fn emit_ops_handle_bridge(
-        &mut self,
-        symbol: &str,
-        cases: &[(i64, ValueType)],
-        op: IntrinsicOp,
-    ) {
-        let f = self.get_or_declare_function(symbol, &[ValueType::Int], Some(ValueType::Int));
-        if f.get_first_basic_block().is_some() {
-            return;
-        }
-
-        let saved_block = self.builder.get_insert_block();
-        let entry = self.context.append_basic_block(f, "entry");
-        self.builder.position_at_end(entry);
-
-        let tag_val = f.get_nth_param(0).unwrap().into_int_value();
-        let default_bb = self.context.append_basic_block(f, "default");
-        let mut switch_cases = Vec::new();
-        let mut case_blocks = Vec::new();
-        for (tag, _) in cases {
-            let bb = self.context.append_basic_block(f, "case");
-            switch_cases.push((self.i64_type().const_int(*tag as u64, true), bb));
-            case_blocks.push(bb);
-        }
-        emit!(self.build_switch(tag_val, default_bb, &switch_cases));
-
-        for ((tag, ty), bb) in cases.iter().zip(case_blocks.iter()) {
-            self.builder.position_at_end(*bb);
-            let handle = match op {
-                IntrinsicOp::Eq => self
-                    .emit_eq_ops_global(*tag, ty)
-                    .as_pointer_value()
-                    .const_to_int(self.i64_type()),
-                IntrinsicOp::Lt => self
-                    .emit_lt_ops_global(*tag, ty)
-                    .as_pointer_value()
-                    .const_to_int(self.i64_type()),
-                IntrinsicOp::Str => self
-                    .emit_str_ops_global(*tag, ty)
-                    .as_pointer_value()
-                    .const_to_int(self.i64_type()),
-            };
-            emit!(self.build_return(Some(&handle)));
-        }
-
-        self.builder.position_at_end(default_bb);
-        let exc_tag = self.i64_type().const_int(6, false).into();
-        let msg = self.codegen_str_literal("unknown intrinsic ops tag");
-        self.emit_raise(exc_tag, msg);
-
-        if let Some(bb) = saved_block {
-            self.builder.position_at_end(bb);
-        }
-    }
-
     fn intrinsic_type_for_tag(&self, op: IntrinsicOp, tag: i64) -> Option<ValueType> {
         match op {
             IntrinsicOp::Eq => self.intrinsic_eq_cases.get(&tag).cloned(),
@@ -314,36 +259,31 @@ impl<'ctx> Codegen<'ctx> {
         op: IntrinsicOp,
         tag_expr: &TirExpr,
     ) -> inkwell::values::IntValue<'ctx> {
-        if let TirExprKind::IntLiteral(tag) = &tag_expr.kind {
-            let tag = *tag;
-            if let Some(ty) = self.intrinsic_type_for_tag(op, tag) {
-                return match op {
-                    IntrinsicOp::Eq => self
-                        .emit_eq_ops_global(tag, &ty)
-                        .as_pointer_value()
-                        .const_to_int(self.i64_type()),
-                    IntrinsicOp::Lt => self
-                        .emit_lt_ops_global(tag, &ty)
-                        .as_pointer_value()
-                        .const_to_int(self.i64_type()),
-                    IntrinsicOp::Str => self
-                        .emit_str_ops_global(tag, &ty)
-                        .as_pointer_value()
-                        .const_to_int(self.i64_type()),
-                };
-            }
-        }
-
-        let tag_val = self.codegen_expr(tag_expr).into_int_value();
-        let bridge_name = match op {
-            IntrinsicOp::Eq => "__tython_eq_ops_from_tag",
-            IntrinsicOp::Lt => "__tython_lt_ops_from_tag",
-            IntrinsicOp::Str => "__tython_str_ops_from_tag",
+        let tag = if let TirExprKind::IntLiteral(tag) = &tag_expr.kind {
+            *tag
+        } else {
+            unreachable!(
+                "intrinsic ops-handle tag must be a literal tag expression, got {:?}",
+                tag_expr.kind
+            )
         };
-        let bridge =
-            self.get_or_declare_function(bridge_name, &[ValueType::Int], Some(ValueType::Int));
-        let call = emit!(self.build_call(bridge, &[tag_val.into()], "ops_from_tag"));
-        self.extract_call_value(call).into_int_value()
+        let ty = self
+            .intrinsic_type_for_tag(op, tag)
+            .expect("intrinsic type missing for literal intrinsic tag");
+        match op {
+            IntrinsicOp::Eq => self
+                .emit_eq_ops_global(tag, &ty)
+                .as_pointer_value()
+                .const_to_int(self.i64_type()),
+            IntrinsicOp::Lt => self
+                .emit_lt_ops_global(tag, &ty)
+                .as_pointer_value()
+                .const_to_int(self.i64_type()),
+            IntrinsicOp::Str => self
+                .emit_str_ops_global(tag, &ty)
+                .as_pointer_value()
+                .const_to_int(self.i64_type()),
+        }
     }
 
     pub(crate) fn codegen_intrinsic_cmp(
@@ -380,9 +320,10 @@ impl<'ctx> Codegen<'ctx> {
             &[ValueType::Int, ValueType::Int, ValueType::Int],
             Some(ValueType::Int),
         );
-        if f.get_first_basic_block().is_some() {
-            return;
-        }
+        debug_assert!(
+            f.get_first_basic_block().is_none(),
+            "intrinsic compare dispatcher should only be emitted once"
+        );
 
         let saved_block = self.builder.get_insert_block();
         let entry = self.context.append_basic_block(f, "entry");
@@ -453,10 +394,6 @@ impl<'ctx> Codegen<'ctx> {
         for (tag, ty) in &str_cases {
             let _ = self.emit_str_ops_global(*tag, ty);
         }
-        self.emit_ops_handle_bridge("__tython_eq_ops_from_tag", &eq_cases, IntrinsicOp::Eq);
-        self.emit_ops_handle_bridge("__tython_lt_ops_from_tag", &lt_cases, IntrinsicOp::Lt);
-        self.emit_ops_handle_bridge("__tython_str_ops_from_tag", &str_cases, IntrinsicOp::Str);
-
         self.emit_intrinsic_compare_dispatcher(
             CmpIntrinsicOp::Eq,
             "__tython_intrinsic_eq",
@@ -478,9 +415,10 @@ impl<'ctx> Codegen<'ctx> {
             &[ValueType::Int, ValueType::Int],
             Some(ValueType::Int),
         );
-        if f.get_first_basic_block().is_some() {
-            return;
-        }
+        debug_assert!(
+            f.get_first_basic_block().is_none(),
+            "intrinsic hash dispatcher should only be emitted once"
+        );
 
         let saved_block = self.builder.get_insert_block();
         let entry = self.context.append_basic_block(f, "entry");
@@ -759,11 +697,17 @@ impl<'ctx> Codegen<'ctx> {
                 ))
             }
             _ => {
-                let pred = match op {
-                    CmpIntrinsicOp::Eq => IntPredicate::EQ,
-                    CmpIntrinsicOp::Lt => IntPredicate::SLT,
-                };
-                emit!(self.build_int_compare(pred, lhs_slot, rhs_slot, "intrinsic_ptr_cmp"))
+                debug_assert_eq!(
+                    op,
+                    CmpIntrinsicOp::Eq,
+                    "pointer-like fallback compare should only be used for equality"
+                );
+                emit!(self.build_int_compare(
+                    IntPredicate::EQ,
+                    lhs_slot,
+                    rhs_slot,
+                    "intrinsic_ptr_cmp"
+                ))
             }
         }
     }
@@ -775,9 +719,10 @@ impl<'ctx> Codegen<'ctx> {
             &[ValueType::Int, ValueType::Int],
             Some(ValueType::Str),
         );
-        if f.get_first_basic_block().is_some() {
-            return;
-        }
+        debug_assert!(
+            f.get_first_basic_block().is_none(),
+            "intrinsic str dispatcher should only be emitted once"
+        );
 
         let saved_block = self.builder.get_insert_block();
         let entry = self.context.append_basic_block(f, "entry");

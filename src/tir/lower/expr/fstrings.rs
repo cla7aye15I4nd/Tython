@@ -58,12 +58,10 @@ impl Lowering {
         let format_spec = ast_getattr!(node, "format_spec");
         let format_spec_expr = if !format_spec.is_none() {
             let spec_expr = self.lower_expr(&format_spec)?;
-            if spec_expr.ty != ValueType::Str {
-                return Err(self.type_error(
-                    line,
-                    format!("f-string format spec must be `str`, got `{}`", spec_expr.ty),
-                ));
-            }
+            debug_assert!(
+                spec_expr.ty == ValueType::Str,
+                "f-string format spec should lower to str"
+            );
             let tmp = self.fresh_internal("fstr_spec");
             self.pre_stmts.push(TirStmt::Let {
                 name: tmp.clone(),

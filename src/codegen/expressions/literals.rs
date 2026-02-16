@@ -36,6 +36,24 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     pub(crate) fn codegen_var_load(&mut self, name: &str, ty: &ValueType) -> BasicValueEnum<'ctx> {
+        if matches!(ty, ValueType::Function { .. }) {
+            if let Some(ptr) = self.variables.get(name).copied() {
+                return emit!(self.build_load(self.get_llvm_type(ty), ptr, name));
+            }
+            let suffix = format!("${}", name);
+            let func = self.module.get_function(name).or_else(|| {
+                self.module.get_functions().find(|f| {
+                    f.get_name()
+                        .to_str()
+                        .is_ok_and(|candidate| candidate.ends_with(&suffix))
+                })
+            });
+            return func
+                .expect("ICE: function symbol not found for function value expression")
+                .as_global_value()
+                .as_pointer_value()
+                .into();
+        }
         let ptr = self.variables[name];
         emit!(self.build_load(self.get_llvm_type(ty), ptr, name))
     }

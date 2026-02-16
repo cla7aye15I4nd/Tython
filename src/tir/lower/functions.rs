@@ -53,18 +53,11 @@ impl Lowering {
 
         let n_params = py_args.len();
         let n_defaults = defaults.len();
-        if n_defaults > n_params {
-            return Err(self.syntax_error(
-                line,
-                format!(
-                    "function `{}`: invalid defaults ({} defaults for {} parameters)",
-                    fn_name, n_defaults, n_params
-                ),
-            ));
-        }
+        let start = n_params.checked_sub(n_defaults).expect(
+            "ICE: Python AST cannot have more defaults than positional parameters in FunctionDef",
+        );
 
         let mut out = vec![None; n_params];
-        let start = n_params - n_defaults;
         for i in 0..n_defaults {
             let idx = start + i;
             let def_node = defaults.get_item(i)?;

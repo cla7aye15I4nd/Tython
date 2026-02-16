@@ -81,6 +81,14 @@ def test_fstring_literal_format_spec() -> None:
     assert s == "007"
 
 
+def test_fstring_class_empty_format_spec_fallback() -> None:
+    f: Fancy = Fancy(9)
+    s: str = f"{f:}"
+    print('CHECK test_fstring lhs:', s)
+    print('CHECK test_fstring rhs:', 'Fancy(9)')
+    assert s == "Fancy(9)"
+
+
 def run_tests() -> None:
     test_basic_fstring()
     test_fstring_repr_conversion()
@@ -89,3 +97,4 @@ def run_tests() -> None:
     test_fstring_class_magic_conversions()
     test_fstring_ascii_and_dynamic_spec()
     test_fstring_literal_format_spec()
+    test_fstring_class_empty_format_spec_fallback()
