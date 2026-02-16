@@ -31,6 +31,7 @@ jobs:
       - name: Install system dependencies (LLVM/Clang 21 + runtime deps)
         run: |
           set -euxo pipefail
+          LLVM_BIN="/usr/lib/llvm-21/bin"
           sudo apt-get update
           sudo apt-get install -y wget ca-certificates gnupg lsb-release software-properties-common
           wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 21
@@ -45,10 +46,14 @@ jobs:
             llvm-21-tools
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 210
           sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 210
-          echo "/usr/lib/llvm-21/bin" >> "$GITHUB_PATH"
+          sudo update-alternatives --install /usr/bin/llvm-as llvm-as /usr/bin/llvm-as-21 210
+          sudo update-alternatives --install /usr/bin/llvm-link llvm-link /usr/bin/llvm-link-21 210
+          export PATH="$LLVM_BIN:$PATH"
+          echo "$LLVM_BIN" >> "$GITHUB_PATH"
           llvm-config-21 --version
           clang++ --version
           llvm-as --version
+          llvm-link --version
 
       - name: Run tests
         run: cargo test

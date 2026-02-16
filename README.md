@@ -1,5 +1,4 @@
 # Tython
-`========================================================================================================================`
 
 ![Rust](https://img.shields.io/badge/Rust-2021-black?logo=rust)
 ![LLVM](https://img.shields.io/badge/LLVM-21-blue)
