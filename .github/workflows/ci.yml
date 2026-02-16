@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Rust Test (LLVM 21)
+    runs-on: ubuntu-latest
+    env:
+      LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
+      LLVM_CONFIG_PATH: /usr/bin/llvm-config-21
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies (LLVM/Clang 21 + runtime deps)
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y wget ca-certificates gnupg lsb-release software-properties-common
+          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 21
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3 \
+            libgc-dev \
+            clang-21 \
+            lld-21 \
+            llvm-21 \
+            llvm-21-dev \
+            llvm-21-tools
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 210
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 210
+          echo "/usr/lib/llvm-21/bin" >> "$GITHUB_PATH"
+          llvm-config-21 --version
+          clang++ --version
+          llvm-as --version
+
+      - name: Run tests
+        run: cargo test
