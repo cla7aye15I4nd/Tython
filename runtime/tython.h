@@ -48,6 +48,24 @@ typedef struct {
     TythonStr* message;
 } TythonException;
 
+typedef int64_t (*TythonEqFn)(int64_t lhs, int64_t rhs);
+typedef int64_t (*TythonLtFn)(int64_t lhs, int64_t rhs);
+typedef int64_t (*TythonHashFn)(int64_t value);
+typedef TythonStr* (*TythonStrFn)(int64_t slot);
+
+typedef struct {
+    TythonEqFn eq;
+    TythonHashFn hash;
+} TythonEqOps;
+
+typedef struct {
+    TythonLtFn lt;
+} TythonLtOps;
+
+typedef struct {
+    TythonStrFn str;
+} TythonStrOps;
+
 void    TYTHON_FN(raise)(int64_t type_tag, void* message);
 int64_t TYTHON_FN(caught_type_tag)(void* caught_ptr);
 void*   TYTHON_FN(caught_message)(void* caught_ptr);

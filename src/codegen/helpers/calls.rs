@@ -5,7 +5,7 @@ use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, CallSiteValue, Fun
 use inkwell::AddressSpace;
 
 use crate::tir::builtin::BuiltinFn;
-use crate::tir::{TirExpr, ValueType};
+use crate::tir::{IntrinsicOp, TirExpr, ValueType};
 
 use super::super::runtime_fn::{LlvmTy, RuntimeFn};
 use super::super::Codegen;
@@ -194,13 +194,76 @@ impl<'ctx> Codegen<'ctx> {
         args.iter().map(|arg| self.codegen_expr(arg)).collect()
     }
 
+    fn builtin_intrinsic_ops_arg(func: BuiltinFn, index: usize) -> Option<IntrinsicOp> {
+        match func {
+            BuiltinFn::ListEqByTag => (index == 2).then_some(IntrinsicOp::Eq),
+            BuiltinFn::ListLtByTag => (index == 2).then_some(IntrinsicOp::Lt),
+            BuiltinFn::ListContainsByTag
+            | BuiltinFn::ListIndexByTag
+            | BuiltinFn::ListCountByTag
+            | BuiltinFn::ListRemoveByTag => (index == 2).then_some(IntrinsicOp::Eq),
+            BuiltinFn::ListSortByTag | BuiltinFn::SortedByTag => {
+                (index == 1).then_some(IntrinsicOp::Lt)
+            }
+            BuiltinFn::ListStrByTag => (index == 1).then_some(IntrinsicOp::Str),
+            BuiltinFn::DictContainsByTag
+            | BuiltinFn::DictGetByTag
+            | BuiltinFn::DictDelByTag
+            | BuiltinFn::DictPopByTag
+            | BuiltinFn::DictUpdateByTag
+            | BuiltinFn::DictOrByTag
+            | BuiltinFn::DictIOrByTag
+            | BuiltinFn::DictFromKeysByTag => (index == 2).then_some(IntrinsicOp::Eq),
+            BuiltinFn::DictSetByTag | BuiltinFn::DictSetDefaultByTag => {
+                (index == 3).then_some(IntrinsicOp::Eq)
+            }
+            BuiltinFn::DictGetDefaultByTag | BuiltinFn::DictPopDefaultByTag => {
+                (index == 3).then_some(IntrinsicOp::Eq)
+            }
+            BuiltinFn::DictEqByTag => (index == 2 || index == 3).then_some(IntrinsicOp::Eq),
+            BuiltinFn::DictStrByTag => (index == 1 || index == 2).then_some(IntrinsicOp::Str),
+            BuiltinFn::SetContainsByTag
+            | BuiltinFn::SetAddByTag
+            | BuiltinFn::SetRemoveByTag
+            | BuiltinFn::SetDiscardByTag
+            | BuiltinFn::SetUnionByTag
+            | BuiltinFn::SetUpdateByTag
+            | BuiltinFn::SetIntersectionByTag
+            | BuiltinFn::SetIntersectionUpdateByTag
+            | BuiltinFn::SetDifferenceByTag
+            | BuiltinFn::SetDifferenceUpdateByTag
+            | BuiltinFn::SetSymmetricDifferenceByTag
+            | BuiltinFn::SetSymmetricDifferenceUpdateByTag
+            | BuiltinFn::SetIsDisjointByTag
+            | BuiltinFn::SetIsSubsetByTag
+            | BuiltinFn::SetIsSupersetByTag
+            | BuiltinFn::SetLtByTag
+            | BuiltinFn::SetLeByTag
+            | BuiltinFn::SetGtByTag
+            | BuiltinFn::SetGeByTag
+            | BuiltinFn::SetIAndByTag
+            | BuiltinFn::SetIOrByTag
+            | BuiltinFn::SetISubByTag
+            | BuiltinFn::SetIXorByTag
+            | BuiltinFn::SetEqByTag => (index == 2).then_some(IntrinsicOp::Eq),
+            BuiltinFn::SetStrByTag => (index == 1).then_some(IntrinsicOp::Str),
+            _ => None,
+        }
+    }
+
     fn codegen_builtin_meta_args(
         &mut self,
+        func: BuiltinFn,
         args: &[TirExpr],
         mut is_i64_slot: impl FnMut(usize) -> bool,
     ) -> Vec<BasicMetadataValueEnum<'ctx>> {
         let mut call_args: Vec<BasicMetadataValueEnum<'ctx>> = Vec::with_capacity(args.len());
         for (i, arg) in args.iter().enumerate() {
+            if let Some(op) = Self::builtin_intrinsic_ops_arg(func, i) {
+                let ops_handle = self.codegen_intrinsic_ops_handle(op, arg);
+                call_args.push(ops_handle.into());
+                continue;
+            }
             let val = self.codegen_expr(arg);
             if is_i64_slot(i) {
                 call_args.push(self.bitcast_to_i64(val, &arg.ty).into());
@@ -213,11 +276,17 @@ impl<'ctx> Codegen<'ctx> {
 
     fn codegen_builtin_meta_args_with_param_types(
         &mut self,
+        func: BuiltinFn,
         args: &[TirExpr],
         param_types: &[ValueType],
     ) -> Vec<BasicMetadataValueEnum<'ctx>> {
         let mut arg_values = Vec::with_capacity(args.len());
         for (i, arg) in args.iter().enumerate() {
+            if let Some(op) = Self::builtin_intrinsic_ops_arg(func, i) {
+                let ops_handle = self.codegen_intrinsic_ops_handle(op, arg);
+                arg_values.push(ops_handle.into());
+                continue;
+            }
             let v = self.codegen_expr(arg);
             arg_values.push(self.bool_to_runtime_abi_arg(v, &param_types[i]).into());
         }
@@ -288,8 +357,8 @@ impl<'ctx> Codegen<'ctx> {
                     | BuiltinFn::DictPopDefaultByTag
                     | BuiltinFn::DictSetDefaultByTag
             );
-            let call_args =
-                self.codegen_builtin_meta_args(args, |i| i == 1 || (default_variants && i == 2));
+            let call_args = self
+                .codegen_builtin_meta_args(func, args, |i| i == 1 || (default_variants && i == 2));
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
             return self.decode_builtin_result_from_slot(call, result_ty);
         }
@@ -299,7 +368,7 @@ impl<'ctx> Codegen<'ctx> {
             func,
             BuiltinFn::ListPop | BuiltinFn::ListGet | BuiltinFn::SetPop
         ) {
-            let call_args = self.codegen_builtin_meta_args(args, |_| false);
+            let call_args = self.codegen_builtin_meta_args(func, args, |_| false);
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
             return self.decode_builtin_result_from_slot(call, result_ty);
         }
@@ -312,7 +381,7 @@ impl<'ctx> Codegen<'ctx> {
                 | BuiltinFn::ListCountByTag
                 | BuiltinFn::ListRemoveByTag
         ) {
-            let call_args = self.codegen_builtin_meta_args(args, |i| i == 1);
+            let call_args = self.codegen_builtin_meta_args(func, args, |i| i == 1);
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
             return self.decode_builtin_result_from_abi(call, result_ty);
         }
@@ -328,7 +397,7 @@ impl<'ctx> Codegen<'ctx> {
                 | BuiltinFn::ListInsert
         ) {
             let last = args.len() - 1;
-            let call_args = self.codegen_builtin_meta_args(args, |i| i == last);
+            let call_args = self.codegen_builtin_meta_args(func, args, |i| i == last);
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
             return self.decode_builtin_result_from_abi(call, result_ty);
         }
@@ -342,21 +411,21 @@ impl<'ctx> Codegen<'ctx> {
                 | BuiltinFn::DictContainsByTag
                 | BuiltinFn::DictDelByTag
         ) {
-            let call_args = self.codegen_builtin_meta_args(args, |i| i == 1);
+            let call_args = self.codegen_builtin_meta_args(func, args, |i| i == 1);
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
             return self.decode_builtin_result_from_abi(call, result_ty);
         }
 
         // DictSet variants bitcast key (arg1) and value (arg2).
         if matches!(func, BuiltinFn::DictSet | BuiltinFn::DictSetByTag) {
-            let call_args = self.codegen_builtin_meta_args(args, |i| i == 1 || i == 2);
+            let call_args = self.codegen_builtin_meta_args(func, args, |i| i == 1 || i == 2);
             emit!(self.build_call(function, &call_args, "builtin_call"));
             return None;
         }
 
         // dict.fromkeys(keys, value, key_eq_tag) bitcasts value (arg1) to i64.
         if matches!(func, BuiltinFn::DictFromKeysByTag) {
-            let call_args = self.codegen_builtin_meta_args(args, |i| i == 1);
+            let call_args = self.codegen_builtin_meta_args(func, args, |i| i == 1);
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
             return self.decode_builtin_result_from_abi(call, result_ty);
         }
@@ -373,14 +442,14 @@ impl<'ctx> Codegen<'ctx> {
                 | BuiltinFn::SetRemoveByTag
                 | BuiltinFn::SetDiscardByTag
         ) {
-            let call_args = self.codegen_builtin_meta_args(args, |i| i == 1);
+            let call_args = self.codegen_builtin_meta_args(func, args, |i| i == 1);
             let call = emit!(self.build_call(function, &call_args, "builtin_call"));
             return self.decode_builtin_result_from_abi(call, result_ty);
         }
 
         // General case — no bitcasting
         let param_types = func.param_types();
-        let call_args = self.codegen_builtin_meta_args_with_param_types(args, &param_types);
+        let call_args = self.codegen_builtin_meta_args_with_param_types(func, args, &param_types);
         let call = emit!(self.build_call(function, &call_args, "builtin_call"));
         self.decode_builtin_result_from_abi(call, result_ty)
     }

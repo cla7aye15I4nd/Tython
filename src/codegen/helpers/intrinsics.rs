@@ -1,9 +1,12 @@
+use inkwell::attributes::{Attribute, AttributeLoc};
+use inkwell::module::Linkage;
+use inkwell::types::BasicType;
 use inkwell::values::BasicValueEnum;
 use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::tir::builtin::BuiltinFn;
 use crate::tir::{
-    intrinsic_tag, CmpIntrinsicOp, IntrinsicInstance, IntrinsicOp, TirExpr, ValueType,
+    intrinsic_tag, CmpIntrinsicOp, IntrinsicInstance, IntrinsicOp, TirExpr, TirExprKind, ValueType,
 };
 
 use super::super::Codegen;
@@ -31,6 +34,318 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
+    fn tag_suffix(tag: i64) -> String {
+        format!("{:016x}", tag as u64)
+    }
+
+    fn cmp_kernel_symbol(op: CmpIntrinsicOp, tag: i64) -> String {
+        let op_name = match op {
+            CmpIntrinsicOp::Eq => "eq",
+            CmpIntrinsicOp::Lt => "lt",
+        };
+        format!("__tython_intrinsic_{}${}", op_name, Self::tag_suffix(tag))
+    }
+
+    fn hash_kernel_symbol(tag: i64) -> String {
+        format!("__tython_intrinsic_hash${}", Self::tag_suffix(tag))
+    }
+
+    fn str_kernel_symbol(tag: i64) -> String {
+        format!("__tython_intrinsic_str${}", Self::tag_suffix(tag))
+    }
+
+    fn eq_ops_global_symbol(tag: i64) -> String {
+        format!("__tython_eq_ops${}", Self::tag_suffix(tag))
+    }
+
+    fn lt_ops_global_symbol(tag: i64) -> String {
+        format!("__tython_lt_ops${}", Self::tag_suffix(tag))
+    }
+
+    fn str_ops_global_symbol(tag: i64) -> String {
+        format!("__tython_str_ops${}", Self::tag_suffix(tag))
+    }
+
+    fn mark_always_inline(&self, f: inkwell::values::FunctionValue<'ctx>) {
+        let kind = Attribute::get_named_enum_kind_id("alwaysinline");
+        f.add_attribute(
+            AttributeLoc::Function,
+            self.context.create_enum_attribute(kind, 0),
+        );
+    }
+
+    fn get_or_declare_internal_fn(
+        &self,
+        symbol: &str,
+        fn_type: inkwell::types::FunctionType<'ctx>,
+    ) -> inkwell::values::FunctionValue<'ctx> {
+        self.module.get_function(symbol).unwrap_or_else(|| {
+            self.module
+                .add_function(symbol, fn_type, Some(Linkage::Internal))
+        })
+    }
+
+    fn emit_intrinsic_cmp_kernel(
+        &mut self,
+        op: CmpIntrinsicOp,
+        tag: i64,
+        ty: &ValueType,
+    ) -> inkwell::values::FunctionValue<'ctx> {
+        let symbol = Self::cmp_kernel_symbol(op, tag);
+        let fn_type = self
+            .i64_type()
+            .fn_type(&[self.i64_type().into(), self.i64_type().into()], false);
+        let f = self.get_or_declare_internal_fn(&symbol, fn_type);
+        self.mark_always_inline(f);
+        if f.get_first_basic_block().is_some() {
+            return f;
+        }
+
+        let saved_block = self.builder.get_insert_block();
+        let entry = self.context.append_basic_block(f, "entry");
+        self.builder.position_at_end(entry);
+
+        let lhs_slot = f.get_nth_param(0).unwrap().into_int_value();
+        let rhs_slot = f.get_nth_param(1).unwrap().into_int_value();
+        let out_b = self.intrinsic_compare_slots(op, ty, lhs_slot, rhs_slot);
+        let out = emit!(self.build_int_z_extend(out_b, self.i64_type(), "b_to_i64"));
+        emit!(self.build_return(Some(&out)));
+
+        if let Some(bb) = saved_block {
+            self.builder.position_at_end(bb);
+        }
+        f
+    }
+
+    fn emit_intrinsic_hash_kernel(
+        &mut self,
+        tag: i64,
+        ty: &ValueType,
+    ) -> inkwell::values::FunctionValue<'ctx> {
+        let symbol = Self::hash_kernel_symbol(tag);
+        let fn_type = self.i64_type().fn_type(&[self.i64_type().into()], false);
+        let f = self.get_or_declare_internal_fn(&symbol, fn_type);
+        self.mark_always_inline(f);
+        if f.get_first_basic_block().is_some() {
+            return f;
+        }
+
+        let saved_block = self.builder.get_insert_block();
+        let entry = self.context.append_basic_block(f, "entry");
+        self.builder.position_at_end(entry);
+
+        let value_slot = f.get_nth_param(0).unwrap().into_int_value();
+        let out = self.intrinsic_hash_slot(ty, value_slot).into_int_value();
+        emit!(self.build_return(Some(&out)));
+
+        if let Some(bb) = saved_block {
+            self.builder.position_at_end(bb);
+        }
+        f
+    }
+
+    fn emit_intrinsic_str_kernel(
+        &mut self,
+        tag: i64,
+        ty: &ValueType,
+    ) -> inkwell::values::FunctionValue<'ctx> {
+        let symbol = Self::str_kernel_symbol(tag);
+        let fn_type = self
+            .get_llvm_type(&ValueType::Str)
+            .fn_type(&[self.i64_type().into()], false);
+        let f = self.get_or_declare_internal_fn(&symbol, fn_type);
+        self.mark_always_inline(f);
+        if f.get_first_basic_block().is_some() {
+            return f;
+        }
+
+        let saved_block = self.builder.get_insert_block();
+        let entry = self.context.append_basic_block(f, "entry");
+        self.builder.position_at_end(entry);
+
+        let obj_slot = f.get_nth_param(0).unwrap().into_int_value();
+        let out = self.intrinsic_str_slot(ty, obj_slot);
+        emit!(self.build_return(Some(&out)));
+
+        if let Some(bb) = saved_block {
+            self.builder.position_at_end(bb);
+        }
+        f
+    }
+
+    fn emit_eq_ops_global(
+        &mut self,
+        tag: i64,
+        ty: &ValueType,
+    ) -> inkwell::values::GlobalValue<'ctx> {
+        let symbol = Self::eq_ops_global_symbol(tag);
+        if let Some(g) = self.module.get_global(&symbol) {
+            return g;
+        }
+
+        let eq_fn = self.emit_intrinsic_cmp_kernel(CmpIntrinsicOp::Eq, tag, ty);
+        let hash_fn = self.emit_intrinsic_hash_kernel(tag, ty);
+
+        let ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
+        let ops_ty = self
+            .context
+            .struct_type(&[ptr_ty.into(), ptr_ty.into()], false);
+        let init = ops_ty.const_named_struct(&[
+            eq_fn.as_global_value().as_pointer_value().into(),
+            hash_fn.as_global_value().as_pointer_value().into(),
+        ]);
+
+        let g = self.module.add_global(ops_ty, None, &symbol);
+        g.set_linkage(Linkage::Internal);
+        g.set_constant(true);
+        g.set_initializer(&init);
+        g
+    }
+
+    fn emit_lt_ops_global(
+        &mut self,
+        tag: i64,
+        ty: &ValueType,
+    ) -> inkwell::values::GlobalValue<'ctx> {
+        let symbol = Self::lt_ops_global_symbol(tag);
+        if let Some(g) = self.module.get_global(&symbol) {
+            return g;
+        }
+
+        let lt_fn = self.emit_intrinsic_cmp_kernel(CmpIntrinsicOp::Lt, tag, ty);
+        let ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
+        let ops_ty = self.context.struct_type(&[ptr_ty.into()], false);
+        let init = ops_ty.const_named_struct(&[lt_fn.as_global_value().as_pointer_value().into()]);
+
+        let g = self.module.add_global(ops_ty, None, &symbol);
+        g.set_linkage(Linkage::Internal);
+        g.set_constant(true);
+        g.set_initializer(&init);
+        g
+    }
+
+    fn emit_str_ops_global(
+        &mut self,
+        tag: i64,
+        ty: &ValueType,
+    ) -> inkwell::values::GlobalValue<'ctx> {
+        let symbol = Self::str_ops_global_symbol(tag);
+        if let Some(g) = self.module.get_global(&symbol) {
+            return g;
+        }
+
+        let str_fn = self.emit_intrinsic_str_kernel(tag, ty);
+        let ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
+        let ops_ty = self.context.struct_type(&[ptr_ty.into()], false);
+        let init = ops_ty.const_named_struct(&[str_fn.as_global_value().as_pointer_value().into()]);
+
+        let g = self.module.add_global(ops_ty, None, &symbol);
+        g.set_linkage(Linkage::Internal);
+        g.set_constant(true);
+        g.set_initializer(&init);
+        g
+    }
+
+    fn emit_ops_handle_bridge(
+        &mut self,
+        symbol: &str,
+        cases: &[(i64, ValueType)],
+        op: IntrinsicOp,
+    ) {
+        let f = self.get_or_declare_function(symbol, &[ValueType::Int], Some(ValueType::Int));
+        if f.get_first_basic_block().is_some() {
+            return;
+        }
+
+        let saved_block = self.builder.get_insert_block();
+        let entry = self.context.append_basic_block(f, "entry");
+        self.builder.position_at_end(entry);
+
+        let tag_val = f.get_nth_param(0).unwrap().into_int_value();
+        let default_bb = self.context.append_basic_block(f, "default");
+        let mut switch_cases = Vec::new();
+        let mut case_blocks = Vec::new();
+        for (tag, _) in cases {
+            let bb = self.context.append_basic_block(f, "case");
+            switch_cases.push((self.i64_type().const_int(*tag as u64, true), bb));
+            case_blocks.push(bb);
+        }
+        emit!(self.build_switch(tag_val, default_bb, &switch_cases));
+
+        for ((tag, ty), bb) in cases.iter().zip(case_blocks.iter()) {
+            self.builder.position_at_end(*bb);
+            let handle = match op {
+                IntrinsicOp::Eq => self
+                    .emit_eq_ops_global(*tag, ty)
+                    .as_pointer_value()
+                    .const_to_int(self.i64_type()),
+                IntrinsicOp::Lt => self
+                    .emit_lt_ops_global(*tag, ty)
+                    .as_pointer_value()
+                    .const_to_int(self.i64_type()),
+                IntrinsicOp::Str => self
+                    .emit_str_ops_global(*tag, ty)
+                    .as_pointer_value()
+                    .const_to_int(self.i64_type()),
+            };
+            emit!(self.build_return(Some(&handle)));
+        }
+
+        self.builder.position_at_end(default_bb);
+        let exc_tag = self.i64_type().const_int(6, false).into();
+        let msg = self.codegen_str_literal("unknown intrinsic ops tag");
+        self.emit_raise(exc_tag, msg);
+
+        if let Some(bb) = saved_block {
+            self.builder.position_at_end(bb);
+        }
+    }
+
+    fn intrinsic_type_for_tag(&self, op: IntrinsicOp, tag: i64) -> Option<ValueType> {
+        match op {
+            IntrinsicOp::Eq => self.intrinsic_eq_cases.get(&tag).cloned(),
+            IntrinsicOp::Lt => self.intrinsic_lt_cases.get(&tag).cloned(),
+            IntrinsicOp::Str => self.intrinsic_str_cases.get(&tag).cloned(),
+        }
+    }
+
+    pub(crate) fn codegen_intrinsic_ops_handle(
+        &mut self,
+        op: IntrinsicOp,
+        tag_expr: &TirExpr,
+    ) -> inkwell::values::IntValue<'ctx> {
+        if let TirExprKind::IntLiteral(tag) = &tag_expr.kind {
+            let tag = *tag;
+            if let Some(ty) = self.intrinsic_type_for_tag(op, tag) {
+                return match op {
+                    IntrinsicOp::Eq => self
+                        .emit_eq_ops_global(tag, &ty)
+                        .as_pointer_value()
+                        .const_to_int(self.i64_type()),
+                    IntrinsicOp::Lt => self
+                        .emit_lt_ops_global(tag, &ty)
+                        .as_pointer_value()
+                        .const_to_int(self.i64_type()),
+                    IntrinsicOp::Str => self
+                        .emit_str_ops_global(tag, &ty)
+                        .as_pointer_value()
+                        .const_to_int(self.i64_type()),
+                };
+            }
+        }
+
+        let tag_val = self.codegen_expr(tag_expr).into_int_value();
+        let bridge_name = match op {
+            IntrinsicOp::Eq => "__tython_eq_ops_from_tag",
+            IntrinsicOp::Lt => "__tython_lt_ops_from_tag",
+            IntrinsicOp::Str => "__tython_str_ops_from_tag",
+        };
+        let bridge =
+            self.get_or_declare_function(bridge_name, &[ValueType::Int], Some(ValueType::Int));
+        let call = emit!(self.build_call(bridge, &[tag_val.into()], "ops_from_tag"));
+        self.extract_call_value(call).into_int_value()
+    }
+
     pub(crate) fn codegen_intrinsic_cmp(
         &mut self,
         op: CmpIntrinsicOp,
@@ -42,24 +357,8 @@ impl<'ctx> Codegen<'ctx> {
         let lhs_slot = self.bitcast_to_i64(lhs_val, &lhs.ty);
         let rhs_slot = self.bitcast_to_i64(rhs_val, &rhs.ty);
         let tag = intrinsic_tag(op.into(), &lhs.ty);
-        let symbol = match op {
-            CmpIntrinsicOp::Eq => "__tython_intrinsic_eq",
-            CmpIntrinsicOp::Lt => "__tython_intrinsic_lt",
-        };
-        let f = self.get_or_declare_function(
-            symbol,
-            &[ValueType::Int, ValueType::Int, ValueType::Int],
-            Some(ValueType::Int),
-        );
-        let call = emit!(self.build_call(
-            f,
-            &[
-                self.i64_type().const_int(tag as u64, true).into(),
-                lhs_slot.into(),
-                rhs_slot.into(),
-            ],
-            "intrinsic_cmp"
-        ));
+        let f = self.emit_intrinsic_cmp_kernel(op, tag, &lhs.ty);
+        let call = emit!(self.build_call(f, &[lhs_slot.into(), rhs_slot.into(),], "intrinsic_cmp"));
         let out = self.extract_call_value(call).into_int_value();
         emit!(self.build_int_compare(
             IntPredicate::NE,
@@ -103,10 +402,15 @@ impl<'ctx> Codegen<'ctx> {
         }
         emit!(self.build_switch(tag_val, default_bb, &switch_cases));
 
-        for ((_, ty), bb) in cases.iter().zip(case_blocks.iter()) {
+        for ((tag, ty), bb) in cases.iter().zip(case_blocks.iter()) {
             self.builder.position_at_end(*bb);
-            let out_b = self.intrinsic_compare_slots(op, ty, lhs_slot, rhs_slot);
-            let out = emit!(self.build_int_z_extend(out_b, self.i64_type(), "b_to_i64"));
+            let kernel = self.emit_intrinsic_cmp_kernel(op, *tag, ty);
+            let call = emit!(self.build_call(
+                kernel,
+                &[lhs_slot.into(), rhs_slot.into()],
+                "intrinsic_cmp_kernel"
+            ));
+            let out = self.extract_call_value(call).into_int_value();
             emit!(self.build_return(Some(&out)));
         }
 
@@ -139,6 +443,20 @@ impl<'ctx> Codegen<'ctx> {
             .map(|(tag, ty)| (*tag, ty.clone()))
             .collect::<Vec<_>>();
         str_cases.sort_by_key(|(tag, _)| *tag);
+
+        for (tag, ty) in &eq_cases {
+            let _ = self.emit_eq_ops_global(*tag, ty);
+        }
+        for (tag, ty) in &lt_cases {
+            let _ = self.emit_lt_ops_global(*tag, ty);
+        }
+        for (tag, ty) in &str_cases {
+            let _ = self.emit_str_ops_global(*tag, ty);
+        }
+        self.emit_ops_handle_bridge("__tython_eq_ops_from_tag", &eq_cases, IntrinsicOp::Eq);
+        self.emit_ops_handle_bridge("__tython_lt_ops_from_tag", &lt_cases, IntrinsicOp::Lt);
+        self.emit_ops_handle_bridge("__tython_str_ops_from_tag", &str_cases, IntrinsicOp::Str);
+
         self.emit_intrinsic_compare_dispatcher(
             CmpIntrinsicOp::Eq,
             "__tython_intrinsic_eq",
@@ -181,9 +499,12 @@ impl<'ctx> Codegen<'ctx> {
         }
         emit!(self.build_switch(tag_val, default_bb, &switch_cases));
 
-        for ((_, ty), bb) in cases.iter().zip(case_blocks.iter()) {
+        for ((tag, ty), bb) in cases.iter().zip(case_blocks.iter()) {
             self.builder.position_at_end(*bb);
-            let out = self.intrinsic_hash_slot(ty, value_slot);
+            let kernel = self.emit_intrinsic_hash_kernel(*tag, ty);
+            let call =
+                emit!(self.build_call(kernel, &[value_slot.into()], "intrinsic_hash_kernel"));
+            let out = self.extract_call_value(call).into_int_value();
             emit!(self.build_return(Some(&out)));
         }
 
@@ -410,17 +731,23 @@ impl<'ctx> Codegen<'ctx> {
                 let lhs = self.bitcast_from_i64(lhs_slot, &list_ty);
                 let rhs = self.bitcast_from_i64(rhs_slot, &list_ty);
                 let child_tag = intrinsic_tag(op.into(), inner);
+                let child_ops_handle = match op {
+                    CmpIntrinsicOp::Eq => self
+                        .emit_eq_ops_global(child_tag, inner)
+                        .as_pointer_value()
+                        .const_to_int(self.i64_type()),
+                    CmpIntrinsicOp::Lt => self
+                        .emit_lt_ops_global(child_tag, inner)
+                        .as_pointer_value()
+                        .const_to_int(self.i64_type()),
+                };
                 let f = self.get_builtin(match op {
                     CmpIntrinsicOp::Eq => BuiltinFn::ListEqByTag,
                     CmpIntrinsicOp::Lt => BuiltinFn::ListLtByTag,
                 });
                 let call = emit!(self.build_call(
                     f,
-                    &[
-                        lhs.into(),
-                        rhs.into(),
-                        self.i64_type().const_int(child_tag as u64, true).into(),
-                    ],
+                    &[lhs.into(), rhs.into(), child_ops_handle.into(),],
                     "intrinsic_list_cmp"
                 ));
                 let out = self.extract_call_value(call).into_int_value();
@@ -469,9 +796,11 @@ impl<'ctx> Codegen<'ctx> {
         }
         emit!(self.build_switch(tag_val, default_bb, &switch_cases));
 
-        for ((_, ty), bb) in cases.iter().zip(case_blocks.iter()) {
+        for ((tag, ty), bb) in cases.iter().zip(case_blocks.iter()) {
             self.builder.position_at_end(*bb);
-            let out = self.intrinsic_str_slot(ty, obj_slot);
+            let kernel = self.emit_intrinsic_str_kernel(*tag, ty);
+            let call = emit!(self.build_call(kernel, &[obj_slot.into()], "intrinsic_str_kernel"));
+            let out = self.extract_call_value(call);
             emit!(self.build_return(Some(&out)));
         }
 
@@ -532,13 +861,14 @@ impl<'ctx> Codegen<'ctx> {
                 let list_ty = ValueType::List(Box::new((**inner).clone()));
                 let val = self.bitcast_from_i64(obj_slot, &list_ty);
                 let child_tag = intrinsic_tag(IntrinsicOp::Str, inner);
+                let child_ops_handle = self
+                    .emit_str_ops_global(child_tag, inner)
+                    .as_pointer_value()
+                    .const_to_int(self.i64_type());
                 let f = self.get_builtin(BuiltinFn::ListStrByTag);
                 let call = emit!(self.build_call(
                     f,
-                    &[
-                        val.into(),
-                        self.i64_type().const_int(child_tag as u64, true).into(),
-                    ],
+                    &[val.into(), child_ops_handle.into(),],
                     "list_str_by_tag"
                 ));
                 self.extract_call_value(call)
@@ -549,14 +879,18 @@ impl<'ctx> Codegen<'ctx> {
                 let val = self.bitcast_from_i64(obj_slot, &dict_ty);
                 let key_tag = intrinsic_tag(IntrinsicOp::Str, key);
                 let value_tag = intrinsic_tag(IntrinsicOp::Str, value);
+                let key_ops_handle = self
+                    .emit_str_ops_global(key_tag, key)
+                    .as_pointer_value()
+                    .const_to_int(self.i64_type());
+                let value_ops_handle = self
+                    .emit_str_ops_global(value_tag, value)
+                    .as_pointer_value()
+                    .const_to_int(self.i64_type());
                 let f = self.get_builtin(BuiltinFn::DictStrByTag);
                 let call = emit!(self.build_call(
                     f,
-                    &[
-                        val.into(),
-                        self.i64_type().const_int(key_tag as u64, true).into(),
-                        self.i64_type().const_int(value_tag as u64, true).into(),
-                    ],
+                    &[val.into(), key_ops_handle.into(), value_ops_handle.into(),],
                     "dict_str_by_tag"
                 ));
                 self.extract_call_value(call)
@@ -565,13 +899,14 @@ impl<'ctx> Codegen<'ctx> {
                 let set_ty = ValueType::Set(Box::new((**inner).clone()));
                 let val = self.bitcast_from_i64(obj_slot, &set_ty);
                 let child_tag = intrinsic_tag(IntrinsicOp::Str, inner);
+                let child_ops_handle = self
+                    .emit_str_ops_global(child_tag, inner)
+                    .as_pointer_value()
+                    .const_to_int(self.i64_type());
                 let f = self.get_builtin(BuiltinFn::SetStrByTag);
                 let call = emit!(self.build_call(
                     f,
-                    &[
-                        val.into(),
-                        self.i64_type().const_int(child_tag as u64, true).into(),
-                    ],
+                    &[val.into(), child_ops_handle.into(),],
                     "set_str_by_tag"
                 ));
                 self.extract_call_value(call)

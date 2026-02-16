@@ -89,6 +89,19 @@ impl Compiler {
                         codegen.register_class(class_info);
                     }
 
+                    // Predeclare all function signatures in this module so
+                    // intrinsic kernel emission can resolve method symbols
+                    // (e.g. tuple/class __eq__) regardless of generation order.
+                    for func in tir.functions.values() {
+                        let param_types =
+                            func.params.iter().map(|p| p.ty.clone()).collect::<Vec<_>>();
+                        codegen.get_or_declare_function(
+                            &func.name,
+                            &param_types,
+                            func.return_type.clone(),
+                        );
+                    }
+
                     for func in tir.functions.values() {
                         codegen.generate(func);
                     }

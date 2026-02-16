@@ -27,9 +27,17 @@ static int64_t find_key(TythonDict* d, int64_t key) {
     return -1;
 }
 
-static int64_t find_key_by_tag(TythonDict* d, int64_t key, int64_t key_eq_tag) {
+static inline const TythonEqOps* eq_ops_from_handle(int64_t handle) {
+    return reinterpret_cast<const TythonEqOps*>(static_cast<uintptr_t>(handle));
+}
+
+static inline const TythonStrOps* str_ops_from_handle(int64_t handle) {
+    return reinterpret_cast<const TythonStrOps*>(static_cast<uintptr_t>(handle));
+}
+
+static int64_t find_key_by_ops(TythonDict* d, int64_t key, const TythonEqOps* ops) {
     for (int64_t i = 0; i < d->len; i++) {
-        if (TYTHON_FN(intrinsic_eq)(key_eq_tag, d->keys[i], key) != 0) {
+        if (ops->eq(d->keys[i], key) != 0) {
             return i;
         }
     }
@@ -68,8 +76,9 @@ int64_t TYTHON_FN(dict_len)(TythonDict* d) { return d->len; }
 
 int64_t TYTHON_FN(dict_contains)(TythonDict* d, int64_t key) { return find_key(d, key) >= 0; }
 
-int64_t TYTHON_FN(dict_contains_by_tag)(TythonDict* d, int64_t key, int64_t key_eq_tag) {
-    return find_key_by_tag(d, key, key_eq_tag) >= 0;
+int64_t TYTHON_FN(dict_contains_by_tag)(TythonDict* d, int64_t key, int64_t key_eq_ops_handle) {
+    const TythonEqOps* key_ops = eq_ops_from_handle(key_eq_ops_handle);
+    return find_key_by_ops(d, key, key_ops) >= 0;
 }
 
 int64_t TYTHON_FN(dict_get)(TythonDict* d, int64_t key) {
@@ -81,8 +90,9 @@ int64_t TYTHON_FN(dict_get)(TythonDict* d, int64_t key) {
     return d->values[idx];
 }
 
-int64_t TYTHON_FN(dict_get_by_tag)(TythonDict* d, int64_t key, int64_t key_eq_tag) {
-    int64_t idx = find_key_by_tag(d, key, key_eq_tag);
+int64_t TYTHON_FN(dict_get_by_tag)(TythonDict* d, int64_t key, int64_t key_eq_ops_handle) {
+    const TythonEqOps* key_ops = eq_ops_from_handle(key_eq_ops_handle);
+    int64_t idx = find_key_by_ops(d, key, key_ops);
     if (idx < 0) {
         TYTHON_FN(raise)(TYTHON_EXC_KEY_ERROR, TYTHON_FN(str_new)("key not found", 13));
         __builtin_unreachable();
@@ -94,9 +104,10 @@ int64_t TYTHON_FN(dict_get_default_by_tag)(
     TythonDict* d,
     int64_t key,
     int64_t default_value,
-    int64_t key_eq_tag
+    int64_t key_eq_ops_handle
 ) {
-    int64_t idx = find_key_by_tag(d, key, key_eq_tag);
+    const TythonEqOps* key_ops = eq_ops_from_handle(key_eq_ops_handle);
+    int64_t idx = find_key_by_ops(d, key, key_ops);
     if (idx < 0) {
         return default_value;
     }
@@ -115,8 +126,9 @@ void TYTHON_FN(dict_set)(TythonDict* d, int64_t key, int64_t value) {
     d->len += 1;
 }
 
-void TYTHON_FN(dict_set_by_tag)(TythonDict* d, int64_t key, int64_t value, int64_t key_eq_tag) {
-    int64_t idx = find_key_by_tag(d, key, key_eq_tag);
+void TYTHON_FN(dict_set_by_tag)(TythonDict* d, int64_t key, int64_t value, int64_t key_eq_ops_handle) {
+    const TythonEqOps* key_ops = eq_ops_from_handle(key_eq_ops_handle);
+    int64_t idx = find_key_by_ops(d, key, key_ops);
     if (idx >= 0) {
         d->values[idx] = value;
         return;
@@ -131,9 +143,10 @@ int64_t TYTHON_FN(dict_setdefault_by_tag)(
     TythonDict* d,
     int64_t key,
     int64_t default_value,
-    int64_t key_eq_tag
+    int64_t key_eq_ops_handle
 ) {
-    int64_t idx = find_key_by_tag(d, key, key_eq_tag);
+    const TythonEqOps* key_ops = eq_ops_from_handle(key_eq_ops_handle);
+    int64_t idx = find_key_by_ops(d, key, key_ops);
     if (idx >= 0) {
         return d->values[idx];
     }
@@ -144,8 +157,9 @@ int64_t TYTHON_FN(dict_setdefault_by_tag)(
     return default_value;
 }
 
-void TYTHON_FN(dict_del_by_tag)(TythonDict* d, int64_t key, int64_t key_eq_tag) {
-    int64_t idx = find_key_by_tag(d, key, key_eq_tag);
+void TYTHON_FN(dict_del_by_tag)(TythonDict* d, int64_t key, int64_t key_eq_ops_handle) {
+    const TythonEqOps* key_ops = eq_ops_from_handle(key_eq_ops_handle);
+    int64_t idx = find_key_by_ops(d, key, key_ops);
     if (idx < 0) {
         TYTHON_FN(raise)(TYTHON_EXC_KEY_ERROR, TYTHON_FN(str_new)("key not found", 13));
         __builtin_unreachable();
@@ -174,8 +188,9 @@ int64_t TYTHON_FN(dict_pop)(TythonDict* d, int64_t key) {
     return out;
 }
 
-int64_t TYTHON_FN(dict_pop_by_tag)(TythonDict* d, int64_t key, int64_t key_eq_tag) {
-    int64_t idx = find_key_by_tag(d, key, key_eq_tag);
+int64_t TYTHON_FN(dict_pop_by_tag)(TythonDict* d, int64_t key, int64_t key_eq_ops_handle) {
+    const TythonEqOps* key_ops = eq_ops_from_handle(key_eq_ops_handle);
+    int64_t idx = find_key_by_ops(d, key, key_ops);
     if (idx < 0) {
         TYTHON_FN(raise)(TYTHON_EXC_KEY_ERROR, TYTHON_FN(str_new)("key not found", 13));
         __builtin_unreachable();
@@ -193,9 +208,10 @@ int64_t TYTHON_FN(dict_pop_default_by_tag)(
     TythonDict* d,
     int64_t key,
     int64_t default_value,
-    int64_t key_eq_tag
+    int64_t key_eq_ops_handle
 ) {
-    int64_t idx = find_key_by_tag(d, key, key_eq_tag);
+    const TythonEqOps* key_ops = eq_ops_from_handle(key_eq_ops_handle);
+    int64_t idx = find_key_by_ops(d, key, key_ops);
     if (idx < 0) {
         return default_value;
     }
@@ -223,46 +239,48 @@ int64_t TYTHON_FN(dict_eq)(TythonDict* a, TythonDict* b) {
 int64_t TYTHON_FN(dict_eq_by_tag)(
     TythonDict* a,
     TythonDict* b,
-    int64_t key_eq_tag,
-    int64_t value_eq_tag
+    int64_t key_eq_ops_handle,
+    int64_t value_eq_ops_handle
 ) {
     if (a == b) return 1;
     if (a->len != b->len) return 0;
+    const TythonEqOps* key_ops = eq_ops_from_handle(key_eq_ops_handle);
+    const TythonEqOps* value_ops = eq_ops_from_handle(value_eq_ops_handle);
     for (int64_t i = 0; i < a->len; i++) {
         int64_t key = a->keys[i];
-        int64_t bi = find_key_by_tag(b, key, key_eq_tag);
+        int64_t bi = find_key_by_ops(b, key, key_ops);
         if (bi < 0) return 0;
-        if (TYTHON_FN(intrinsic_eq)(value_eq_tag, a->values[i], b->values[bi]) == 0) {
+        if (value_ops->eq(a->values[i], b->values[bi]) == 0) {
             return 0;
         }
     }
     return 1;
 }
 
-void TYTHON_FN(dict_update_by_tag)(TythonDict* dst, TythonDict* src, int64_t key_eq_tag) {
+void TYTHON_FN(dict_update_by_tag)(TythonDict* dst, TythonDict* src, int64_t key_eq_ops_handle) {
     for (int64_t i = 0; i < src->len; i++) {
-        TYTHON_FN(dict_set_by_tag)(dst, src->keys[i], src->values[i], key_eq_tag);
+        TYTHON_FN(dict_set_by_tag)(dst, src->keys[i], src->values[i], key_eq_ops_handle);
     }
 }
 
-TythonDict* TYTHON_FN(dict_or_by_tag)(TythonDict* a, TythonDict* b, int64_t key_eq_tag) {
+TythonDict* TYTHON_FN(dict_or_by_tag)(TythonDict* a, TythonDict* b, int64_t key_eq_ops_handle) {
     auto* out = TYTHON_FN(dict_copy)(a);
-    TYTHON_FN(dict_update_by_tag)(out, b, key_eq_tag);
+    TYTHON_FN(dict_update_by_tag)(out, b, key_eq_ops_handle);
     return out;
 }
 
-TythonDict* TYTHON_FN(dict_ior_by_tag)(TythonDict* a, TythonDict* b, int64_t key_eq_tag) {
-    TYTHON_FN(dict_update_by_tag)(a, b, key_eq_tag);
+TythonDict* TYTHON_FN(dict_ior_by_tag)(TythonDict* a, TythonDict* b, int64_t key_eq_ops_handle) {
+    TYTHON_FN(dict_update_by_tag)(a, b, key_eq_ops_handle);
     return a;
 }
 
-TythonDict* TYTHON_FN(dict_fromkeys_by_tag)(void* keys, int64_t value, int64_t key_eq_tag) {
+TythonDict* TYTHON_FN(dict_fromkeys_by_tag)(void* keys, int64_t value, int64_t key_eq_ops_handle) {
     auto* out = TYTHON_FN(dict_empty)();
     auto* key_list = static_cast<TythonList*>(keys);
     int64_t n = TYTHON_FN(list_len)(key_list);
     for (int64_t i = 0; i < n; i++) {
         int64_t key = TYTHON_FN(list_get)(key_list, i);
-        TYTHON_FN(dict_set_by_tag)(out, key, value, key_eq_tag);
+        TYTHON_FN(dict_set_by_tag)(out, key, value, key_eq_ops_handle);
     }
     return out;
 }
@@ -308,16 +326,18 @@ void* TYTHON_FN(dict_values)(TythonDict* d) {
 
 /* ── str_by_tag ──────────────────────────────────────────────────── */
 
-TythonStr* TYTHON_FN(dict_str_by_tag)(TythonDict* dict, int64_t key_str_tag, int64_t value_str_tag) {
+TythonStr* TYTHON_FN(dict_str_by_tag)(TythonDict* dict, int64_t key_str_ops_handle, int64_t value_str_ops_handle) {
     std::string result = "{";
     bool first = true;
+    const TythonStrOps* key_ops = str_ops_from_handle(key_str_ops_handle);
+    const TythonStrOps* value_ops = str_ops_from_handle(value_str_ops_handle);
     for (int64_t i = 0; i < dict->len; i++) {
         if (!first) result += ", ";
         first = false;
-        TythonStr* key_str = TYTHON_FN(intrinsic_str)(key_str_tag, reinterpret_cast<void*>(dict->keys[i]));
+        TythonStr* key_str = key_ops->str(dict->keys[i]);
         result.append(key_str->data, static_cast<size_t>(key_str->len));
         result += ": ";
-        TythonStr* val_str = TYTHON_FN(intrinsic_str)(value_str_tag, reinterpret_cast<void*>(dict->values[i]));
+        TythonStr* val_str = value_ops->str(dict->values[i]);
         result.append(val_str->data, static_cast<size_t>(val_str->len));
     }
     result += "}";

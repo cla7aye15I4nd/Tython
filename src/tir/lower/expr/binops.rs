@@ -60,24 +60,6 @@ fn has_method_binop(op: RawBinOp, left: &Type, right: &Type) -> bool {
     }
 }
 
-/// Generate a descriptive error message for an invalid BinOp type combination.
-pub fn binop_type_error_message(op: RawBinOp, left: &Type, right: &Type) -> String {
-    match op {
-        RawBinOp::Bitwise(_) => {
-            format!(
-                "bitwise operator `{}` requires `int` operands, got `{}` and `{}`",
-                op, left, right
-            )
-        }
-        RawBinOp::Arith(_) => {
-            format!(
-                "operator `{}` requires numeric operands, got `{}` and `{}`",
-                op, left, right
-            )
-        }
-    }
-}
-
 // ── Helpers for constructing TIR expression kinds ────────────────────
 
 fn int_arith_kind(arith: ArithBinOp, left: TirExpr, right: TirExpr) -> TirExprKind {

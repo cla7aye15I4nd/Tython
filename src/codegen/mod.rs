@@ -3,6 +3,7 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
+use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::types::StructType;
 use inkwell::values::PointerValue;
@@ -58,6 +59,7 @@ pub struct Codegen<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
+    target_machine: TargetMachine,
     variables: HashMap<String, PointerValue<'ctx>>,
     loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
     struct_types: HashMap<String, StructType<'ctx>>,
@@ -102,6 +104,7 @@ impl<'ctx> Codegen<'ctx> {
             context,
             module,
             builder,
+            target_machine,
             variables: HashMap::new(),
             loop_stack: Vec::new(),
             struct_types: HashMap::new(),
@@ -118,6 +121,9 @@ impl<'ctx> Codegen<'ctx> {
 
     pub fn link(&self, output_path: &Path) {
         let bc_path = output_path.with_extension("o");
+
+        // Run a lightweight cleanup pipeline before serializing IR.
+        self.optimize_module();
 
         // Write text IR then assemble to bitcode via llvm-as.
         // (write_bitcode_to_path can produce corrupt records for large modules)
@@ -154,6 +160,18 @@ impl<'ctx> Codegen<'ctx> {
                 String::from_utf8_lossy(&output.stderr)
             );
             panic!("clang++ linking failed");
+        }
+    }
+
+    fn optimize_module(&self) {
+        let options = PassBuilderOptions::create();
+        let pipeline =
+            "function(instcombine<no-verify-fixpoint>,simplifycfg,sccp,gvn,reassociate),deadargelim";
+        if let Err(e) = self
+            .module
+            .run_passes(pipeline, &self.target_machine, options)
+        {
+            panic!("LLVM pass pipeline failed: {e}");
         }
     }
 }
