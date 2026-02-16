@@ -62,19 +62,6 @@ fn has_method_binop(op: RawBinOp, left: &Type, right: &Type) -> bool {
 
 // ── Helpers for constructing TIR expression kinds ────────────────────
 
-fn int_arith_kind(arith: ArithBinOp, left: TirExpr, right: TirExpr) -> TirExprKind {
-    let (l, r) = (Box::new(left), Box::new(right));
-    match arith {
-        ArithBinOp::Add => TirExprKind::IntAdd(l, r),
-        ArithBinOp::Sub => TirExprKind::IntSub(l, r),
-        ArithBinOp::Mul => TirExprKind::IntMul(l, r),
-        ArithBinOp::FloorDiv => TirExprKind::IntFloorDiv(l, r),
-        ArithBinOp::Mod => TirExprKind::IntMod(l, r),
-        ArithBinOp::Pow => TirExprKind::IntPow(l, r),
-        ArithBinOp::Div => unreachable!("ICE: int result for true division"),
-    }
-}
-
 fn float_arith_kind(arith: ArithBinOp, left: TirExpr, right: TirExpr) -> TirExprKind {
     let (l, r) = (Box::new(left), Box::new(right));
     match arith {
@@ -104,14 +91,10 @@ pub(in crate::tir::lower) fn coerce_to_float(expr: TirExpr) -> TirExpr {
     if expr.ty == ValueType::Float {
         return expr;
     }
-    let cast_kind = match &expr.ty {
-        ValueType::Int => CastKind::IntToFloat,
-        ValueType::Bool => CastKind::BoolToFloat,
-        _ => unreachable!("coerce_to_float called on non-numeric type"),
-    };
+    // Callers only invoke this helper for int/float numeric promotion.
     TirExpr {
         kind: TirExprKind::Cast {
-            kind: cast_kind,
+            kind: CastKind::IntToFloat,
             arg: Box::new(expr),
         },
         ty: ValueType::Float,
@@ -165,8 +148,30 @@ impl Lowering {
                     ty: ValueType::Float,
                 })
             }
-            (RawBinOp::Arith(arith), ValueType::Int, ValueType::Int) => Ok(TirExpr {
-                kind: int_arith_kind(arith, left, right),
+            (RawBinOp::Arith(ArithBinOp::Add), ValueType::Int, ValueType::Int) => Ok(TirExpr {
+                kind: TirExprKind::IntAdd(Box::new(left), Box::new(right)),
+                ty: ValueType::Int,
+            }),
+            (RawBinOp::Arith(ArithBinOp::Sub), ValueType::Int, ValueType::Int) => Ok(TirExpr {
+                kind: TirExprKind::IntSub(Box::new(left), Box::new(right)),
+                ty: ValueType::Int,
+            }),
+            (RawBinOp::Arith(ArithBinOp::Mul), ValueType::Int, ValueType::Int) => Ok(TirExpr {
+                kind: TirExprKind::IntMul(Box::new(left), Box::new(right)),
+                ty: ValueType::Int,
+            }),
+            (RawBinOp::Arith(ArithBinOp::FloorDiv), ValueType::Int, ValueType::Int) => {
+                Ok(TirExpr {
+                    kind: TirExprKind::IntFloorDiv(Box::new(left), Box::new(right)),
+                    ty: ValueType::Int,
+                })
+            }
+            (RawBinOp::Arith(ArithBinOp::Mod), ValueType::Int, ValueType::Int) => Ok(TirExpr {
+                kind: TirExprKind::IntMod(Box::new(left), Box::new(right)),
+                ty: ValueType::Int,
+            }),
+            (RawBinOp::Arith(ArithBinOp::Pow), ValueType::Int, ValueType::Int) => Ok(TirExpr {
+                kind: TirExprKind::IntPow(Box::new(left), Box::new(right)),
                 ty: ValueType::Int,
             }),
 

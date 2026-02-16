@@ -36,15 +36,3 @@ pub fn is_valid_unaryop(op: UnaryOpKind, operand: &Type) -> bool {
             | (BitNot, Int)
     )
 }
-
-/// Generate a descriptive error message for an invalid UnaryOp type combination.
-pub fn unaryop_type_error_message(op: UnaryOpKind, operand: &Type) -> String {
-    use UnaryOpKind::*;
-
-    match op {
-        Neg => format!("unary `-` requires a numeric operand, got `{}`", operand),
-        Pos => format!("unary `+` requires a numeric operand, got `{}`", operand),
-        Not => format!("unary `not` is not supported for `{}`", operand),
-        BitNot => format!("bitwise `~` requires an `int` operand, got `{}`", operand),
-    }
-}
