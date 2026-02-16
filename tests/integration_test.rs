@@ -1,7 +1,4 @@
 use assert_cmd::cargo::cargo_bin_cmd;
-use std::collections::HashMap;
-use tython::ast::Type;
-use tython::tir::lower::Lowering;
 
 #[test]
 fn test_tython_python_compatibility() {

@@ -12,6 +12,18 @@ use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 use crate::tir::lower::Lowering;
 
 impl Lowering {
+    fn require_value_call_result(
+        &self,
+        line: usize,
+        call_result: CallResult,
+        void_message: &str,
+    ) -> Result<TirExpr> {
+        match call_result {
+            CallResult::Expr(expr) => Ok(expr),
+            CallResult::VoidStmt(_) => Err(self.type_error(line, void_message)),
+        }
+    }
+
     pub(in crate::tir::lower) fn lower_expr(&mut self, node: &Bound<PyAny>) -> Result<TirExpr> {
         let node_type = ast_type_name!(node);
         let line = Self::get_line(node);
@@ -211,15 +223,12 @@ impl Lowering {
                 let op_type = ast_type_name!(op_node);
                 let values_list = ast_get_list!(node, "values");
 
-                let logical_op = match op_type.as_str() {
-                    "And" => LogicalOp::And,
-                    "Or" => LogicalOp::Or,
-                    _ => {
-                        return Err(self.syntax_error(
-                            line,
-                            format!("unsupported logical operator: `{}`", op_type),
-                        ))
-                    }
+                // Python's BoolOp AST only uses And/Or operators.
+                debug_assert!(op_type == "And" || op_type == "Or");
+                let logical_op = if op_type == "And" {
+                    LogicalOp::And
+                } else {
+                    LogicalOp::Or
                 };
 
                 let mut exprs: Vec<TirExpr> = Vec::new();
@@ -246,12 +255,14 @@ impl Lowering {
                 Ok(result)
             }
 
-            "Call" => match self.lower_call(node, line)? {
-                CallResult::Expr(expr) => Ok(expr),
-                CallResult::VoidStmt(_) => {
-                    Err(self.type_error(line, "void function cannot be used as a value expression"))
-                }
-            },
+            "Call" => {
+                let call_result = self.lower_call(node, line)?;
+                self.require_value_call_result(
+                    line,
+                    call_result,
+                    "void function cannot be used as a value expression",
+                )
+            }
 
             "Attribute" => {
                 let value_node = ast_getattr!(node, "value");
@@ -268,9 +279,7 @@ impl Lowering {
                     }
                 };
 
-                let class_info = self.class_registry.get(&class_name).ok_or_else(|| {
-                    self.name_error(line, format!("unknown class `{}`", class_name))
-                })?;
+                let class_info = self.lookup_class(line, &class_name)?;
 
                 let field_index = *class_info.field_map.get(&attr_name).ok_or_else(|| {
                     self.attribute_error(
@@ -437,11 +446,8 @@ impl Lowering {
             }
             "Set" => {
                 let elts_list = ast_get_list!(node, "elts");
-                if elts_list.is_empty() {
-                    return Err(
-                        self.syntax_error(line, "empty set literal is not valid; use set()")
-                    );
-                }
+                // Empty `{}` parses as Dict in Python AST; Set always has at least one element.
+                debug_assert!(!elts_list.is_empty());
                 let mut elements = Vec::with_capacity(elts_list.len());
                 for elt in elts_list.iter() {
                     elements.push(self.lower_expr(&elt)?);
@@ -665,15 +671,17 @@ impl Lowering {
                     // Everything else → __getitem__ method dispatch
                     _ => {
                         let index_expr = self.lower_expr(&slice_node)?;
-                        match self.lower_method_call(
+                        let call_result = self.lower_method_call(
                             line,
                             obj_expr,
                             "__getitem__",
                             vec![index_expr],
-                        )? {
-                            CallResult::Expr(e) => Ok(e),
-                            CallResult::VoidStmt(_) => unreachable!(),
-                        }
+                        )?;
+                        self.require_value_call_result(
+                            line,
+                            call_result,
+                            "`__getitem__` must return a value",
+                        )
                     }
                 }
             }
@@ -689,11 +697,7 @@ impl Lowering {
         match ast_type_name!(node).as_str() {
             "Constant" => {
                 let value = ast_getattr!(node, "value");
-                if value.is_instance_of::<pyo3::types::PyBool>() {
-                    None
-                } else {
-                    value.extract::<i64>().ok()
-                }
+                value.extract::<i64>().ok()
             }
             "UnaryOp" => {
                 let op_node = ast_getattr!(node, "op");
