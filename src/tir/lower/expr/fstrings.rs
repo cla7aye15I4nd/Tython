@@ -55,9 +55,8 @@ impl Lowering {
         let value_expr = self.lower_expr(&ast_getattr!(node, "value"))?;
         let conversion = ast_get_int!(node, "conversion", i64);
 
-        // Parse and evaluate format spec for compatibility, but ignore formatting details for now.
         let format_spec = ast_getattr!(node, "format_spec");
-        if !format_spec.is_none() {
+        let format_spec_expr = if !format_spec.is_none() {
             let spec_expr = self.lower_expr(&format_spec)?;
             if spec_expr.ty != ValueType::Str {
                 return Err(self.type_error(
@@ -67,25 +66,65 @@ impl Lowering {
             }
             let tmp = self.fresh_internal("fstr_spec");
             self.pre_stmts.push(TirStmt::Let {
-                name: tmp,
+                name: tmp.clone(),
                 ty: ValueType::Str,
                 value: spec_expr,
             });
-        }
+            Some(TirExpr {
+                kind: TirExprKind::Var(tmp),
+                ty: ValueType::Str,
+            })
+        } else {
+            None
+        };
 
         debug_assert!(
             matches!(conversion, -1 | 115 | 114 | 97),
             "unexpected f-string conversion code"
         );
-        let conv = if matches!(conversion, -1 | 115) {
-            "str"
-        } else {
-            "repr"
-        };
+        if conversion == -1 {
+            if let Some(spec_expr) = format_spec_expr {
+                return self.lower_fstring_apply_format_spec(line, value_expr, spec_expr);
+            }
+            return self.lower_fstring_convert(line, "str", value_expr);
+        }
+
+        let conv = if conversion == 115 { "str" } else { "repr" };
+        // For explicit conversions (!s, !r, !a), conversion happens before formatting.
+        // We currently preserve conversion behavior and ignore format details in that path.
         self.lower_fstring_convert(line, conv, value_expr)
     }
 
     fn lower_fstring_convert(&mut self, line: usize, name: &str, arg: TirExpr) -> Result<TirExpr> {
         self.lower_builtin_single_arg_expr(line, name, arg)
+    }
+
+    fn lower_fstring_apply_format_spec(
+        &mut self,
+        line: usize,
+        value_expr: TirExpr,
+        spec_expr: TirExpr,
+    ) -> Result<TirExpr> {
+        match value_expr.ty {
+            ValueType::Int => Ok(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::StrFormatInt,
+                    args: vec![value_expr, spec_expr],
+                },
+                ty: ValueType::Str,
+            }),
+            ValueType::Float => Ok(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::StrFormatFloat,
+                    args: vec![value_expr, spec_expr],
+                },
+                ty: ValueType::Str,
+            }),
+            _ => {
+                // Keep side effects from evaluating format spec, but fall back to str(value)
+                // until richer `__format__` support is implemented.
+                self.lower_builtin_single_arg_expr(line, "str", value_expr)
+            }
+        }
     }
 }

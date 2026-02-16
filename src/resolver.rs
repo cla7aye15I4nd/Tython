@@ -176,11 +176,6 @@ impl Resolver {
     }
 
     pub fn compute_module_path(&self, file_path: &Path) -> String {
-        if let Some(s) = file_path.to_str() {
-            if let Some(stripped) = s.strip_prefix("__native__/") {
-                return stripped.strip_suffix(".py").unwrap_or(stripped).to_string();
-            }
-        }
         let relative = file_path
             .strip_prefix(&self.stdlib_dir)
             .or_else(|_| file_path.strip_prefix(&self.base_dir))

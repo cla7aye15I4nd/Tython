@@ -2,7 +2,7 @@ use anyhow::Result;
 use pyo3::prelude::*;
 
 use crate::ast_get_list;
-use crate::tir::{builtin, CallResult, CallTarget, TirExpr, TirExprKind, TirStmt, ValueType};
+use crate::tir::{builtin, CallTarget, TirExpr, TirExprKind, TirStmt, ValueType};
 
 use crate::tir::lower::Lowering;
 
@@ -78,10 +78,10 @@ impl Lowering {
                     self.type_error(line, format!("cannot print value of type `{}`", arg.ty))
                 );
             }
-            _ => match self.lower_method_call(line, arg, "__str__", vec![])? {
-                CallResult::Expr(e) => e,
-                CallResult::VoidStmt(_) => unreachable!("__str__ should return a value"),
-            },
+            _ => {
+                let call_result = self.lower_method_call(line, arg, "__str__", vec![])?;
+                self.require_value_call_result(line, call_result, "`__str__` must return a value")?
+            }
         };
         stmts.push(TirStmt::VoidCall {
             target: CallTarget::Builtin(builtin::BuiltinFn::PrintStr),

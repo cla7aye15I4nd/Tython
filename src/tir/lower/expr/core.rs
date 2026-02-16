@@ -12,7 +12,7 @@ use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 use crate::tir::lower::Lowering;
 
 impl Lowering {
-    fn require_value_call_result(
+    pub(in crate::tir::lower) fn require_value_call_result(
         &self,
         line: usize,
         call_result: CallResult,

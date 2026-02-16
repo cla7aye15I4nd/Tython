@@ -45,6 +45,8 @@ import basic.test_subscript_aug as test_subscript_aug
 import basic.test_bytearray_compare as test_bytearray_compare
 import basic.test_coverage_edges as test_coverage_edges
 import basic.test_str_auto as test_str_auto
+import basic.test_intrinsic_str_edges as test_intrinsic_str_edges
+import basic.test_intrinsic_cmp_hash_edges as test_intrinsic_cmp_hash_edges
 import basic.test_feature_roadmap as test_feature_roadmap
 import basic.test_dict_set_annotations as test_dict_set_annotations
 import basic.test_dict_set as test_dict_set
@@ -112,6 +114,8 @@ def run_all_tests() -> None:
     test_bytearray_compare.run_tests()
     test_coverage_edges.run_tests()
     test_str_auto.run_tests()
+    test_intrinsic_str_edges.run_tests()
+    test_intrinsic_cmp_hash_edges.run_tests()
     test_feature_roadmap.run_tests()
     test_dict_set_annotations.run_tests()
     test_dict_set.run_tests()

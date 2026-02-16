@@ -56,16 +56,30 @@ def fmod(x: float, y: float) -> float:
 
 
 def exp(x: float) -> float:
+    if x < 0.0:
+        # Avoid catastrophic cancellation in the alternating Taylor series.
+        return 1.0 / exp(0.0 - x)
+
+    ln2: float = 0.6931471805599453
+    k: int = int(x / ln2)
+    r: float = x - float(k) * ln2
+
+    # exp(r) via Taylor series around 0, where it converges quickly and stably.
     result: float = 1.0
     term: float = 1.0
     i: int = 1
     while i <= 40:
-        term = term * x / float(i)
+        term = term * r / float(i)
         result = result + term
         if fabs(term) < 1.0e-15:
             i = 41
         else:
             i = i + 1
+
+    while k > 0:
+        result = result * 2.0
+        k = k - 1
+
     return result
 
 

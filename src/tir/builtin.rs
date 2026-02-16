@@ -64,6 +64,8 @@ define_builtins! {
     StrFromInt    => "__tython_str_from_int",   params: [ValueType::Int],                          ret: Some(ValueType::Str);
     StrFromFloat  => "__tython_str_from_float", params: [ValueType::Float],                        ret: Some(ValueType::Str);
     StrFromBool   => "__tython_str_from_bool",  params: [ValueType::Bool],                         ret: Some(ValueType::Str);
+    StrFormatInt  => "__tython_str_format_int", params: [ValueType::Int, ValueType::Str],         ret: Some(ValueType::Str);
+    StrFormatFloat => "__tython_str_format_float", params: [ValueType::Float, ValueType::Str],    ret: Some(ValueType::Str);
     StrFromBytes  => "__tython_str_from_bytes", params: [ValueType::Bytes],                        ret: Some(ValueType::Str);
     StrFromByteArray => "__tython_str_from_bytearray", params: [ValueType::ByteArray],             ret: Some(ValueType::Str);
     ReprStr       => "__tython_repr_str",       params: [ValueType::Str],                          ret: Some(ValueType::Str);

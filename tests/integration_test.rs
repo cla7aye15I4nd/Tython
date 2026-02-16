@@ -52,6 +52,36 @@ fn test_tython_python_compatibility() {
 }
 
 #[test]
+fn test_microgpt_matches_output_txt() {
+    let microgpt_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("microgpt");
+
+    let tython_output = cargo_bin_cmd!("tython")
+        .arg("microgpt.py")
+        .current_dir(&microgpt_dir)
+        .output()
+        .expect("Failed to run tython microgpt");
+
+    assert!(
+        tython_output.status.success(),
+        "Tython microgpt failed: {}",
+        String::from_utf8_lossy(&tython_output.stderr)
+    );
+
+    let expected = std::fs::read_to_string(microgpt_dir.join("output.txt"))
+        .expect("Failed to read tests/microgpt/output.txt");
+    let actual = String::from_utf8_lossy(&tython_output.stdout).replace("\r\n", "\n");
+    let expected = expected.replace("\r\n", "\n");
+
+    assert_eq!(
+        actual.trim(),
+        expected.trim(),
+        "microgpt output mismatch with tests/microgpt/output.txt"
+    );
+}
+
+#[test]
 fn test_invalid_programs_produce_compilation_errors() {
     let invalid_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

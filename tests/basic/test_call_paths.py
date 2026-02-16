@@ -62,12 +62,17 @@ def test_keyword_binding_still_works() -> None:
 def test_math_native_calls() -> None:
     log_one: float = math.log(1.0)
     exp_zero: float = math.exp(0.0)
+    exp_neg20: float = math.exp(-20.0)
+    exp_neg20_scaled: int = int(exp_neg20 * 1000000000000.0)
     print('CHECK test_call_paths lhs:', log_one)
     print('CHECK test_call_paths rhs:', 0.0)
     assert log_one == 0.0
     print('CHECK test_call_paths lhs:', exp_zero)
     print('CHECK test_call_paths rhs:', 1.0)
     assert exp_zero == 1.0
+    print('CHECK test_call_paths lhs:', exp_neg20_scaled)
+    print('CHECK test_call_paths rhs:', 2061)
+    assert exp_neg20_scaled == 2061
 
 def test_sum_generator_fast_path() -> None:
     total: int = sum((i for i in [1, 2, 3, 4]), 10)

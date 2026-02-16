@@ -1,9 +1,11 @@
 #include "tython.h"
 #include "internal/buf.h"
 
+#include <cctype>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 using StrBuf = tython::Buf<char>;
 
@@ -47,6 +49,56 @@ void TYTHON_FN(print_str)(TythonStr* s) {
 
 /* ── conversion helpers ──────────────────────────────────────────── */
 
+struct ParsedNumericFormatSpec {
+    bool valid = true;
+    bool zero_pad = false;
+    bool has_width = false;
+    int width = 0;
+    bool has_precision = false;
+    int precision = 0;
+    char ty = '\0';
+};
+
+static ParsedNumericFormatSpec parse_numeric_format_spec(TythonStr* spec) {
+    ParsedNumericFormatSpec out;
+    const char* data = b(spec)->data;
+    int64_t len = b(spec)->len;
+    int64_t i = 0;
+
+    if (i < len && data[i] == '0') {
+        out.zero_pad = true;
+        i += 1;
+    }
+
+    while (i < len && std::isdigit(static_cast<unsigned char>(data[i]))) {
+        out.has_width = true;
+        out.width = out.width * 10 + (data[i] - '0');
+        if (out.width > 1000000) out.width = 1000000;
+        i += 1;
+    }
+
+    if (i < len && data[i] == '.') {
+        out.has_precision = true;
+        i += 1;
+        bool saw_digit = false;
+        while (i < len && std::isdigit(static_cast<unsigned char>(data[i]))) {
+            saw_digit = true;
+            out.precision = out.precision * 10 + (data[i] - '0');
+            if (out.precision > 1000000) out.precision = 1000000;
+            i += 1;
+        }
+        if (!saw_digit) out.valid = false;
+    }
+
+    if (i < len) {
+        out.ty = data[i];
+        i += 1;
+    }
+
+    if (i != len) out.valid = false;
+    return out;
+}
+
 TythonStr* TYTHON_FN(str_from_int)(int64_t val) {
     char buf[32];
     int n = std::snprintf(buf, sizeof(buf), "%lld", (long long)val);
@@ -76,6 +128,121 @@ TythonStr* TYTHON_FN(str_from_float)(double val) {
 TythonStr* TYTHON_FN(str_from_bool)(int64_t val) {
     return val ? S(StrBuf::create("True", 4))
                : S(StrBuf::create("False", 5));
+}
+
+TythonStr* TYTHON_FN(str_format_int)(int64_t val, TythonStr* spec) {
+    auto parsed = parse_numeric_format_spec(spec);
+    if (!parsed.valid) return TYTHON_FN(str_from_int)(val);
+    if (parsed.ty != '\0' && parsed.ty != 'd') return TYTHON_FN(str_from_int)(val);
+    if (parsed.has_precision) return TYTHON_FN(str_from_int)(val);
+
+    int n = 0;
+    if (parsed.has_width) {
+        if (parsed.zero_pad) {
+            n = std::snprintf(nullptr, 0, "%0*lld", parsed.width, (long long)val);
+        } else {
+            n = std::snprintf(nullptr, 0, "%*lld", parsed.width, (long long)val);
+        }
+    } else {
+        n = std::snprintf(nullptr, 0, "%lld", (long long)val);
+    }
+    if (n < 0) return TYTHON_FN(str_from_int)(val);
+
+    std::vector<char> buf(static_cast<size_t>(n) + 1);
+    if (parsed.has_width) {
+        if (parsed.zero_pad) {
+            std::snprintf(buf.data(), buf.size(), "%0*lld", parsed.width, (long long)val);
+        } else {
+            std::snprintf(buf.data(), buf.size(), "%*lld", parsed.width, (long long)val);
+        }
+    } else {
+        std::snprintf(buf.data(), buf.size(), "%lld", (long long)val);
+    }
+    return S(StrBuf::create(buf.data(), n));
+}
+
+TythonStr* TYTHON_FN(str_format_float)(double val, TythonStr* spec) {
+    auto parsed = parse_numeric_format_spec(spec);
+    if (!parsed.valid) return TYTHON_FN(str_from_float)(val);
+
+    if (parsed.ty == '\0' && !parsed.has_width && !parsed.has_precision && !parsed.zero_pad) {
+        return TYTHON_FN(str_from_float)(val);
+    }
+
+    char ty = parsed.ty == '\0' ? 'g' : parsed.ty;
+    if (ty != 'f' && ty != 'g') return TYTHON_FN(str_from_float)(val);
+
+    int n = 0;
+    if (parsed.has_width && parsed.has_precision) {
+        if (parsed.zero_pad) {
+            n = (ty == 'f')
+                    ? std::snprintf(nullptr, 0, "%0*.*f", parsed.width, parsed.precision, val)
+                    : std::snprintf(nullptr, 0, "%0*.*g", parsed.width, parsed.precision, val);
+        } else {
+            n = (ty == 'f')
+                    ? std::snprintf(nullptr, 0, "%*.*f", parsed.width, parsed.precision, val)
+                    : std::snprintf(nullptr, 0, "%*.*g", parsed.width, parsed.precision, val);
+        }
+    } else if (parsed.has_width) {
+        if (parsed.zero_pad) {
+            n = (ty == 'f') ? std::snprintf(nullptr, 0, "%0*f", parsed.width, val)
+                            : std::snprintf(nullptr, 0, "%0*g", parsed.width, val);
+        } else {
+            n = (ty == 'f') ? std::snprintf(nullptr, 0, "%*f", parsed.width, val)
+                            : std::snprintf(nullptr, 0, "%*g", parsed.width, val);
+        }
+    } else if (parsed.has_precision) {
+        n = (ty == 'f') ? std::snprintf(nullptr, 0, "%.*f", parsed.precision, val)
+                        : std::snprintf(nullptr, 0, "%.*g", parsed.precision, val);
+    } else {
+        n = (ty == 'f') ? std::snprintf(nullptr, 0, "%f", val)
+                        : std::snprintf(nullptr, 0, "%g", val);
+    }
+    if (n < 0) return TYTHON_FN(str_from_float)(val);
+
+    std::vector<char> buf(static_cast<size_t>(n) + 1);
+    if (parsed.has_width && parsed.has_precision) {
+        if (parsed.zero_pad) {
+            if (ty == 'f') {
+                std::snprintf(buf.data(), buf.size(), "%0*.*f", parsed.width, parsed.precision, val);
+            } else {
+                std::snprintf(buf.data(), buf.size(), "%0*.*g", parsed.width, parsed.precision, val);
+            }
+        } else {
+            if (ty == 'f') {
+                std::snprintf(buf.data(), buf.size(), "%*.*f", parsed.width, parsed.precision, val);
+            } else {
+                std::snprintf(buf.data(), buf.size(), "%*.*g", parsed.width, parsed.precision, val);
+            }
+        }
+    } else if (parsed.has_width) {
+        if (parsed.zero_pad) {
+            if (ty == 'f') {
+                std::snprintf(buf.data(), buf.size(), "%0*f", parsed.width, val);
+            } else {
+                std::snprintf(buf.data(), buf.size(), "%0*g", parsed.width, val);
+            }
+        } else {
+            if (ty == 'f') {
+                std::snprintf(buf.data(), buf.size(), "%*f", parsed.width, val);
+            } else {
+                std::snprintf(buf.data(), buf.size(), "%*g", parsed.width, val);
+            }
+        }
+    } else if (parsed.has_precision) {
+        if (ty == 'f') {
+            std::snprintf(buf.data(), buf.size(), "%.*f", parsed.precision, val);
+        } else {
+            std::snprintf(buf.data(), buf.size(), "%.*g", parsed.precision, val);
+        }
+    } else {
+        if (ty == 'f') {
+            std::snprintf(buf.data(), buf.size(), "%f", val);
+        } else {
+            std::snprintf(buf.data(), buf.size(), "%g", val);
+        }
+    }
+    return S(StrBuf::create(buf.data(), n));
 }
 
 /* ── repr(str) ──────────────────────────────────────────────────── */

@@ -27,8 +27,12 @@ def test_fstring_format_spec_is_accepted() -> None:
     f: float = 3.14159
     sn: str = f"{n:4d}"
     sf: str = f"{f:.2f}"
-    assert "12" in sn
-    assert "3" in sf
+    print('CHECK test_fstring lhs:', sn)
+    print('CHECK test_fstring rhs:', '  12')
+    assert sn == "  12"
+    print('CHECK test_fstring lhs:', sf)
+    print('CHECK test_fstring rhs:', '3.14')
+    assert sf == "3.14"
 
 
 class Fancy:
@@ -64,15 +68,17 @@ def test_fstring_ascii_and_dynamic_spec() -> None:
     print('CHECK test_fstring lhs:', s1)
     print('CHECK test_fstring rhs:', "'abc'")
     assert s1 == "'abc'"
-    assert "12" in s2
+    print('CHECK test_fstring lhs:', s2)
+    print('CHECK test_fstring rhs:', '  12')
+    assert s2 == "  12"
 
 
 def test_fstring_literal_format_spec() -> None:
     n: int = 7
     s: str = f"{n:03d}"
-    print('CHECK test_fstring lhs:', "7" in s)
-    print('CHECK test_fstring rhs:', True)
-    assert "7" in s
+    print('CHECK test_fstring lhs:', s)
+    print('CHECK test_fstring rhs:', '007')
+    assert s == "007"
 
 
 def run_tests() -> None:
