@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 using ListVec = tython::Vec<int64_t>;
 
@@ -431,4 +432,18 @@ TythonList* TYTHON_FN(sorted_by_tag)(TythonList* lst, int64_t lt_tag) {
     auto* out = L(v(lst)->copy());
     TYTHON_FN(list_sort_by_tag)(out, lt_tag);
     return out;
+}
+
+/* ── str_by_tag ──────────────────────────────────────────────────── */
+
+TythonStr* TYTHON_FN(list_str_by_tag)(TythonList* list, int64_t elem_str_tag) {
+    std::string result = "[";
+    auto* p = v(list);
+    for (int64_t i = 0; i < p->len; i++) {
+        if (i > 0) result += ", ";
+        TythonStr* elem_str = TYTHON_FN(intrinsic_str)(elem_str_tag, reinterpret_cast<void*>(p->data[i]));
+        result.append(elem_str->data, static_cast<size_t>(elem_str->len));
+    }
+    result += "]";
+    return TYTHON_FN(str_new)(result.c_str(), static_cast<int64_t>(result.size()));
 }

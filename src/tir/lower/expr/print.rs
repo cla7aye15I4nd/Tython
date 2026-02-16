@@ -2,7 +2,7 @@ use anyhow::Result;
 use pyo3::prelude::*;
 
 use crate::ast_get_list;
-use crate::tir::{builtin, CallTarget, TirExpr, TirExprKind, TirStmt, ValueType};
+use crate::tir::{builtin, CallResult, CallTarget, TirExpr, TirExprKind, TirStmt, ValueType};
 
 use crate::tir::lower::Lowering;
 
@@ -37,158 +37,56 @@ impl Lowering {
         Ok(stmts)
     }
 
-    fn push_print_str_literal(stmts: &mut Vec<TirStmt>, s: impl Into<String>) {
-        stmts.push(TirStmt::VoidCall {
-            target: CallTarget::Builtin(builtin::BuiltinFn::PrintStr),
-            args: vec![TirExpr {
-                kind: TirExprKind::StrLiteral(s.into()),
-                ty: ValueType::Str,
-            }],
-        });
-    }
-
-    fn lower_print_class_as_str(&mut self, line: usize, object: TirExpr) -> Result<TirExpr> {
-        self.lower_class_magic_method(
-            line,
-            object,
-            &["__str__", "__repr__"],
-            Some(ValueType::Str),
-            "str",
-        )
-    }
-
     fn lower_print_value_stmts(
         &mut self,
         line: usize,
         arg: TirExpr,
         stmts: &mut Vec<TirStmt>,
     ) -> Result<()> {
-        macro_rules! push_direct_print {
-            ($fn_name:expr, $value:expr) => {{
-                stmts.push(TirStmt::VoidCall {
-                    target: CallTarget::Builtin($fn_name),
-                    args: vec![$value],
-                });
-                Ok(())
-            }};
-        }
-
-        match &arg.ty {
-            ValueType::Class(_) => {
-                let print_arg = self.lower_print_class_as_str(line, arg)?;
-                self.lower_print_value_stmts(line, print_arg, stmts)
-            }
-            ValueType::Float => push_direct_print!(builtin::BuiltinFn::PrintFloat, arg),
-            ValueType::Bool => push_direct_print!(builtin::BuiltinFn::PrintBool, arg),
-            ValueType::Int => push_direct_print!(builtin::BuiltinFn::PrintInt, arg),
-            ValueType::Str => push_direct_print!(builtin::BuiltinFn::PrintStr, arg),
-            ValueType::Bytes => push_direct_print!(builtin::BuiltinFn::PrintBytes, arg),
-            ValueType::ByteArray => push_direct_print!(builtin::BuiltinFn::PrintByteArray, arg),
-            ValueType::List(_) => {
-                let inner_ty = match arg.ty.clone() {
-                    ValueType::List(inner) => *inner,
-                    _ => unreachable!(),
-                };
-                self.lower_print_list_stmts(line, arg, inner_ty, stmts)
-            }
-            ValueType::Function { .. } => {
-                Err(self.type_error(line, format!("cannot print value of type `{}`", arg.ty)))
-            }
-            ValueType::Dict(_, _) | ValueType::Set(_) => {
-                Err(self.type_error(line, format!("cannot print value of type `{}`", arg.ty)))
-            }
-        }
-    }
-
-    /// Auto-generate list printing for any element type by iterating and
-    /// printing each element's repr. Replaces per-type C++ print_list_*
-    /// runtime functions.
-    fn lower_print_list_stmts(
-        &mut self,
-        line: usize,
-        arg: TirExpr,
-        loop_var_ty: ValueType,
-        stmts: &mut Vec<TirStmt>,
-    ) -> Result<()> {
-        let list_var = self.fresh_internal("print_list");
-        let idx_var = self.fresh_internal("print_idx");
-        let len_var = self.fresh_internal("print_len");
-        let loop_var = self.fresh_internal("print_elem");
-        let list_ty = arg.ty.clone();
-
-        stmts.push(TirStmt::Let {
-            name: list_var.clone(),
-            ty: list_ty,
-            value: arg,
-        });
-        Self::push_print_str_literal(stmts, "[");
-
-        let mut body = Vec::new();
-        let idx_gt_zero = TirExpr {
-            kind: TirExprKind::IntGt(
-                Box::new(TirExpr {
-                    kind: TirExprKind::Var(idx_var.clone()),
-                    ty: ValueType::Int,
-                }),
-                Box::new(TirExpr {
-                    kind: TirExprKind::IntLiteral(0),
-                    ty: ValueType::Int,
-                }),
-            ),
-            ty: ValueType::Bool,
-        };
-        body.push(TirStmt::If {
-            condition: idx_gt_zero,
-            then_body: vec![TirStmt::VoidCall {
-                target: CallTarget::Builtin(builtin::BuiltinFn::PrintStr),
-                args: vec![TirExpr {
-                    kind: TirExprKind::StrLiteral(", ".to_string()),
-                    ty: ValueType::Str,
-                }],
-            }],
-            else_body: vec![],
-        });
-
-        let elem_expr = TirExpr {
-            kind: TirExprKind::Var(loop_var.clone()),
-            ty: loop_var_ty.clone(),
-        };
-        self.lower_print_repr_stmts(line, elem_expr, &mut body)?;
-
-        stmts.push(TirStmt::ForList {
-            loop_var,
-            loop_var_ty,
-            list_var,
-            index_var: idx_var,
-            len_var,
-            body,
-            else_body: vec![],
-        });
-        Self::push_print_str_literal(stmts, "]");
-        Ok(())
-    }
-
-    /// Print the repr of a value (used inside list/tuple printing).
-    /// Strings are wrapped in quotes; all other types delegate to
-    /// `lower_print_value_stmts` (which already outputs the repr form
-    /// for bytes, bytearray, nested lists, etc.).
-    fn lower_print_repr_stmts(
-        &mut self,
-        line: usize,
-        arg: TirExpr,
-        stmts: &mut Vec<TirStmt>,
-    ) -> Result<()> {
-        match &arg.ty {
-            ValueType::Str => {
-                Self::push_print_str_literal(stmts, "'");
-                stmts.push(TirStmt::VoidCall {
-                    target: CallTarget::Builtin(builtin::BuiltinFn::PrintStr),
+        let str_expr = match &arg.ty {
+            ValueType::Str => arg,
+            ValueType::Int => TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::StrFromInt,
                     args: vec![arg],
-                });
-                Self::push_print_str_literal(stmts, "'");
-                Ok(())
+                },
+                ty: ValueType::Str,
+            },
+            ValueType::Float => TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::StrFromFloat,
+                    args: vec![arg],
+                },
+                ty: ValueType::Str,
+            },
+            ValueType::Bool => TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: builtin::BuiltinFn::StrFromBool,
+                    args: vec![arg],
+                },
+                ty: ValueType::Str,
+            },
+            ValueType::Class(_) => self.lower_class_magic_method(
+                line,
+                arg,
+                &["__str__", "__repr__"],
+                Some(ValueType::Str),
+                "str",
+            )?,
+            ValueType::Function { .. } => {
+                return Err(
+                    self.type_error(line, format!("cannot print value of type `{}`", arg.ty))
+                );
             }
-            _ => self.lower_print_value_stmts(line, arg, stmts),
-        }
+            _ => match self.lower_method_call(line, arg, "__str__", vec![])? {
+                CallResult::Expr(e) => e,
+                CallResult::VoidStmt(_) => unreachable!("__str__ should return a value"),
+            },
+        };
+        stmts.push(TirStmt::VoidCall {
+            target: CallTarget::Builtin(builtin::BuiltinFn::PrintStr),
+            args: vec![str_expr],
+        });
+        Ok(())
     }
 }

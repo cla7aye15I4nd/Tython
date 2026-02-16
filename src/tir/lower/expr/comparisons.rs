@@ -1,8 +1,6 @@
 use anyhow::Result;
 
-use crate::tir::{
-    CallResult, CastKind, CmpOp, OrderedCmpOp, TirExpr, TirExprKind, TypedCompare, ValueType,
-};
+use crate::tir::{CallResult, CmpOp, OrderedCmpOp, TirExpr, TirExprKind, TypedCompare, ValueType};
 
 use super::binops::coerce_to_float;
 use crate::tir::lower::Lowering;
@@ -275,62 +273,6 @@ impl Lowering {
                 Ok(CallResult::VoidStmt(_)) => Ok(None),
                 Err(e) => Err(e),
             },
-        }
-    }
-
-    /// Dispatch a unary operation through a dunder method (__neg__, __pos__, __invert__).
-    pub(in crate::tir::lower) fn dispatch_unary_method(
-        &mut self,
-        line: usize,
-        operand: TirExpr,
-        method: &str,
-        expected_return_type: Option<ValueType>,
-    ) -> Result<TirExpr> {
-        match &operand.ty {
-            ValueType::Class(class_name) => {
-                let class_info = self.lookup_class(line, class_name)?;
-                if class_info.methods.contains_key(method) {
-                    self.lower_class_magic_method_with_args(
-                        line,
-                        operand,
-                        &[method],
-                        expected_return_type,
-                        "unary operator",
-                        vec![],
-                    )
-                } else {
-                    Err(self.type_error(
-                        line,
-                        format!(
-                            "type `{}` does not support this unary operator (no `{}`)",
-                            operand.ty, method
-                        ),
-                    ))
-                }
-            }
-            _ => match self.lower_method_call(line, operand.clone(), method, vec![]) {
-                Ok(CallResult::Expr(e)) => Ok(e),
-                Ok(CallResult::VoidStmt(_)) => Err(self.type_error(
-                    line,
-                    format!(
-                        "unary `{}` is not supported for type `{}`",
-                        method, operand.ty
-                    ),
-                )),
-                Err(e) => Err(e),
-            },
-        }
-    }
-
-    pub(in crate::tir::lower) fn compute_cast_kind(from: &ValueType, to: &ValueType) -> CastKind {
-        match (from, to) {
-            (ValueType::Int, ValueType::Float) => CastKind::IntToFloat,
-            (ValueType::Float, ValueType::Int) => CastKind::FloatToInt,
-            (ValueType::Bool, ValueType::Float) => CastKind::BoolToFloat,
-            (ValueType::Int, ValueType::Bool) => CastKind::IntToBool,
-            (ValueType::Float, ValueType::Bool) => CastKind::FloatToBool,
-            (ValueType::Bool, ValueType::Int) => CastKind::BoolToInt,
-            _ => unreachable!("identity cast should have been eliminated"),
         }
     }
 }

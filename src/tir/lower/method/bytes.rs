@@ -543,6 +543,28 @@ pub fn lower_bytes_method_call(
                 ty: ValueType::Bool,
             }))
         }
+        "__str__" | "__repr__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "bytes",
+            obj,
+            method_name,
+            args,
+            &[],
+            BuiltinFn::StrFromBytes,
+            ValueType::Str,
+        ),
+        "__len__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "bytes",
+            obj,
+            method_name,
+            args,
+            &[],
+            BuiltinFn::BytesLen,
+            ValueType::Int,
+        ),
         _ => Err(ctx.attribute_error(line, format!("{} has no method `{}`", "bytes", method_name))),
     }
 }

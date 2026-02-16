@@ -70,6 +70,7 @@ pub struct Codegen<'ctx> {
     reraise_state: Option<(PointerValue<'ctx>, PointerValue<'ctx>)>,
     intrinsic_eq_cases: HashMap<i64, ValueType>,
     intrinsic_lt_cases: HashMap<i64, ValueType>,
+    intrinsic_str_cases: HashMap<i64, ValueType>,
 }
 
 impl<'ctx> Codegen<'ctx> {
@@ -109,6 +110,7 @@ impl<'ctx> Codegen<'ctx> {
             reraise_state: None,
             intrinsic_eq_cases: HashMap::new(),
             intrinsic_lt_cases: HashMap::new(),
+            intrinsic_str_cases: HashMap::new(),
         }
     }
 
@@ -117,8 +119,21 @@ impl<'ctx> Codegen<'ctx> {
     pub fn link(&self, output_path: &Path) {
         let bc_path = output_path.with_extension("o");
 
-        // Write unoptimized bitcode; clang LTO handles optimization
-        self.module.write_bitcode_to_path(&bc_path);
+        // Write text IR then assemble to bitcode via llvm-as.
+        // (write_bitcode_to_path can produce corrupt records for large modules)
+        let ll_path = output_path.with_extension("ll");
+        self.module
+            .print_to_file(&ll_path)
+            .expect("Failed to write LLVM IR");
+
+        let as_status = Command::new("llvm-as")
+            .arg(&ll_path)
+            .arg("-o")
+            .arg(&bc_path)
+            .status()
+            .expect("Failed to execute llvm-as");
+        assert!(as_status.success(), "llvm-as failed");
+        std::fs::remove_file(&ll_path).ok();
 
         let mut cmd = Command::new("clang++");
         cmd.arg("-static")

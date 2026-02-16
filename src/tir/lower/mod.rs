@@ -247,11 +247,7 @@ impl Lowering {
         Ok(())
     }
 
-    pub(in crate::tir::lower) fn require_list_leaf_eq_support(
-        &self,
-        line: usize,
-        ty: &ValueType,
-    ) -> Result<()> {
+    pub(in crate::tir::lower) fn require_list_leaf_eq_support(&self, line: usize, ty: &ValueType) {
         self.require_intrinsic_eq_support(line, ty)
     }
 
@@ -259,14 +255,13 @@ impl Lowering {
         &self,
         _line: usize,
         _ty: &ValueType,
-    ) -> Result<()> {
+    ) {
         // All types support equality comparison:
         // - Primitives (Int, Float, Bool, Str, Bytes, ByteArray): structural equality
         // - List, Class with __eq__: structural equality via registered intrinsic
         // - Everything else (Set, Dict, Function, Class without __eq__):
         //   identity-based equality/hash fallback (pointer comparison),
         //   matching Python's default object.__eq__ and object.__hash__
-        Ok(())
     }
 
     pub(in crate::tir::lower) fn require_list_leaf_lt_support(
@@ -313,6 +308,13 @@ impl Lowering {
     fn register_intrinsic_list_dependencies(&mut self, op: IntrinsicOp, ty: &ValueType) {
         match ty {
             ValueType::List(inner) => {
+                self.register_intrinsic_instance(op, inner);
+            }
+            ValueType::Dict(key, value) if op == IntrinsicOp::Str => {
+                self.register_intrinsic_instance(op, key);
+                self.register_intrinsic_instance(op, value);
+            }
+            ValueType::Set(inner) if op == IntrinsicOp::Str => {
                 self.register_intrinsic_instance(op, inner);
             }
             ValueType::Class(name) if self.is_tuple_class(name) => {

@@ -20,6 +20,11 @@ impl<'ctx> Codegen<'ctx> {
                         .entry(inst.tag)
                         .or_insert_with(|| inst.ty.clone());
                 }
+                IntrinsicOp::Str => {
+                    self.intrinsic_str_cases
+                        .entry(inst.tag)
+                        .or_insert_with(|| inst.ty.clone());
+                }
             }
         }
     }
@@ -38,6 +43,7 @@ impl<'ctx> Codegen<'ctx> {
         let symbol = match op {
             IntrinsicOp::Eq => "__tython_intrinsic_eq",
             IntrinsicOp::Lt => "__tython_intrinsic_lt",
+            IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
         };
         let f = self.get_or_declare_function(
             symbol,
@@ -126,10 +132,17 @@ impl<'ctx> Codegen<'ctx> {
             .map(|(tag, ty)| (*tag, ty.clone()))
             .collect::<Vec<_>>();
         lt_cases.sort_by_key(|(tag, _)| *tag);
+        let mut str_cases = self
+            .intrinsic_str_cases
+            .iter()
+            .map(|(tag, ty)| (*tag, ty.clone()))
+            .collect::<Vec<_>>();
+        str_cases.sort_by_key(|(tag, _)| *tag);
         self.emit_intrinsic_compare_dispatcher(IntrinsicOp::Eq, "__tython_intrinsic_eq", &eq_cases);
         self.emit_intrinsic_compare_dispatcher(IntrinsicOp::Lt, "__tython_intrinsic_lt", &lt_cases);
         // Hash dispatcher uses the same eq_tag values — needed by set/dict by_tag operations
         self.emit_intrinsic_hash_dispatcher("__tython_intrinsic_hash", &eq_cases);
+        self.emit_intrinsic_str_dispatcher("__tython_intrinsic_str", &str_cases);
     }
 
     fn emit_intrinsic_hash_dispatcher(&mut self, symbol: &str, cases: &[(i64, ValueType)]) {
@@ -222,6 +235,7 @@ impl<'ctx> Codegen<'ctx> {
                 let pred = match op {
                     IntrinsicOp::Eq => IntPredicate::EQ,
                     IntrinsicOp::Lt => IntPredicate::SLT,
+                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
                 };
                 emit!(self.build_int_compare(pred, lhs_slot, rhs_slot, "intrinsic_int_cmp"))
             }
@@ -233,6 +247,7 @@ impl<'ctx> Codegen<'ctx> {
                 let pred = match op {
                     IntrinsicOp::Eq => FloatPredicate::OEQ,
                     IntrinsicOp::Lt => FloatPredicate::OLT,
+                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
                 };
                 emit!(self.build_float_compare(pred, lhs, rhs, "intrinsic_float_cmp"))
             }
@@ -271,6 +286,7 @@ impl<'ctx> Codegen<'ctx> {
                         "intrinsic_str_lt"
                     ))
                 }
+                IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
             },
             ValueType::Bytes => match op {
                 IntrinsicOp::Eq => {
@@ -307,6 +323,7 @@ impl<'ctx> Codegen<'ctx> {
                         "intrinsic_bytes_lt"
                     ))
                 }
+                IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
             },
             ValueType::ByteArray => match op {
                 IntrinsicOp::Eq => {
@@ -340,6 +357,7 @@ impl<'ctx> Codegen<'ctx> {
                         "intrinsic_ba_lt"
                     ))
                 }
+                IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
             },
             ValueType::Class(class_name) => {
                 let class_ty = ValueType::Class(class_name.clone());
@@ -381,6 +399,7 @@ impl<'ctx> Codegen<'ctx> {
                         ));
                         self.extract_call_value(call).into_int_value()
                     }
+                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
                 }
             }
             ValueType::List(inner) => {
@@ -391,6 +410,7 @@ impl<'ctx> Codegen<'ctx> {
                 let f = self.get_builtin(match op {
                     IntrinsicOp::Eq => BuiltinFn::ListEqByTag,
                     IntrinsicOp::Lt => BuiltinFn::ListLtByTag,
+                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
                 });
                 let call = emit!(self.build_call(
                     f,
@@ -413,8 +433,163 @@ impl<'ctx> Codegen<'ctx> {
                 let pred = match op {
                     IntrinsicOp::Eq => IntPredicate::EQ,
                     IntrinsicOp::Lt => IntPredicate::SLT,
+                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
                 };
                 emit!(self.build_int_compare(pred, lhs_slot, rhs_slot, "intrinsic_ptr_cmp"))
+            }
+        }
+    }
+
+    fn emit_intrinsic_str_dispatcher(&mut self, symbol: &str, cases: &[(i64, ValueType)]) {
+        // __tython_intrinsic_str(tag: i64, obj: i64) -> ptr (char*)
+        let f = self.get_or_declare_function(
+            symbol,
+            &[ValueType::Int, ValueType::Int],
+            Some(ValueType::Str),
+        );
+        if f.get_first_basic_block().is_some() {
+            return;
+        }
+
+        let saved_block = self.builder.get_insert_block();
+        let entry = self.context.append_basic_block(f, "entry");
+        self.builder.position_at_end(entry);
+
+        let tag_val = f.get_nth_param(0).unwrap().into_int_value();
+        let obj_slot = f.get_nth_param(1).unwrap().into_int_value();
+
+        let default_bb = self.context.append_basic_block(f, "default");
+        let mut switch_cases = Vec::new();
+        let mut case_blocks = Vec::new();
+        for (tag, _) in cases {
+            let bb = self.context.append_basic_block(f, "case");
+            switch_cases.push((self.i64_type().const_int(*tag as u64, true), bb));
+            case_blocks.push(bb);
+        }
+        emit!(self.build_switch(tag_val, default_bb, &switch_cases));
+
+        for ((_, ty), bb) in cases.iter().zip(case_blocks.iter()) {
+            self.builder.position_at_end(*bb);
+            let out = self.intrinsic_str_slot(ty, obj_slot);
+            emit!(self.build_return(Some(&out)));
+        }
+
+        // Default: raise on unknown tag
+        self.builder.position_at_end(default_bb);
+        let tag = self.i64_type().const_int(6, false).into();
+        let msg = self.codegen_str_literal("unknown intrinsic str tag");
+        self.emit_raise(tag, msg);
+
+        if let Some(bb) = saved_block {
+            self.builder.position_at_end(bb);
+        }
+    }
+
+    fn intrinsic_str_slot(
+        &mut self,
+        ty: &ValueType,
+        obj_slot: inkwell::values::IntValue<'ctx>,
+    ) -> inkwell::values::BasicValueEnum<'ctx> {
+        match ty {
+            ValueType::Int => {
+                let val = self.bitcast_from_i64(obj_slot, &ValueType::Int);
+                let f = self.get_builtin(BuiltinFn::StrFromInt);
+                let call = emit!(self.build_call(f, &[val.into()], "str_from_int"));
+                self.extract_call_value(call)
+            }
+            ValueType::Float => {
+                let val = self.bitcast_from_i64(obj_slot, &ValueType::Float);
+                let f = self.get_builtin(BuiltinFn::StrFromFloat);
+                let call = emit!(self.build_call(f, &[val.into()], "str_from_float"));
+                self.extract_call_value(call)
+            }
+            ValueType::Bool => {
+                let val = self.bitcast_from_i64(obj_slot, &ValueType::Bool);
+                let f = self.get_builtin(BuiltinFn::StrFromBool);
+                let call = emit!(self.build_call(f, &[val.into()], "str_from_bool"));
+                self.extract_call_value(call)
+            }
+            ValueType::Str => {
+                let val = self.bitcast_from_i64(obj_slot, &ValueType::Str);
+                let f = self.get_builtin(BuiltinFn::ReprStr);
+                let call = emit!(self.build_call(f, &[val.into()], "repr_str"));
+                self.extract_call_value(call)
+            }
+            ValueType::Bytes => {
+                let val = self.bitcast_from_i64(obj_slot, &ValueType::Bytes);
+                let f = self.get_builtin(BuiltinFn::StrFromBytes);
+                let call = emit!(self.build_call(f, &[val.into()], "str_from_bytes"));
+                self.extract_call_value(call)
+            }
+            ValueType::ByteArray => {
+                let val = self.bitcast_from_i64(obj_slot, &ValueType::ByteArray);
+                let f = self.get_builtin(BuiltinFn::StrFromByteArray);
+                let call = emit!(self.build_call(f, &[val.into()], "str_from_bytearray"));
+                self.extract_call_value(call)
+            }
+            ValueType::List(inner) => {
+                let list_ty = ValueType::List(Box::new((**inner).clone()));
+                let val = self.bitcast_from_i64(obj_slot, &list_ty);
+                let child_tag = intrinsic_tag(IntrinsicOp::Str, inner);
+                let f = self.get_builtin(BuiltinFn::ListStrByTag);
+                let call = emit!(self.build_call(
+                    f,
+                    &[
+                        val.into(),
+                        self.i64_type().const_int(child_tag as u64, true).into(),
+                    ],
+                    "list_str_by_tag"
+                ));
+                self.extract_call_value(call)
+            }
+            ValueType::Dict(key, value) => {
+                let dict_ty =
+                    ValueType::Dict(Box::new((**key).clone()), Box::new((**value).clone()));
+                let val = self.bitcast_from_i64(obj_slot, &dict_ty);
+                let key_tag = intrinsic_tag(IntrinsicOp::Str, key);
+                let value_tag = intrinsic_tag(IntrinsicOp::Str, value);
+                let f = self.get_builtin(BuiltinFn::DictStrByTag);
+                let call = emit!(self.build_call(
+                    f,
+                    &[
+                        val.into(),
+                        self.i64_type().const_int(key_tag as u64, true).into(),
+                        self.i64_type().const_int(value_tag as u64, true).into(),
+                    ],
+                    "dict_str_by_tag"
+                ));
+                self.extract_call_value(call)
+            }
+            ValueType::Set(inner) => {
+                let set_ty = ValueType::Set(Box::new((**inner).clone()));
+                let val = self.bitcast_from_i64(obj_slot, &set_ty);
+                let child_tag = intrinsic_tag(IntrinsicOp::Str, inner);
+                let f = self.get_builtin(BuiltinFn::SetStrByTag);
+                let call = emit!(self.build_call(
+                    f,
+                    &[
+                        val.into(),
+                        self.i64_type().const_int(child_tag as u64, true).into(),
+                    ],
+                    "set_str_by_tag"
+                ));
+                self.extract_call_value(call)
+            }
+            ValueType::Class(class_name) => {
+                let class_ty = ValueType::Class(class_name.clone());
+                let repr_name = format!("{}$__repr__", class_name);
+                if let Some(repr_fn) = self.module.get_function(&repr_name) {
+                    let obj = self.bitcast_from_i64(obj_slot, &class_ty);
+                    let call = emit!(self.build_call(repr_fn, &[obj.into()], "cls_repr"));
+                    self.extract_call_value(call)
+                } else {
+                    // Fallback: return a placeholder string
+                    self.codegen_str_literal(&format!("<{} object>", class_name))
+                }
+            }
+            _ => {
+                // Fallback for Function or other types
+                self.codegen_str_literal("<object>")
             }
         }
     }

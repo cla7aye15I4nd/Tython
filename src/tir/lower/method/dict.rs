@@ -7,9 +7,9 @@ use crate::tir::{
 
 use super::super::Lowering;
 
-fn dict_key_eq_tag(ctx: &mut Lowering, line: usize, key_type: &ValueType) -> Result<i64> {
-    ctx.require_intrinsic_eq_support(line, key_type)?;
-    Ok(ctx.register_intrinsic_instance(IntrinsicOp::Eq, key_type))
+fn dict_key_eq_tag(ctx: &mut Lowering, line: usize, key_type: &ValueType) -> i64 {
+    ctx.require_intrinsic_eq_support(line, key_type);
+    ctx.register_intrinsic_instance(IntrinsicOp::Eq, key_type)
 }
 
 /// Lower a method call on a dict to TIR.
@@ -61,7 +61,7 @@ pub fn lower_dict_method_call(
                 ));
             }
             super::check_type(ctx, line, &type_name, method_name, &args[0], key_type)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             let (func, call_args) = if args.len() == 1 {
                 (
                     BuiltinFn::DictGetByTag,
@@ -140,7 +140,7 @@ pub fn lower_dict_method_call(
                 ));
             }
             super::check_type(ctx, line, &type_name, method_name, &args[0], key_type)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             let (func, call_args) = if args.len() == 1 {
                 (
                     BuiltinFn::DictPopByTag,
@@ -191,7 +191,7 @@ pub fn lower_dict_method_call(
             }
             super::check_type(ctx, line, &type_name, method_name, &args[0], key_type)?;
             super::check_type(ctx, line, &type_name, method_name, &args[1], value_type)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::DictSetDefaultByTag,
@@ -230,7 +230,7 @@ pub fn lower_dict_method_call(
                 &ValueType::List(Box::new(key_type.clone())),
             )?;
             super::check_type(ctx, line, &type_name, method_name, &args[1], value_type)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::DictFromKeysByTag,
@@ -250,7 +250,7 @@ pub fn lower_dict_method_call(
         "update" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::DictUpdateByTag),
                 args: vec![
@@ -297,7 +297,7 @@ pub fn lower_dict_method_call(
         "__contains__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], key_type)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::DictContainsByTag,
@@ -317,8 +317,8 @@ pub fn lower_dict_method_call(
         "__eq__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
-            ctx.require_intrinsic_eq_support(line, key_type)?;
-            ctx.require_intrinsic_eq_support(line, value_type)?;
+            ctx.require_intrinsic_eq_support(line, key_type);
+            ctx.require_intrinsic_eq_support(line, value_type);
             let key_eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, key_type);
             let value_eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, value_type);
             Ok(CallResult::Expr(TirExpr {
@@ -344,8 +344,8 @@ pub fn lower_dict_method_call(
         "__ne__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
-            ctx.require_intrinsic_eq_support(line, key_type)?;
-            ctx.require_intrinsic_eq_support(line, value_type)?;
+            ctx.require_intrinsic_eq_support(line, key_type);
+            ctx.require_intrinsic_eq_support(line, value_type);
             let key_eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, key_type);
             let value_eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, value_type);
             let eq_expr = TirExpr {
@@ -375,7 +375,7 @@ pub fn lower_dict_method_call(
         "__getitem__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], key_type)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::DictGetByTag,
@@ -396,7 +396,7 @@ pub fn lower_dict_method_call(
             super::check_arity(ctx, line, &type_name, method_name, 2, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], key_type)?;
             super::check_type(ctx, line, &type_name, method_name, &args[1], value_type)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::DictSetByTag),
                 args: vec![
@@ -414,7 +414,7 @@ pub fn lower_dict_method_call(
         "__delitem__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], key_type)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::DictDelByTag),
                 args: vec![
@@ -431,7 +431,7 @@ pub fn lower_dict_method_call(
         "__or__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::DictOrByTag,
@@ -451,7 +451,7 @@ pub fn lower_dict_method_call(
         "__ror__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::DictOrByTag,
@@ -471,7 +471,7 @@ pub fn lower_dict_method_call(
         "__ior__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &dict_ty)?;
-            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type)?;
+            let key_eq_tag = dict_key_eq_tag(ctx, line, key_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::DictIOrByTag,
@@ -548,6 +548,29 @@ pub fn lower_dict_method_call(
                 obj.clone(),
                 args,
             ))
+        }
+
+        "__str__" | "__repr__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 0, args.len())?;
+            let key_str_tag = ctx.register_intrinsic_instance(IntrinsicOp::Str, key_type);
+            let value_str_tag = ctx.register_intrinsic_instance(IntrinsicOp::Str, value_type);
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::DictStrByTag,
+                    args: vec![
+                        obj.clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(key_str_tag),
+                            ty: ValueType::Int,
+                        },
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(value_str_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Str,
+            }))
         }
 
         // ── Unknown Method ───────────────────────────────────────────────

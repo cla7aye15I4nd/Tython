@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 struct TythonDictItemPair {
     int64_t key;
@@ -303,4 +304,22 @@ void* TYTHON_FN(dict_keys)(TythonDict* d) {
 
 void* TYTHON_FN(dict_values)(TythonDict* d) {
     return TYTHON_FN(list_new)(d->values, d->len);
+}
+
+/* ── str_by_tag ──────────────────────────────────────────────────── */
+
+TythonStr* TYTHON_FN(dict_str_by_tag)(TythonDict* dict, int64_t key_str_tag, int64_t value_str_tag) {
+    std::string result = "{";
+    bool first = true;
+    for (int64_t i = 0; i < dict->len; i++) {
+        if (!first) result += ", ";
+        first = false;
+        TythonStr* key_str = TYTHON_FN(intrinsic_str)(key_str_tag, reinterpret_cast<void*>(dict->keys[i]));
+        result.append(key_str->data, static_cast<size_t>(key_str->len));
+        result += ": ";
+        TythonStr* val_str = TYTHON_FN(intrinsic_str)(value_str_tag, reinterpret_cast<void*>(dict->values[i]));
+        result.append(val_str->data, static_cast<size_t>(val_str->len));
+    }
+    result += "}";
+    return TYTHON_FN(str_new)(result.c_str(), static_cast<int64_t>(result.size()));
 }

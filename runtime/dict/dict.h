@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "../builtins/common.h"
+#include "../str/str.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +42,7 @@ void* TYTHON_FN(dict_items)(TythonDict* d);
 void* TYTHON_FN(dict_popitem)(TythonDict* d);
 void* TYTHON_FN(dict_keys)(TythonDict* d);
 void* TYTHON_FN(dict_values)(TythonDict* d);
+TythonStr* TYTHON_FN(dict_str_by_tag)(TythonDict* dict, int64_t key_str_tag, int64_t value_str_tag);
 
 #ifdef __cplusplus
 }

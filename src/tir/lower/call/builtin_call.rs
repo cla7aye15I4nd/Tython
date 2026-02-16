@@ -261,9 +261,18 @@ impl Lowering {
                     name,
                 )?));
             }
+            ("str" | "repr", [ValueType::Int]) => Some((BuiltinFn::StrFromInt, ValueType::Str)),
+            ("str" | "repr", [ValueType::Float]) => Some((BuiltinFn::StrFromFloat, ValueType::Str)),
+            ("str" | "repr", [ValueType::Bool]) => Some((BuiltinFn::StrFromBool, ValueType::Str)),
+            ("str", [ValueType::Str]) => return Ok(identity_result(args)),
             ("repr", [ValueType::Str]) => Some((BuiltinFn::ReprStr, ValueType::Str)),
-            ("str" | "repr", [_]) => {
-                return self.lower_builtin_dunder_call(line, name, args, "__str__");
+            ("str", [_]) => {
+                let arg = args.remove(0);
+                return self.lower_method_call(line, arg, "__str__", vec![]);
+            }
+            ("repr", [_]) => {
+                let arg = args.remove(0);
+                return self.lower_method_call(line, arg, "__repr__", vec![]);
             }
 
             // ── bytes ────────────────────────────────────────────────
@@ -360,7 +369,8 @@ impl Lowering {
                 )?));
             }
             ("len", [_]) => {
-                return self.lower_builtin_dunder_call(line, name, args, "__len__");
+                let arg = args.remove(0);
+                return self.lower_method_call(line, arg, "__len__", vec![]);
             }
 
             // ── abs / round ──────────────────────────────────────────
@@ -506,51 +516,6 @@ impl Lowering {
             Some((func, return_type)) => Ok(external_call_result(func, return_type, args)),
             None => {
                 Err(self.type_error(line, builtin_call_error_message(name, &arg_types, provided)))
-            }
-        }
-    }
-
-    /// Lower a builtin dunder call (e.g., str(x) dispatches to __str__).
-    fn lower_builtin_dunder_call(
-        &mut self,
-        line: usize,
-        caller_name: &str,
-        mut args: Vec<TirExpr>,
-        dunder: &str,
-    ) -> Result<CallResult> {
-        let arg_ty = args[0].ty.clone();
-
-        let simple = match dunder {
-            "__len__" => match &arg_ty {
-                ValueType::Str => Some((BuiltinFn::StrLen, ValueType::Int)),
-                ValueType::Bytes => Some((BuiltinFn::BytesLen, ValueType::Int)),
-                ValueType::ByteArray => Some((BuiltinFn::ByteArrayLen, ValueType::Int)),
-                ValueType::List(_) => Some((BuiltinFn::ListLen, ValueType::Int)),
-                ValueType::Dict(_, _) => Some((BuiltinFn::DictLen, ValueType::Int)),
-                ValueType::Set(_) => Some((BuiltinFn::SetLen, ValueType::Int)),
-                _ => None,
-            },
-            "__str__" => match &arg_ty {
-                ValueType::Str => return Ok(identity_result(args)),
-                ValueType::Int => Some((BuiltinFn::StrFromInt, ValueType::Str)),
-                ValueType::Float => Some((BuiltinFn::StrFromFloat, ValueType::Str)),
-                ValueType::Bool => Some((BuiltinFn::StrFromBool, ValueType::Str)),
-                ValueType::Bytes => Some((BuiltinFn::StrFromBytes, ValueType::Str)),
-                ValueType::ByteArray => Some((BuiltinFn::StrFromByteArray, ValueType::Str)),
-                ValueType::List(_) => {
-                    let arg = args.remove(0);
-                    return Ok(CallResult::Expr(self.lower_str_auto(arg)));
-                }
-                _ => None,
-            },
-            _ => None,
-        };
-
-        match simple {
-            Some((func, return_type)) => Ok(external_call_result(func, return_type, args)),
-            None => {
-                let arg_types: Vec<&ValueType> = vec![&arg_ty];
-                Err(self.type_error(line, builtin_call_error_message(caller_name, &arg_types, 1)))
             }
         }
     }

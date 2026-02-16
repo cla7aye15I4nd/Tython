@@ -632,6 +632,28 @@ pub fn lower_bytearray_method_call(
                 ty: ValueType::Bool,
             }))
         }
+        "__str__" | "__repr__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "bytearray",
+            obj,
+            method_name,
+            args,
+            &[],
+            BuiltinFn::StrFromByteArray,
+            ValueType::Str,
+        ),
+        "__len__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "bytearray",
+            obj,
+            method_name,
+            args,
+            &[],
+            BuiltinFn::ByteArrayLen,
+            ValueType::Int,
+        ),
         _ => Err(ctx.attribute_error(
             line,
             format!("{} has no method `{}`", "bytearray", method_name),

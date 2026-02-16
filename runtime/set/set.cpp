@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 /* ── Open-addressing hash set ────────────────────────────────────────
    Replaces the former linear-scan array with O(1) amortised lookups.
@@ -381,6 +382,22 @@ int64_t TYTHON_FN(set_eq_by_tag)(TythonSet* a, TythonSet* b, int64_t eq_tag) {
         if (is_live(a->data[i]) && find_value_by_tag(b, a->data[i], eq_tag) < 0)
             return 0;
     return 1;
+}
+
+/* ── str_by_tag ──────────────────────────────────────────────────── */
+
+TythonStr* TYTHON_FN(set_str_by_tag)(TythonSet* set, int64_t elem_str_tag) {
+    std::string result = "{";
+    bool first = true;
+    for (int64_t i = 0; i < set->capacity; i++) {
+        if (!is_live(set->data[i])) continue;
+        if (!first) result += ", ";
+        first = false;
+        TythonStr* elem_str = TYTHON_FN(intrinsic_str)(elem_str_tag, reinterpret_cast<void*>(set->data[i]));
+        result.append(elem_str->data, static_cast<size_t>(elem_str->len));
+    }
+    result += "}";
+    return TYTHON_FN(str_new)(result.c_str(), static_cast<int64_t>(result.size()));
 }
 
 TythonSet* TYTHON_FN(set_copy)(TythonSet* s) {

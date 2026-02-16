@@ -1,6 +1,6 @@
 def run_case() -> None:
-    d: dict[int, int] = {1: 2}
-    out: str = repr(d)
+    a: dict[int, int] = {1: 10}
+    out: bool = a.__lt__()
 
 
 if __name__ == "__main__":

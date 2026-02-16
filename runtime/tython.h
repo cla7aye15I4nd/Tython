@@ -56,6 +56,7 @@ void    TYTHON_FN(print_unhandled)(int64_t type_tag, void* message);
 int64_t TYTHON_FN(intrinsic_eq)(int64_t tag, int64_t lhs, int64_t rhs);
 int64_t TYTHON_FN(intrinsic_lt)(int64_t tag, int64_t lhs, int64_t rhs);
 int64_t TYTHON_FN(intrinsic_hash)(int64_t tag, int64_t value);
+TythonStr* TYTHON_FN(intrinsic_str)(int64_t tag, void* obj);
 
 #ifdef __cplusplus
 }

@@ -1,6 +1,6 @@
 def run_case() -> None:
-    s: set[int] = {1, 2}
-    out: str = f"{s}"
+    xs: list[int] = [1, 2, 3]
+    xs.insert(0, "bad")
 
 
 if __name__ == "__main__":

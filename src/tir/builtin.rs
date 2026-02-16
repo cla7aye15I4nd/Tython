@@ -313,6 +313,11 @@ define_builtins! {
     SetEqByTag         => "__tython_set_eq_by_tag",       params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Bool);
     SetCopy            => "__tython_set_copy",            params: [ValueType::Set(Box::new(ValueType::Int))], ret: Some(ValueType::Set(Box::new(ValueType::Int)));
 
+    // container str-by-tag builtins
+    ListStrByTag       => "__tython_list_str_by_tag",    params: [ValueType::List(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Str);
+    DictStrByTag       => "__tython_dict_str_by_tag",    params: [ValueType::Dict(Box::new(ValueType::Int), Box::new(ValueType::Int)), ValueType::Int, ValueType::Int], ret: Some(ValueType::Str);
+    SetStrByTag        => "__tython_set_str_by_tag",     params: [ValueType::Set(Box::new(ValueType::Int)), ValueType::Int], ret: Some(ValueType::Str);
+
     // aggregate builtins
     SumInt             => "__tython_sum_int",             params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
     SumFloat           => "__tython_sum_float",           params: [ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::Float);

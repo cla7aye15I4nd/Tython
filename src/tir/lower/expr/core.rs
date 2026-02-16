@@ -391,7 +391,7 @@ impl Lowering {
                 }
 
                 let dict_ty = ValueType::Dict(Box::new(key_ty.clone()), Box::new(value_ty.clone()));
-                self.require_intrinsic_eq_support(line, &key_ty)?;
+                self.require_intrinsic_eq_support(line, &key_ty);
                 let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, &key_ty);
                 let dict_var = self.fresh_internal("dict_lit");
                 self.pre_stmts.push(TirStmt::Let {
@@ -451,7 +451,7 @@ impl Lowering {
                     }
                 }
 
-                self.require_intrinsic_eq_support(line, &elem_ty)?;
+                self.require_intrinsic_eq_support(line, &elem_ty);
                 let eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, &elem_ty);
                 let set_ty = ValueType::Set(Box::new(elem_ty));
                 let set_var = self.fresh_internal("set_lit");

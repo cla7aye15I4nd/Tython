@@ -122,6 +122,32 @@ pub fn lower_str_method_call(
             BuiltinFn::StrContains,
             ValueType::Bool,
         ),
+        "__str__" => {
+            super::check_arity(ctx, line, "str", method_name, 0, args.len())?;
+            Ok(CallResult::Expr(obj))
+        }
+        "__repr__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "str",
+            obj,
+            method_name,
+            args,
+            &[],
+            BuiltinFn::ReprStr,
+            ValueType::Str,
+        ),
+        "__len__" => lower_fixed_expr_method(
+            ctx,
+            line,
+            "str",
+            obj,
+            method_name,
+            args,
+            &[],
+            BuiltinFn::StrLen,
+            ValueType::Int,
+        ),
         _ => Err(ctx.attribute_error(line, format!("{} has no method `{}`", "str", method_name))),
     }
 }

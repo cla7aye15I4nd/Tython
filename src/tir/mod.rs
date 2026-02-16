@@ -274,6 +274,7 @@ pub enum CallTarget {
 pub enum IntrinsicOp {
     Eq,
     Lt,
+    Str,
 }
 
 #[derive(Debug, Clone)]
@@ -287,6 +288,7 @@ fn intrinsic_tag_seed(op: IntrinsicOp) -> u64 {
     match op {
         IntrinsicOp::Eq => 0xcbf29ce484222325,
         IntrinsicOp::Lt => 0x84222325cbf29ce4,
+        IntrinsicOp::Str => 0x9ce484222325cbf2,
     }
 }
 

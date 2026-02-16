@@ -558,7 +558,7 @@ impl Lowering {
                         ),
                     ));
                 }
-                self.require_intrinsic_eq_support(line, key_ty)?;
+                self.require_intrinsic_eq_support(line, key_ty);
                 let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, key_ty);
                 Ok(vec![TirStmt::VoidCall {
                     target: CallTarget::Builtin(builtin::BuiltinFn::DictSetByTag),
@@ -640,7 +640,7 @@ impl Lowering {
                         format!("dict key index must be `{}`, got `{}`", key_ty, key_expr.ty),
                     ));
                 }
-                self.require_intrinsic_eq_support(line, key_ty)?;
+                self.require_intrinsic_eq_support(line, key_ty);
                 let key_eq_tag = self.register_intrinsic_instance(IntrinsicOp::Eq, key_ty);
 
                 let current_val = TirExpr {

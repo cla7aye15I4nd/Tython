@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "../builtins/common.h"
+#include "../str/str.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,6 +49,7 @@ void TYTHON_FN(set_clear)(TythonSet* s);
 int64_t TYTHON_FN(set_eq)(TythonSet* a, TythonSet* b);
 int64_t TYTHON_FN(set_eq_by_tag)(TythonSet* a, TythonSet* b, int64_t eq_tag);
 TythonSet* TYTHON_FN(set_copy)(TythonSet* s);
+TythonStr* TYTHON_FN(set_str_by_tag)(TythonSet* set, int64_t elem_str_tag);
 
 #ifdef __cplusplus
 }

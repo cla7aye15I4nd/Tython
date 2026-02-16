@@ -51,7 +51,7 @@ pub fn lower_list_method_call(
         "count" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
-            ctx.require_list_leaf_eq_support(line, inner_type)?;
+            ctx.require_list_leaf_eq_support(line, inner_type);
             let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
             let mut call_args = vec![obj.clone(), args[0].clone()];
             call_args.push(TirExpr {
@@ -76,7 +76,7 @@ pub fn lower_list_method_call(
         "index" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
-            ctx.require_list_leaf_eq_support(line, inner_type)?;
+            ctx.require_list_leaf_eq_support(line, inner_type);
             let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
             let mut call_args = vec![obj.clone(), args[0].clone()];
             call_args.push(TirExpr {
@@ -119,7 +119,7 @@ pub fn lower_list_method_call(
         "remove" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
-            ctx.require_list_leaf_eq_support(line, inner_type)?;
+            ctx.require_list_leaf_eq_support(line, inner_type);
             let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
             let mut call_args = vec![obj.clone(), args[0].clone()];
             call_args.push(TirExpr {
@@ -233,7 +233,7 @@ pub fn lower_list_method_call(
         "__contains__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
-            ctx.require_list_leaf_eq_support(line, inner_type)?;
+            ctx.require_list_leaf_eq_support(line, inner_type);
             let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
@@ -254,7 +254,7 @@ pub fn lower_list_method_call(
         "__eq__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &list_ty)?;
-            ctx.require_list_leaf_eq_support(line, inner_type)?;
+            ctx.require_list_leaf_eq_support(line, inner_type);
             let eq_tag = ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
@@ -342,6 +342,24 @@ pub fn lower_list_method_call(
                 obj.clone(),
                 args,
             ))
+        }
+
+        "__str__" | "__repr__" => {
+            super::check_arity(ctx, line, &type_name, method_name, 0, args.len())?;
+            let str_tag = ctx.register_intrinsic_instance(IntrinsicOp::Str, inner_type);
+            Ok(CallResult::Expr(TirExpr {
+                kind: TirExprKind::ExternalCall {
+                    func: BuiltinFn::ListStrByTag,
+                    args: vec![
+                        obj.clone(),
+                        TirExpr {
+                            kind: TirExprKind::IntLiteral(str_tag),
+                            ty: ValueType::Int,
+                        },
+                    ],
+                },
+                ty: ValueType::Str,
+            }))
         }
 
         // ── Unknown Method ───────────────────────────────────────────────

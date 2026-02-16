@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "../builtins/common.h"
+#include "../str/str.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,6 +69,7 @@ int64_t TYTHON_FN(list_count_by_tag)(TythonList* lst, int64_t value, int64_t eq_
 void TYTHON_FN(list_remove_by_tag)(TythonList* lst, int64_t value, int64_t eq_tag);
 void TYTHON_FN(list_sort_by_tag)(TythonList* lst, int64_t lt_tag);
 TythonList* TYTHON_FN(sorted_by_tag)(TythonList* lst, int64_t lt_tag);
+TythonStr* TYTHON_FN(list_str_by_tag)(TythonList* list, int64_t elem_str_tag);
 
 #ifdef __cplusplus
 }
