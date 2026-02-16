@@ -65,8 +65,8 @@ impl<'ctx> Codegen<'ctx> {
             TirExprKind::BoolNotEq(left, right) => self.codegen_bool_ne(left, right),
 
             // Logical operations
-            TirExprKind::LogicalAnd(left, right) => self.codegen_logical_and(left, right, &expr.ty),
-            TirExprKind::LogicalOr(left, right) => self.codegen_logical_or(left, right, &expr.ty),
+            TirExprKind::LogicalAnd(left, right) => self.codegen_logical_and(left, right),
+            TirExprKind::LogicalOr(left, right) => self.codegen_logical_or(left, right),
 
             TirExprKind::Call { func, args } => {
                 self.codegen_named_call(func, args, Some(&expr.ty)).unwrap()

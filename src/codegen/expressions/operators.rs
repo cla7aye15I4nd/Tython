@@ -1,7 +1,7 @@
 use inkwell::{values::BasicValueEnum, IntPredicate};
 
 use crate::tir::builtin::BuiltinFn;
-use crate::tir::{CastKind, LogicalOp, TirExpr, ValueType};
+use crate::tir::{CastKind, LogicalOp, TirExpr};
 
 use super::super::Codegen;
 
@@ -121,7 +121,6 @@ impl<'ctx> Codegen<'ctx> {
         op: &LogicalOp,
         left: &TirExpr,
         right: &TirExpr,
-        _result_ty: &ValueType,
     ) -> BasicValueEnum<'ctx> {
         let function = emit!(self.get_insert_block()).get_parent().unwrap();
 
@@ -349,17 +348,15 @@ impl<'ctx> Codegen<'ctx> {
         &mut self,
         left: &TirExpr,
         right: &TirExpr,
-        result_ty: &ValueType,
     ) -> BasicValueEnum<'ctx> {
-        self.codegen_logical(&LogicalOp::And, left, right, result_ty)
+        self.codegen_logical(&LogicalOp::And, left, right)
     }
 
     pub(crate) fn codegen_logical_or(
         &mut self,
         left: &TirExpr,
         right: &TirExpr,
-        result_ty: &ValueType,
     ) -> BasicValueEnum<'ctx> {
-        self.codegen_logical(&LogicalOp::Or, left, right, result_ty)
+        self.codegen_logical(&LogicalOp::Or, left, right)
     }
 }

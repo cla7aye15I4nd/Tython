@@ -18,7 +18,7 @@ impl Lowering {
 
         let stmts = match node_type.as_str() {
             "FunctionDef" => self.handle_nested_function_def(node, line),
-            "ClassDef" => self.handle_class_def_stmt(node, line),
+            "ClassDef" => self.handle_class_def_stmt(node),
             "AnnAssign" => self.handle_ann_assign(node, line),
             "Assign" => self.handle_assign(node, line),
             "AugAssign" => self.handle_aug_assign(node, line),
@@ -69,7 +69,6 @@ impl Lowering {
     pub(in crate::tir::lower) fn handle_class_def_stmt(
         &mut self,
         node: &Bound<PyAny>,
-        _line: usize,
     ) -> Result<Vec<TirStmt>> {
         let raw_name = ast_get_string!(node, "name");
         let fn_name = self.current_function_name.as_deref().unwrap_or("_");

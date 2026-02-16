@@ -60,11 +60,11 @@ impl Lowering {
 
         match iterable_expr.ty.clone() {
             ValueType::List(inner) => {
-                self.handle_for_list(node, line, &loop_var, iterable_expr, (*inner).clone())
+                self.handle_for_list(node, &loop_var, iterable_expr, (*inner).clone())
             }
-            ValueType::Str => self.handle_for_str(node, line, &loop_var, iterable_expr),
-            ValueType::Bytes => self.handle_for_bytes(node, line, &loop_var, iterable_expr),
-            ValueType::ByteArray => self.handle_for_bytearray(node, line, &loop_var, iterable_expr),
+            ValueType::Str => self.handle_for_str(node, &loop_var, iterable_expr),
+            ValueType::Bytes => self.handle_for_bytes(node, &loop_var, iterable_expr),
+            ValueType::ByteArray => self.handle_for_bytearray(node, &loop_var, iterable_expr),
             ValueType::Class(ref name) if self.is_tuple_class(name) => {
                 let elements = self.tuple_element_types(name).to_vec();
                 let first = elements
@@ -78,7 +78,7 @@ impl Lowering {
                 }
                 let elem_ty = first.clone();
                 let tuple_len = elements.len();
-                self.handle_for_tuple(node, line, &loop_var, iterable_expr, elem_ty, tuple_len)
+                self.handle_for_tuple(node, &loop_var, iterable_expr, elem_ty, tuple_len)
             }
             ValueType::Class(class_name) => {
                 self.handle_for_class_iter(node, line, &loop_var, iterable_expr, &class_name)
@@ -509,7 +509,6 @@ impl Lowering {
     fn handle_for_list(
         &mut self,
         node: &Bound<PyAny>,
-        _line: usize,
         loop_var: &str,
         list_expr: TirExpr,
         elem_ty: ValueType,
@@ -633,7 +632,6 @@ impl Lowering {
     fn handle_for_tuple(
         &mut self,
         node: &Bound<PyAny>,
-        _line: usize,
         loop_var: &str,
         tuple_expr: TirExpr,
         elem_ty: ValueType,
@@ -707,7 +705,6 @@ impl Lowering {
     fn handle_for_str(
         &mut self,
         node: &Bound<PyAny>,
-        _line: usize,
         loop_var: &str,
         str_expr: TirExpr,
     ) -> Result<Vec<TirStmt>> {
@@ -743,7 +740,6 @@ impl Lowering {
     fn handle_for_bytes(
         &mut self,
         node: &Bound<PyAny>,
-        _line: usize,
         loop_var: &str,
         bytes_expr: TirExpr,
     ) -> Result<Vec<TirStmt>> {
@@ -779,7 +775,6 @@ impl Lowering {
     fn handle_for_bytearray(
         &mut self,
         node: &Bound<PyAny>,
-        _line: usize,
         loop_var: &str,
         bytearray_expr: TirExpr,
     ) -> Result<Vec<TirStmt>> {

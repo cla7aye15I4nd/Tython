@@ -247,15 +247,11 @@ impl Lowering {
         Ok(())
     }
 
-    pub(in crate::tir::lower) fn require_list_leaf_eq_support(&self, line: usize, ty: &ValueType) {
-        self.require_intrinsic_eq_support(line, ty)
+    pub(in crate::tir::lower) fn require_list_leaf_eq_support(&self) {
+        self.require_intrinsic_eq_support()
     }
 
-    pub(in crate::tir::lower) fn require_intrinsic_eq_support(
-        &self,
-        _line: usize,
-        _ty: &ValueType,
-    ) {
+    pub(in crate::tir::lower) fn require_intrinsic_eq_support(&self) {
         // All types support equality comparison:
         // - Primitives (Int, Float, Bool, Str, Bytes, ByteArray): structural equality
         // - List, Class with __eq__: structural equality via registered intrinsic

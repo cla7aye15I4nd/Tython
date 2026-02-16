@@ -409,7 +409,7 @@ impl Lowering {
             };
         }
 
-        // Build element-wise comparisons: self._0 == other._0 && ... && self._N == other._N
+        // Build element-wise comparisons for each tuple field in order.
         let mut comparisons = Vec::new();
         for (i, elem_ty) in elem_types.iter().enumerate() {
             let self_field = TirExpr {

@@ -73,9 +73,7 @@ impl Resolver {
             let local_name = ast_get_string_or!(alias, "asname", name);
 
             symbols.insert(local_name, Type::Module(mod_path));
-            if !Self::is_native_module_path(&path) {
-                dependencies.push(path);
-            }
+            dependencies.push(path);
         }
         Ok(())
     }
@@ -94,9 +92,7 @@ impl Resolver {
         if let Some(ref mod_name) = module_name {
             if let Ok(module_file) = self.resolve_module(file_dir, level, mod_name) {
                 let mod_path = self.compute_module_path(&module_file);
-                if !Self::is_native_module_path(&module_file) {
-                    dependencies.push(module_file);
-                }
+                dependencies.push(module_file);
 
                 for alias in ast_get_list!(node, "names").iter() {
                     let name = ast_get_string!(alias, "name");
@@ -121,9 +117,7 @@ impl Resolver {
             let local_name = ast_get_string_or!(alias, "asname", name);
 
             symbols.insert(local_name, Type::Module(mod_path));
-            if !Self::is_native_module_path(&path) {
-                dependencies.push(path);
-            }
+            dependencies.push(path);
         }
 
         Ok(())
@@ -155,20 +149,7 @@ impl Resolver {
             return Ok(stdlib_file);
         }
 
-        // 3. Native modules (C runtime)
-        if Self::is_native_module(import) {
-            return Ok(PathBuf::from(format!("__native__/{}.py", import)));
-        }
-
         anyhow::bail!("failed to resolve import `{}`", import)
-    }
-
-    fn is_native_module(_import: &str) -> bool {
-        false
-    }
-
-    fn is_native_module_path(path: &Path) -> bool {
-        path.to_string_lossy().starts_with("__native__/")
     }
 
     fn resolve_relative_import(

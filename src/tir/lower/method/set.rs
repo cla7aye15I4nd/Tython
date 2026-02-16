@@ -7,8 +7,8 @@ use crate::tir::{
 
 use super::super::Lowering;
 
-fn set_eq_tag(ctx: &mut Lowering, line: usize, inner_type: &ValueType) -> i64 {
-    ctx.require_intrinsic_eq_support(line, inner_type);
+fn set_eq_tag(ctx: &mut Lowering, inner_type: &ValueType) -> i64 {
+    ctx.require_intrinsic_eq_support();
     ctx.register_intrinsic_instance(IntrinsicOp::Eq, inner_type)
 }
 
@@ -37,7 +37,7 @@ pub fn lower_set_method_call(
         "add" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::SetAddByTag),
                 args: vec![
@@ -69,7 +69,7 @@ pub fn lower_set_method_call(
         "discard" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::SetDiscardByTag),
                 args: vec![
@@ -96,7 +96,7 @@ pub fn lower_set_method_call(
         "remove" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::SetRemoveByTag),
                 args: vec![
@@ -113,7 +113,7 @@ pub fn lower_set_method_call(
         "difference" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetDifferenceByTag,
@@ -133,7 +133,7 @@ pub fn lower_set_method_call(
         "intersection" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetIntersectionByTag,
@@ -153,7 +153,7 @@ pub fn lower_set_method_call(
         "symmetric_difference" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetSymmetricDifferenceByTag,
@@ -173,7 +173,7 @@ pub fn lower_set_method_call(
         "union" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetUnionByTag,
@@ -193,7 +193,7 @@ pub fn lower_set_method_call(
         "difference_update" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::SetDifferenceUpdateByTag),
                 args: vec![
@@ -210,7 +210,7 @@ pub fn lower_set_method_call(
         "intersection_update" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::SetIntersectionUpdateByTag),
                 args: vec![
@@ -227,7 +227,7 @@ pub fn lower_set_method_call(
         "symmetric_difference_update" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::SetSymmetricDifferenceUpdateByTag),
                 args: vec![
@@ -244,7 +244,7 @@ pub fn lower_set_method_call(
         "update" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::VoidStmt(Box::new(TirStmt::VoidCall {
                 target: CallTarget::Builtin(BuiltinFn::SetUpdateByTag),
                 args: vec![
@@ -261,7 +261,7 @@ pub fn lower_set_method_call(
         "isdisjoint" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetIsDisjointByTag,
@@ -281,7 +281,7 @@ pub fn lower_set_method_call(
         "issubset" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetIsSubsetByTag,
@@ -301,7 +301,7 @@ pub fn lower_set_method_call(
         "issuperset" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetIsSupersetByTag,
@@ -322,7 +322,7 @@ pub fn lower_set_method_call(
         "__contains__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], inner_type)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetContainsByTag,
@@ -342,7 +342,7 @@ pub fn lower_set_method_call(
         "__eq__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetEqByTag,
@@ -362,7 +362,7 @@ pub fn lower_set_method_call(
         "__ne__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             let eq_expr = TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetEqByTag,
@@ -386,7 +386,7 @@ pub fn lower_set_method_call(
         "__and__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetIntersectionByTag,
@@ -406,7 +406,7 @@ pub fn lower_set_method_call(
         "__or__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetUnionByTag,
@@ -426,7 +426,7 @@ pub fn lower_set_method_call(
         "__sub__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetDifferenceByTag,
@@ -446,7 +446,7 @@ pub fn lower_set_method_call(
         "__xor__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetSymmetricDifferenceByTag,
@@ -466,7 +466,7 @@ pub fn lower_set_method_call(
         "__rand__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetIntersectionByTag,
@@ -486,7 +486,7 @@ pub fn lower_set_method_call(
         "__ror__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetUnionByTag,
@@ -506,7 +506,7 @@ pub fn lower_set_method_call(
         "__rsub__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetDifferenceByTag,
@@ -526,7 +526,7 @@ pub fn lower_set_method_call(
         "__rxor__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetSymmetricDifferenceByTag,
@@ -546,7 +546,7 @@ pub fn lower_set_method_call(
         "__iand__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetIAndByTag,
@@ -566,7 +566,7 @@ pub fn lower_set_method_call(
         "__ior__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetIOrByTag,
@@ -586,7 +586,7 @@ pub fn lower_set_method_call(
         "__isub__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetISubByTag,
@@ -606,7 +606,7 @@ pub fn lower_set_method_call(
         "__ixor__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetIXorByTag,
@@ -626,7 +626,7 @@ pub fn lower_set_method_call(
         "__lt__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetLtByTag,
@@ -646,7 +646,7 @@ pub fn lower_set_method_call(
         "__le__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetLeByTag,
@@ -666,7 +666,7 @@ pub fn lower_set_method_call(
         "__gt__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetGtByTag,
@@ -686,7 +686,7 @@ pub fn lower_set_method_call(
         "__ge__" => {
             super::check_arity(ctx, line, &type_name, method_name, 1, args.len())?;
             super::check_type(ctx, line, &type_name, method_name, &args[0], &set_ty)?;
-            let eq_tag = set_eq_tag(ctx, line, inner_type);
+            let eq_tag = set_eq_tag(ctx, inner_type);
             Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::SetGeByTag,
