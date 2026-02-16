@@ -156,7 +156,7 @@ impl Lowering {
         if ast_type_name!(value_node) == "Name" {
             let name = ast_get_string!(value_node, "id");
             if let Some(Type::Module(mod_path)) = self.lookup(&name).cloned() {
-                if mod_path == "math" || mod_path == "random" {
+                if mod_path == "random" {
                     return Ok(ResolvedCall {
                         callee: ResolvedCallee::NativeModuleFunction {
                             module: mod_path,

@@ -17,11 +17,16 @@ pub struct ResolvedImports {
 
 pub struct Resolver {
     base_dir: PathBuf,
+    stdlib_dir: PathBuf,
 }
 
 impl Resolver {
     pub fn new(base_dir: PathBuf) -> Self {
-        Self { base_dir }
+        let stdlib_dir = PathBuf::from(env!("TYTHON_STDLIB_DIR"));
+        Self {
+            base_dir,
+            stdlib_dir,
+        }
     }
 
     pub fn resolve_imports(&self, file_path: &Path) -> Result<ResolvedImports> {
@@ -138,19 +143,28 @@ impl Resolver {
     }
 
     fn resolve_absolute_import(&self, import: &str) -> Result<PathBuf> {
+        // 1. Local project directory
+        let local_file = Self::module_to_file_path(&self.base_dir, import);
+        if local_file.exists() && local_file.is_file() {
+            return Ok(local_file);
+        }
+
+        // 2. stdlib/ directory
+        let stdlib_file = Self::module_to_file_path(&self.stdlib_dir, import);
+        if stdlib_file.exists() && stdlib_file.is_file() {
+            return Ok(stdlib_file);
+        }
+
+        // 3. Native modules (C runtime)
         if Self::is_native_module(import) {
             return Ok(PathBuf::from(format!("__native__/{}.py", import)));
         }
-        let module_file = Self::module_to_file_path(&self.base_dir, import);
-        if module_file.exists() && module_file.is_file() {
-            Ok(module_file)
-        } else {
-            anyhow::bail!("failed to resolve import `{}`", import)
-        }
+
+        anyhow::bail!("failed to resolve import `{}`", import)
     }
 
     fn is_native_module(import: &str) -> bool {
-        matches!(import, "math" | "random")
+        matches!(import, "random")
     }
 
     fn is_native_module_path(path: &Path) -> bool {
@@ -186,7 +200,10 @@ impl Resolver {
                 return stripped.strip_suffix(".py").unwrap_or(stripped).to_string();
             }
         }
-        let relative = file_path.strip_prefix(&self.base_dir).unwrap();
+        let relative = file_path
+            .strip_prefix(&self.stdlib_dir)
+            .or_else(|_| file_path.strip_prefix(&self.base_dir))
+            .unwrap();
         let without_ext = relative.with_extension("");
         without_ext.to_string_lossy().replace('/', ".")
     }

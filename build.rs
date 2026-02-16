@@ -120,6 +120,11 @@ fn main() {
         runtime_boehm.display()
     );
 
+    // Export stdlib directory path
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let stdlib_dir = Path::new(&manifest_dir).join("stdlib");
+    println!("cargo:rustc-env=TYTHON_STDLIB_DIR={}", stdlib_dir.display());
+
     // Rerun if any source changes
     for src in RUNTIME_SOURCES {
         println!("cargo:rerun-if-changed={}", src);
@@ -128,4 +133,5 @@ fn main() {
     for header in RUNTIME_HEADERS {
         println!("cargo:rerun-if-changed={}", header);
     }
+    println!("cargo:rerun-if-changed=stdlib");
 }
