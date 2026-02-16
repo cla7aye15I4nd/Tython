@@ -1,3 +1,4 @@
+use crate::ast::Type;
 use anyhow::Result;
 
 use crate::tir::{
@@ -225,7 +226,9 @@ impl Lowering {
         line: usize,
         arg: TirExpr,
     ) -> Result<TirExpr> {
-        match &arg.ty {
+        let arg_ty = arg.ty.clone();
+
+        match &arg_ty {
             ValueType::Int => Ok(TirExpr {
                 kind: TirExprKind::ExternalCall {
                     func: BuiltinFn::StrFromInt,
@@ -251,6 +254,16 @@ impl Lowering {
                 let class_info = self.class_registry.get(name).cloned();
                 if let Some(info) = class_info {
                     if let Some(repr_method) = info.methods.get("__repr__") {
+                        if repr_method.return_type != Type::Str {
+                            return Err(self.type_error(
+                                line,
+                                format!(
+                                    "`__repr__` for `{}` must return `str`, got `{}`",
+                                    name, repr_method.return_type
+                                ),
+                            ));
+                        }
+
                         Ok(TirExpr {
                             kind: TirExprKind::Call {
                                 func: repr_method.mangled_name.clone(),
@@ -273,7 +286,10 @@ impl Lowering {
             }
             _ => match self.lower_method_call(line, arg, "__repr__", vec![])? {
                 CallResult::Expr(e) => Ok(e),
-                CallResult::VoidStmt(_) => unreachable!("__repr__ should return a value"),
+                CallResult::VoidStmt(_) => Err(self.type_error(
+                    line,
+                    format!("`__repr__` on `{}` must return `str`", arg_ty),
+                )),
             },
         }
     }

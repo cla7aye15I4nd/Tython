@@ -207,6 +207,73 @@ class Token:
         return self.n == other.n
 
 
+class Ghost:
+    id: int
+
+    def __init__(self, id: int) -> None:
+        self.id = id
+
+
+class Bucket:
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def __contains__(self, needle: int) -> bool:
+        return self.value == needle
+
+
+def test_is_and_is_not_identity() -> None:
+    lhs: list[int] = [1]
+    rhs: list[int] = [1]
+    same: list[int] = lhs
+    t: bool = True
+    f: bool = False
+
+    print('CHECK test_comparison lhs:', lhs is same)
+    print('CHECK test_comparison rhs:', True)
+    assert (lhs is same) == True
+
+    print('CHECK test_comparison lhs:', lhs is not rhs)
+    print('CHECK test_comparison rhs:', True)
+    assert (lhs is not rhs) == True
+
+    print('CHECK test_comparison lhs:', t is True)
+    print('CHECK test_comparison rhs:', True)
+    assert (t is True) == True
+
+    print('CHECK test_comparison lhs:', f is not t)
+    print('CHECK test_comparison rhs:', True)
+    assert (f is not t) == True
+
+
+def test_class_contains_and_negated_contains() -> None:
+    bucket: Bucket = Bucket(7)
+    print('CHECK test_comparison lhs:', 7 in bucket)
+    print('CHECK test_comparison rhs:', True)
+    assert (7 in bucket) == True
+
+    print('CHECK test_comparison lhs:', 3 not in bucket)
+    print('CHECK test_comparison rhs:', True)
+    assert (3 not in bucket) == True
+
+
+def test_class_identity_equality_fallback() -> None:
+    a: Ghost = Ghost(1)
+    b: Ghost = Ghost(1)
+
+    print('CHECK test_comparison lhs:', a == a)
+    print('CHECK test_comparison rhs:', True)
+    assert (a == a) == True
+    print('CHECK test_comparison lhs:', a != a)
+    print('CHECK test_comparison rhs:', False)
+    assert (a != a) == False
+    print('CHECK test_comparison lhs:', a == b)
+    print('CHECK test_comparison rhs:', False)
+    assert (a == b) == False
+
+
 def test_class_comparison_ordering_and_eq() -> None:
     a: Rank = Rank(1)
     b: Rank = Rank(2)
@@ -310,6 +377,9 @@ def run_tests() -> None:
     test_cmp_with_arithmetic()
     test_cmp_variables()
     test_list_lexicographic_ordering()
+    test_is_and_is_not_identity()
+    test_class_contains_and_negated_contains()
+    test_class_identity_equality_fallback()
     test_class_comparison_ordering_and_eq()
     test_tuple_eq_matrix()
     test_chained_compare_with_empty_list_literal()

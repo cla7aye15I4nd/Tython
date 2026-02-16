@@ -119,6 +119,21 @@ def test_str_dunder_str() -> None:
     assert out == "hello"
 
 
+def test_runtime_indexing_and_membership() -> None:
+    values: list[int] = [10, 20, 30]
+    in_values: bool = 20 in values
+    first_item: int = values[0]
+    print('CHECK test_coverage_edges lhs:', len(values))
+    print('CHECK test_coverage_edges rhs:', 3)
+    assert len(values) == 3
+    print('CHECK test_coverage_edges lhs:', first_item)
+    print('CHECK test_coverage_edges rhs:', 10)
+    assert first_item == 10
+    print('CHECK test_coverage_edges lhs:', in_values)
+    print('CHECK test_coverage_edges rhs:', True)
+    assert in_values == True
+
+
 def run_tests() -> None:
     test_no_return_annotation_and_nested_import()
     test_attribute_annotation_nested_class_valid()
@@ -128,3 +143,4 @@ def run_tests() -> None:
     test_tuple_bytes_compare_and_comprehension_filters()
     test_dict_bool_key_items_and_popitem()
     test_str_dunder_str()
+    test_runtime_indexing_and_membership()

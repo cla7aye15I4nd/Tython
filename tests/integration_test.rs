@@ -113,32 +113,44 @@ fn test_invalid_programs_produce_compilation_errors() {
 
     test_dirs.sort();
 
-    let mut failures = Vec::new();
+    let failures = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let mut handles = Vec::with_capacity(test_dirs.len());
 
-    for test_dir in &test_dirs {
+    for test_dir in test_dirs {
         let main_py = test_dir.join("main.py");
-        let test_name = test_dir.file_name().unwrap().to_string_lossy().to_string();
-
         assert!(
             main_py.exists(),
             "Missing main.py in invalid test: {}",
-            test_name
+            test_dir.file_name().unwrap().to_string_lossy()
         );
 
-        let output = cargo_bin_cmd!("tython")
-            .arg("main.py")
-            .current_dir(test_dir)
-            .output()
-            .unwrap_or_else(|e| panic!("Failed to run tython for '{}': {}", test_name, e));
+        let test_name = test_dir.file_name().unwrap().to_string_lossy().to_string();
+        let failures = std::sync::Arc::clone(&failures);
 
-        if output.status.success() {
-            failures.push(format!(
-                "  '{}': expected compilation error but tython succeeded\n    stdout: {}",
-                test_name,
-                String::from_utf8_lossy(&output.stdout).trim()
-            ));
-        }
+        handles.push(std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut compiler =
+                    tython::compiler::Compiler::new(main_py.clone()).map_err(|e| e.to_string())?;
+                compiler.check().map_err(|e| e.to_string())?;
+                Ok::<(), String>(())
+            }));
+
+            match result {
+                Ok(Ok(())) => failures.lock().unwrap().push(format!(
+                    "  '{}': expected compilation error but tython succeeded",
+                    test_name,
+                )),
+                _ => {}
+            };
+        }));
     }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let mut failures = failures.lock().unwrap().clone();
+    failures.sort();
 
     if !failures.is_empty() {
         panic!(

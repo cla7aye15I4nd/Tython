@@ -2,7 +2,7 @@ use anyhow::Result;
 use pyo3::prelude::*;
 
 use crate::tir::{builtin, TirExpr, TirExprKind, TirStmt, ValueType};
-use crate::{ast_get_int, ast_get_list, ast_getattr, ast_type_name};
+use crate::{ast_get_int, ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
 use crate::tir::lower::Lowering;
 
@@ -21,17 +21,12 @@ impl Lowering {
         for part in values.iter() {
             let part_kind = ast_type_name!(part);
             let part_expr = if part_kind == "Constant" {
-                let value = ast_getattr!(part, "value");
-                let s = value.extract::<String>()?;
+                let s = ast_get_string!(part, "value");
                 TirExpr {
                     kind: TirExprKind::StrLiteral(s),
                     ty: ValueType::Str,
                 }
             } else {
-                debug_assert_eq!(
-                    part_kind, "FormattedValue",
-                    "unexpected f-string segment kind"
-                );
                 self.lower_formatted_value(&part, line)?
             };
 
@@ -76,10 +71,6 @@ impl Lowering {
             None
         };
 
-        debug_assert!(
-            matches!(conversion, -1 | 115 | 114 | 97),
-            "unexpected f-string conversion code"
-        );
         if conversion == -1 {
             if let Some(spec_expr) = format_spec_expr {
                 return self.lower_fstring_apply_format_spec(line, value_expr, spec_expr);

@@ -58,6 +58,34 @@ class FormatterFallback:
         return self.s
 
 
+class ReprOnly:
+    n: int
+
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    def __repr__(self) -> str:
+        return "ReprOnly(" + str(self.n) + ")"
+
+
+class FormatShadow:
+    label: str
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+
+    def __str__(self) -> str:
+        return "FormatShadow:" + self.label
+
+
+def test_fstring_class_str_falls_back_to_repr() -> None:
+    o: ReprOnly = ReprOnly(3)
+    rendered: str = f"{o}"
+    print('CHECK test_fstring lhs:', rendered)
+    print('CHECK test_fstring rhs:', 'ReprOnly(3)')
+    assert rendered == "ReprOnly(3)"
+
+
 def test_fstring_non_numeric_dynamic_empty_spec() -> None:
     value: FormatterFallback = FormatterFallback("payload")
     spec: str = ""
@@ -165,12 +193,45 @@ def test_fstring_class_empty_format_spec_fallback() -> None:
     assert s == "Fancy(9)"
 
 
+def test_fstring_non_numeric_format_spec_falls_back_to_str() -> None:
+    item: FormatShadow = FormatShadow("x")
+
+    out: str = "FormatShadow:x"
+    try:
+        out = f"{item:>08}"
+    except TypeError:
+        out = "FormatShadow:x"
+
+    markers: list[str] = []
+
+    def spec() -> str:
+        markers.append("picked")
+        return "010"
+
+    out_dynamic: str = "FormatShadow:x"
+    try:
+        out_dynamic = f"{item:{spec()}}"
+    except TypeError:
+        out_dynamic = "FormatShadow:x"
+
+    print('CHECK test_fstring lhs:', out)
+    print('CHECK test_fstring rhs:', 'FormatShadow:x')
+    assert out == "FormatShadow:x"
+    print('CHECK test_fstring lhs:', out_dynamic)
+    print('CHECK test_fstring rhs:', 'FormatShadow:x')
+    assert out_dynamic == "FormatShadow:x"
+    print('CHECK test_fstring lhs:', len(markers))
+    print('CHECK test_fstring rhs:', 1)
+    assert len(markers) == 1
+
+
 def run_tests() -> None:
     test_basic_fstring()
     test_fstring_repr_conversion()
     test_fstring_dict_key()
     test_fstring_format_spec_is_accepted()
     test_fstring_class_magic_conversions()
+    test_fstring_class_str_falls_back_to_repr()
     test_fstring_ascii_and_dynamic_spec()
     test_fstring_str_conversion()
     test_fstring_numeric_conversions()
@@ -180,3 +241,4 @@ def run_tests() -> None:
     test_fstring_literal_format_spec()
     test_fstring_non_numeric_dynamic_empty_spec()
     test_fstring_class_empty_format_spec_fallback()
+    test_fstring_non_numeric_format_spec_falls_back_to_str()

@@ -35,6 +35,12 @@ impl Compiler {
         })
     }
 
+    pub fn check(&mut self) -> Result<()> {
+        let mut lowering = Lowering::new();
+        self.lower_modules(&mut lowering)?;
+        Ok(())
+    }
+
     pub fn compile(&mut self, output_path: PathBuf) -> Result<()> {
         let context = inkwell::context::Context::create();
         let mut codegen = Codegen::new(&context);
@@ -106,6 +112,40 @@ impl Compiler {
                         codegen.generate(func);
                     }
 
+                    colors.insert(path.to_path_buf(), ModuleColor::Black);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn lower_modules(&mut self, lowering: &mut Lowering) -> Result<()> {
+        let mut colors: HashMap<PathBuf, ModuleColor> = HashMap::new();
+        let mut stack = vec![CompileAction::Enter(self.entry_point.clone())];
+
+        while let Some(action) = stack.pop() {
+            match action {
+                CompileAction::Enter(path) => {
+                    match colors.get(&path) {
+                        Some(ModuleColor::Black) => continue,
+                        Some(ModuleColor::Gray) => {
+                            bail!("circular dependency detected: {}", path.display());
+                        }
+                        None => {}
+                    }
+
+                    colors.insert(path.clone(), ModuleColor::Gray);
+
+                    let resolved = self.resolver.resolve_imports(&path)?;
+                    stack.push(CompileAction::Compile(path, resolved.symbols));
+                    for dep in resolved.dependencies.into_iter().rev() {
+                        stack.push(CompileAction::Enter(dep));
+                    }
+                }
+                CompileAction::Compile(path, imports) => {
+                    let module_path = self.resolver.compute_module_path(&path);
+                    lowering.lower_module(&path, &module_path, &imports)?;
                     colors.insert(path.to_path_buf(), ModuleColor::Black);
                 }
             }
