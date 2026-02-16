@@ -26,26 +26,25 @@ class RightAdder:
         return other + self.value
 
 
-def test_random_native_calls() -> None:
-    random.seed(1337)
-    g1: float = random.gauss(0.0, 1.0)
-    random.seed(1337)
-    g2: float = random.gauss(0.0, 1.0)
+def test_random_class_calls() -> None:
+    rng1: random.Random = random.Random(1337)
+    g1: float = rng1.gauss(0.0, 1.0)
+    rng2: random.Random = random.Random(1337)
+    g2: float = rng2.gauss(0.0, 1.0)
     same: bool = g1 == g2
     print('CHECK test_call_paths lhs:', same)
     print('CHECK test_call_paths rhs:', True)
     assert same
 
-    xs: list[int] = [1, 2, 3, 4]
-    random.shuffle(xs)
+    rng3: random.Random = random.Random(42)
+    xs: list[str] = ["a", "b", "c", "d"]
+    rng3.shuffle(xs)
     print('CHECK test_call_paths lhs:', len(xs))
     print('CHECK test_call_paths rhs:', 4)
     assert len(xs) == 4
-    print('CHECK test_call_paths lhs:', sum(xs))
-    print('CHECK test_call_paths rhs:', 10)
-    assert sum(xs) == 10
 
-    picks: list[int] = random.choices([1, 2, 3], weights=[0.1, 0.2, 0.7])
+    rng4: random.Random = random.Random(99)
+    picks: list[int] = rng4.choices([1, 2, 3], weights=[0.1, 0.2, 0.7])
     print('CHECK test_call_paths lhs:', len(picks))
     print('CHECK test_call_paths rhs:', 1)
     assert len(picks) == 1
@@ -106,7 +105,7 @@ def test_open_read_call_path() -> None:
 
 
 def run_tests() -> None:
-    test_random_native_calls()
+    test_random_class_calls()
     test_keyword_binding_still_works()
     test_math_native_calls()
     test_sum_generator_fast_path()

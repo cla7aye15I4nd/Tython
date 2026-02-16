@@ -163,8 +163,8 @@ impl Resolver {
         anyhow::bail!("failed to resolve import `{}`", import)
     }
 
-    fn is_native_module(import: &str) -> bool {
-        matches!(import, "random")
+    fn is_native_module(_import: &str) -> bool {
+        false
     }
 
     fn is_native_module_path(path: &Path) -> bool {

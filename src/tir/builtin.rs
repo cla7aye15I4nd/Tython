@@ -50,12 +50,6 @@ define_builtins! {
     MaxListInt    => "__tython_max_list_int",   params: [ValueType::List(Box::new(ValueType::Int))], ret: Some(ValueType::Int);
     MaxListFloat  => "__tython_max_list_float", params: [ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::Float);
     RoundFloat    => "__tython_round_float",    params: [ValueType::Float],                        ret: Some(ValueType::Int);
-    MathLog       => "__tython_math_log",       params: [ValueType::Float],                        ret: Some(ValueType::Float);
-    MathExp       => "__tython_math_exp",       params: [ValueType::Float],                        ret: Some(ValueType::Float);
-    RandomSeed    => "__tython_random_seed",    params: [ValueType::Int],                          ret: None;
-    RandomGauss   => "__tython_random_gauss",   params: [ValueType::Float, ValueType::Float],      ret: Some(ValueType::Float);
-    RandomShuffle => "__tython_random_shuffle", params: [ValueType::List(Box::new(ValueType::Int))], ret: None;
-    RandomChoicesInt => "__tython_random_choices_int", params: [ValueType::List(Box::new(ValueType::Int)), ValueType::List(Box::new(ValueType::Float))], ret: Some(ValueType::List(Box::new(ValueType::Int)));
     Range1        => "__tython_range_1",        params: [ValueType::Int],                          ret: Some(ValueType::List(Box::new(ValueType::Int)));
     Range2        => "__tython_range_2",        params: [ValueType::Int, ValueType::Int],          ret: Some(ValueType::List(Box::new(ValueType::Int)));
     Range3        => "__tython_range_3",        params: [ValueType::Int, ValueType::Int, ValueType::Int], ret: Some(ValueType::List(Box::new(ValueType::Int)));

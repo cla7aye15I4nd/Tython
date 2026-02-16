@@ -156,16 +156,6 @@ impl Lowering {
         if ast_type_name!(value_node) == "Name" {
             let name = ast_get_string!(value_node, "id");
             if let Some(Type::Module(mod_path)) = self.lookup(&name).cloned() {
-                if mod_path == "random" {
-                    return Ok(ResolvedCall {
-                        callee: ResolvedCallee::NativeModuleFunction {
-                            module: mod_path,
-                            attr,
-                        },
-                        args,
-                    });
-                }
-
                 let resolved = format!("{}${}", mod_path, attr);
                 if let Some(class_info) = self.class_registry.get(&resolved).cloned() {
                     return Ok(ResolvedCall {
@@ -259,13 +249,6 @@ impl Lowering {
                     resolved.args.positional,
                 )
             }
-            ResolvedCallee::NativeModuleFunction { module, attr } => self.lower_native_module_call(
-                line,
-                &module,
-                &attr,
-                resolved.args.positional,
-                resolved.args.keyword,
-            ),
             ResolvedCallee::ClassMethod {
                 object,
                 class_name,
@@ -470,37 +453,26 @@ impl Lowering {
             )
         })?;
 
-        if !args.keyword.is_empty() {
-            return Err(self.syntax_error(line, "method keyword arguments are not supported"));
-        }
-        if args.positional.len() != method.params.len() {
-            return Err(self.type_error(
-                line,
-                format!(
-                    "{}.{}() expects {} argument{}, got {}",
-                    class_name,
-                    method_name,
-                    method.params.len(),
-                    if method.params.len() == 1 { "" } else { "s" },
-                    args.positional.len()
-                ),
-            ));
-        }
-        for (i, (arg, expected)) in args.positional.iter().zip(method.params.iter()).enumerate() {
-            let expected_vty = self.value_type_from_type(expected);
-            if arg.ty != expected_vty {
-                return Err(self.type_error(
-                    line,
-                    format!(
-                        "argument {} type mismatch in {}.{}(): expected `{}`, got `{}`",
-                        i, class_name, method_name, expected, arg.ty
-                    ),
-                ));
-            }
-        }
+        let display = format!("{}.{}", class_name, method_name);
+        let func_type = Type::Function {
+            params: method.params.clone(),
+            return_type: Box::new(method.return_type.clone()),
+        };
+
+        let bound_args = self.bind_user_function_args(
+            line,
+            &display,
+            &method.mangled_name,
+            &func_type,
+            args.positional,
+            args.keyword,
+        )?;
+
+        let bound_args = self.coerce_args_to_param_types(bound_args, &method.params);
+        self.check_call_args(line, &display, &func_type, &bound_args)?;
 
         let mut all_args = vec![object];
-        all_args.extend(args.positional);
+        all_args.extend(bound_args);
         Ok(self.build_named_call_result(
             method.mangled_name.clone(),
             method.return_type.clone(),

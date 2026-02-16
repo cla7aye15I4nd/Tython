@@ -4,7 +4,6 @@ use crate::tir::TirExpr;
 mod bind;
 pub mod builtin_call;
 mod emit;
-mod native;
 mod resolve;
 
 #[derive(Clone)]
@@ -24,10 +23,6 @@ pub(super) enum ResolvedCallee {
     Constructor {
         qualified_name: String,
         class_info: ClassInfo,
-    },
-    NativeModuleFunction {
-        module: String,
-        attr: String,
     },
     ClassMethod {
         object: TirExpr,

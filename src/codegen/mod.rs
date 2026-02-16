@@ -133,7 +133,6 @@ impl<'ctx> Codegen<'ctx> {
             .status()
             .expect("Failed to execute llvm-as");
         assert!(as_status.success(), "llvm-as failed");
-        std::fs::remove_file(&ll_path).ok();
 
         let mut cmd = Command::new("clang++");
         cmd.arg("-static")
@@ -142,19 +141,19 @@ impl<'ctx> Codegen<'ctx> {
             .arg("-o")
             .arg(output_path)
             .arg(&bc_path)
-            .arg(Self::RUNTIME_BC_BOEHM);
-
-        // Add libraries AFTER object files (linking order matters)
-        cmd.arg("-lm");
-
-        cmd.arg("-lgc");
-
-        cmd.arg("-lpthread").arg("-ldl");
+            .arg(Self::RUNTIME_BC_BOEHM)
+            .arg("-lgc")
+            .arg("-lm")
+            .arg("-lpthread")
+            .arg("-ldl");
 
         let output = cmd.output().expect("Failed to execute clang++");
         if !output.status.success() {
-            eprintln!("Linker error:\n{}", String::from_utf8_lossy(&output.stderr));
-            panic!("Failed to link with runtime");
+            eprintln!(
+                "clang++ linking failed:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            panic!("clang++ linking failed");
         }
     }
 }
