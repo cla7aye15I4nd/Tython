@@ -82,7 +82,8 @@ def test_sum_generator_fast_path() -> None:
 
 
 def test_sum_class_list_special_case() -> None:
-    total: Acc = sum([Acc(1), Acc(2), Acc(3)], Acc(10))
+    values: list[Acc] = [Acc(1), Acc(2), Acc(3)]
+    total: Acc = sum(values, Acc(10))
     print('CHECK test_call_paths lhs:', total.value)
     print('CHECK test_call_paths rhs:', 16)
     assert total.value == 16
@@ -107,7 +108,6 @@ def test_open_read_call_path() -> None:
     print('CHECK test_call_paths lhs:', len(content) > 0)
     print('CHECK test_call_paths rhs:', True)
     assert (len(content) > 0) == True
-
 
 def run_tests() -> None:
     test_random_class_calls()

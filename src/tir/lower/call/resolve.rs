@@ -8,7 +8,7 @@ use crate::ast::Type;
 use crate::tir::{CallResult, IntrinsicOp, TirExpr, TirExprKind, ValueType};
 use crate::{ast_get_list, ast_get_string, ast_getattr, ast_type_name};
 
-use super::builtin_call::is_builtin_call;
+use super::builtin_call::{builtin_call_error_message, is_builtin_call};
 
 use super::super::Lowering;
 use super::{NormalizedCallArgs, ResolvedCall, ResolvedCallee};
@@ -342,21 +342,13 @@ impl Lowering {
             if positional_args.len() != 1 {
                 return Err(self.type_error(
                     line,
-                    format!(
-                        "sorted() expects exactly 1 argument, got {}",
-                        positional_args.len()
-                    ),
+                    builtin_call_error_message(name, &[], positional_args.len()),
                 ));
             }
             let list_arg = positional_args.remove(0);
             let ValueType::List(inner) = &list_arg.ty else {
-                return Err(self.type_error(
-                    line,
-                    format!(
-                        "sorted() requires a list whose elements support ordering (`__lt__`), got `{}`",
-                        list_arg.ty
-                    ),
-                ));
+                let arg_types: [&ValueType; 1] = [&list_arg.ty];
+                return Err(self.type_error(line, builtin_call_error_message(name, &arg_types, 1)));
             };
             self.require_list_leaf_lt_support(line, inner)?;
             let sorted_ty = ValueType::List(inner.clone());

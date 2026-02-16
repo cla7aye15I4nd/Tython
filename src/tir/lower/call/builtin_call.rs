@@ -48,14 +48,11 @@ pub fn builtin_call_error_message(name: &str, arg_types: &[&ValueType], provided
             }
         }
         "repr" => {
-            if provided != 1 {
-                format!("repr() expects exactly 1 argument, got {}", provided)
-            } else {
-                format!(
-                    "repr() requires a class with `__repr__() -> str` or a str/numeric/bool value, got `{}`",
-                    arg_types[0]
-                )
-            }
+            debug_assert_ne!(
+                provided, 1,
+                "single-argument repr() calls are handled in lower_builtin_call"
+            );
+            format!("repr() expects exactly 1 argument, got {}", provided)
         }
         "bytearray" => {
             if provided > 1 {
@@ -68,14 +65,11 @@ pub fn builtin_call_error_message(name: &str, arg_types: &[&ValueType], provided
             format!("{}() expects no arguments, got {}", name, provided)
         }
         "len" => {
-            if provided != 1 {
-                format!("len() expects exactly 1 argument, got {}", provided)
-            } else {
-                format!(
-                    "len() requires a `str`, `bytes`, `bytearray`, `list`, `dict`, `set`, `tuple`, or a class with `__len__() -> int`, got `{}`",
-                    arg_types[0]
-                )
-            }
+            debug_assert_ne!(
+                provided, 1,
+                "single-argument len() calls are handled in lower_builtin_call"
+            );
+            format!("len() expects exactly 1 argument, got {}", provided)
         }
         "abs" => {
             if provided != 1 {
@@ -456,22 +450,6 @@ impl Lowering {
             ("any", [ValueType::List(_)]) => Some((BuiltinFn::AnyList, ValueType::Bool)),
 
             // ── sorted / reversed ────────────────────────────────────
-            ("sorted", [ValueType::List(inner)]) => {
-                let sorted_fn = match inner.as_ref() {
-                    ValueType::Int | ValueType::Bool => BuiltinFn::SortedInt,
-                    ValueType::Float => BuiltinFn::SortedFloat,
-                    ValueType::Str => BuiltinFn::SortedStr,
-                    ValueType::Bytes => BuiltinFn::SortedBytes,
-                    ValueType::ByteArray => BuiltinFn::SortedByteArray,
-                    _ => {
-                        return Err(self.type_error(
-                            line,
-                            builtin_call_error_message(name, &arg_types, provided),
-                        ));
-                    }
-                };
-                Some((sorted_fn, ValueType::List(inner.clone())))
-            }
             ("reversed", [ValueType::List(inner)]) => {
                 Some((BuiltinFn::ReversedList, ValueType::List(inner.clone())))
             }
@@ -528,19 +506,20 @@ impl Lowering {
         arg: TirExpr,
     ) -> Result<TirExpr> {
         let arg_ty = arg.ty.clone();
-        match self.lower_builtin_call(line, name, vec![arg]) {
-            Ok(CallResult::Expr(expr)) => Ok(expr),
-            Ok(CallResult::VoidStmt(_)) => Err(self.type_error(
-                line,
-                format!("f-string conversion `{}` produced no value", name),
-            )),
-            Err(_) => Err(self.type_error(
-                line,
-                format!(
-                    "f-string conversion `{}` is not defined for type `{}`",
-                    name, arg_ty
-                ),
-            )),
-        }
+        let call = self
+            .lower_builtin_call(line, name, vec![arg])
+            .map_err(|_| {
+                self.type_error(
+                    line,
+                    format!(
+                        "f-string conversion `{}` is not defined for type `{}`",
+                        name, arg_ty
+                    ),
+                )
+            })?;
+        let CallResult::Expr(expr) = call else {
+            unreachable!("f-string conversion should always lower to an expression");
+        };
+        Ok(expr)
     }
 }

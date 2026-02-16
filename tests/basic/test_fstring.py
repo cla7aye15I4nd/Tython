@@ -48,6 +48,25 @@ class Fancy:
         return "Fancy<" + str(self.n) + ">"
 
 
+class FormatterFallback:
+    s: str
+
+    def __init__(self, s: str) -> None:
+        self.s = s
+
+    def __str__(self) -> str:
+        return self.s
+
+
+def test_fstring_non_numeric_dynamic_empty_spec() -> None:
+    value: FormatterFallback = FormatterFallback("payload")
+    spec: str = ""
+    rendered: str = f"{value:{spec}}"
+    print('CHECK test_fstring lhs:', rendered)
+    print('CHECK test_fstring rhs:', 'payload')
+    assert rendered == "payload"
+
+
 def test_fstring_class_magic_conversions() -> None:
     f: Fancy = Fancy(9)
     s1: str = f"{f}"
@@ -73,6 +92,63 @@ def test_fstring_ascii_and_dynamic_spec() -> None:
     assert s2 == "  12"
 
 
+def test_fstring_str_conversion() -> None:
+    f: Fancy = Fancy(7)
+    converted: str = f"{f!s}"
+    print('CHECK test_fstring lhs:', converted)
+    print('CHECK test_fstring rhs:', 'Fancy(7)')
+    assert converted == "Fancy(7)"
+
+
+def test_fstring_numeric_conversions() -> None:
+    number: int = 5
+    as_str: str = f"{number!s}"
+    as_repr: str = f"{number!r}"
+    print('CHECK test_fstring lhs:', as_str)
+    print('CHECK test_fstring rhs:', '5')
+    assert as_str == "5"
+    print('CHECK test_fstring lhs:', as_repr)
+    print('CHECK test_fstring rhs:', '5')
+    assert as_repr == "5"
+
+
+def test_fstring_ascii_conversion() -> None:
+    number: int = 12
+    converted: str = f"{number!a}"
+    print('CHECK test_fstring lhs:', converted)
+    print('CHECK test_fstring rhs:', '12')
+    assert converted == "12"
+
+
+def test_fstring_float_dynamic_format_spec() -> None:
+    value: float = 1.2345
+
+    def format_spec() -> str:
+        return "06.2f"
+
+    rendered: str = f"{value:{format_spec()}}"
+    print('CHECK test_fstring lhs:', rendered)
+    print('CHECK test_fstring rhs:', '001.23')
+    assert rendered == "001.23"
+
+
+def test_fstring_format_spec_side_effects() -> None:
+    markers: list[str] = []
+    i: int = 7
+
+    def choose_spec() -> str:
+        markers.append("spec")
+        return "03d"
+
+    formatted: str = f"{i:{choose_spec()}}"
+    print('CHECK test_fstring lhs:', formatted)
+    print('CHECK test_fstring rhs:', '007')
+    assert formatted == "007"
+    print('CHECK test_fstring lhs:', len(markers))
+    print('CHECK test_fstring rhs:', 1)
+    assert len(markers) == 1
+
+
 def test_fstring_literal_format_spec() -> None:
     n: int = 7
     s: str = f"{n:03d}"
@@ -96,5 +172,11 @@ def run_tests() -> None:
     test_fstring_format_spec_is_accepted()
     test_fstring_class_magic_conversions()
     test_fstring_ascii_and_dynamic_spec()
+    test_fstring_str_conversion()
+    test_fstring_numeric_conversions()
+    test_fstring_ascii_conversion()
+    test_fstring_float_dynamic_format_spec()
+    test_fstring_format_spec_side_effects()
     test_fstring_literal_format_spec()
+    test_fstring_non_numeric_dynamic_empty_spec()
     test_fstring_class_empty_format_spec_fallback()

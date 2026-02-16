@@ -5,6 +5,7 @@ from collection.test_runner import run_all_tests as run_all_collection_tests
 from basic import test_runner
 
 if __name__ == "__main__":
+    _ = open("main.py").read()
     run_all_collection_tests()
     test_runner.run_all_tests()
     run_all_class_tests()
