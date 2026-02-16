@@ -28,7 +28,7 @@ impl Lowering {
                         field_map: HashMap::new(),
                     },
                 );
-                self.declare(raw_name, Type::Class(qualified.clone()));
+                self.declare_non_capture_symbol(raw_name, Type::Class(qualified.clone()));
                 // Recurse into nested classes
                 let nested_body = ast_get_list!(node, "body");
                 self.discover_classes(&nested_body, &qualified)?;
@@ -153,17 +153,13 @@ impl Lowering {
                     let value_node = ast_getattr!(item, "value");
                     if ast_type_name!(value_node) == "Constant" {
                         let value = ast_getattr!(value_node, "value");
-                        let type_name = value.get_type().name().map_err(|_| {
-                            self.syntax_error(
-                                Self::get_line(&item),
-                                "failed to get constant type name",
-                            )
-                        })?;
+                        let is_ellipsis = value
+                            .get_type()
+                            .name()
+                            .is_ok_and(|type_name| type_name == "ellipsis");
 
                         // Allow ellipsis and string literals (docstrings) in class body
-                        if type_name == "ellipsis"
-                            || value.is_instance_of::<pyo3::types::PyString>()
-                        {
+                        if is_ellipsis || value.is_instance_of::<pyo3::types::PyString>() {
                             // These are allowed in class body but don't generate code
                             continue;
                         }

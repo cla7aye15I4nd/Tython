@@ -1,3 +1,10 @@
+class CaptureBox:
+    value: int
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+
 def test_nested_direct_call() -> None:
     def add_one(x: int) -> int:
         return x + 1
@@ -99,6 +106,17 @@ def test_nested_sibling_capture_from_parent() -> None:
     assert orchestrate(3) == 54
 
 
+def test_nested_captures_class_instance() -> None:
+    box: CaptureBox = CaptureBox(7)
+
+    def read() -> int:
+        return box.value
+
+    print('CHECK test_nested_function lhs:', read())
+    print('CHECK test_nested_function rhs:', 7)
+    assert read() == 7
+
+
 def run_tests() -> None:
     test_nested_direct_call()
     test_nested_with_multiple_params()
@@ -107,3 +125,4 @@ def run_tests() -> None:
     test_nested_captures_value()
     test_nested_deep_capture_chain()
     test_nested_sibling_capture_from_parent()
+    test_nested_captures_class_instance()

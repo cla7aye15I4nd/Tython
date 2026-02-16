@@ -1,64 +1,10 @@
 use anyhow::Result;
 
-use crate::ast::Type;
 use crate::tir::{
     ArithBinOp, BitwiseBinOp, CallResult, CastKind, RawBinOp, TirExpr, TirExprKind, ValueType,
 };
 
 use crate::tir::lower::Lowering;
-
-// ── Validation (used by integration tests) ───────────────────────────
-
-/// Check whether a binary operation is valid for the given operand types.
-pub fn is_valid_binop(op: RawBinOp, left: &Type, right: &Type) -> bool {
-    use Type::*;
-
-    // Primitive arithmetic/bitwise (int, float)
-    match op {
-        RawBinOp::Bitwise(_) => {
-            if matches!((left, right), (Int, Int)) {
-                return true;
-            }
-        }
-        RawBinOp::Arith(_) => {
-            if matches!(
-                (left, right),
-                (Int, Int) | (Float, Float) | (Int, Float) | (Float, Int)
-            ) {
-                return true;
-            }
-        }
-    }
-
-    // Method-dispatched operations (ref types with dunder methods)
-    has_method_binop(op, left, right)
-}
-
-/// Check whether a binary operation is supported via dunder method dispatch
-/// for builtin ref types.
-fn has_method_binop(op: RawBinOp, left: &Type, right: &Type) -> bool {
-    use Type::*;
-    match op {
-        RawBinOp::Arith(ArithBinOp::Add) => {
-            matches!(
-                (left, right),
-                (Str, Str) | (Bytes, Bytes) | (ByteArray, ByteArray)
-            ) || matches!((left, right), (List(a), List(b)) if a == b)
-        }
-        RawBinOp::Arith(ArithBinOp::Mul) => matches!(
-            (left, right),
-            (Str, Int)
-                | (Int, Str)
-                | (Bytes, Int)
-                | (Int, Bytes)
-                | (ByteArray, Int)
-                | (Int, ByteArray)
-                | (List(_), Int)
-                | (Int, List(_))
-        ),
-        _ => false,
-    }
-}
 
 // ── Helpers for constructing TIR expression kinds ────────────────────
 

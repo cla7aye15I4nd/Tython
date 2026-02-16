@@ -19,22 +19,20 @@ impl Lowering {
         };
 
         for part in values.iter() {
-            let part_expr = match ast_type_name!(part).as_str() {
-                "Constant" => {
-                    let value = ast_getattr!(part, "value");
-                    let s = value.extract::<String>().map_err(|_| {
-                        self.syntax_error(line, "f-string constants must be string literals")
-                    })?;
-                    TirExpr {
-                        kind: TirExprKind::StrLiteral(s),
-                        ty: ValueType::Str,
-                    }
+            let part_kind = ast_type_name!(part);
+            let part_expr = if part_kind == "Constant" {
+                let value = ast_getattr!(part, "value");
+                let s = value.extract::<String>()?;
+                TirExpr {
+                    kind: TirExprKind::StrLiteral(s),
+                    ty: ValueType::Str,
                 }
-                "FormattedValue" => self.lower_formatted_value(&part, line)?,
-                other => {
-                    return Err(self
-                        .syntax_error(line, format!("unsupported f-string segment `{}`", other)))
-                }
+            } else {
+                debug_assert_eq!(
+                    part_kind, "FormattedValue",
+                    "unexpected f-string segment kind"
+                );
+                self.lower_formatted_value(&part, line)?
             };
 
             result = TirExpr {
@@ -60,16 +58,7 @@ impl Lowering {
         // Parse and evaluate format spec for compatibility, but ignore formatting details for now.
         let format_spec = ast_getattr!(node, "format_spec");
         if !format_spec.is_none() {
-            let spec_expr = match ast_type_name!(format_spec).as_str() {
-                "JoinedStr" => self.lower_joined_str(&format_spec, line)?,
-                "Constant" => self.lower_expr(&format_spec)?,
-                other => {
-                    return Err(self.syntax_error(
-                        line,
-                        format!("unsupported f-string format spec `{}`", other),
-                    ))
-                }
-            };
+            let spec_expr = self.lower_expr(&format_spec)?;
             if spec_expr.ty != ValueType::Str {
                 return Err(self.type_error(
                     line,
@@ -84,14 +73,16 @@ impl Lowering {
             });
         }
 
-        match conversion {
-            -1 | 115 => self.lower_fstring_convert(line, "str", value_expr),
-            114 | 97 => self.lower_fstring_convert(line, "repr", value_expr),
-            other => Err(self.syntax_error(
-                line,
-                format!("unsupported f-string conversion code `{}`", other),
-            )),
-        }
+        debug_assert!(
+            matches!(conversion, -1 | 115 | 114 | 97),
+            "unexpected f-string conversion code"
+        );
+        let conv = if matches!(conversion, -1 | 115) {
+            "str"
+        } else {
+            "repr"
+        };
+        self.lower_fstring_convert(line, conv, value_expr)
     }
 
     fn lower_fstring_convert(&mut self, line: usize, name: &str, arg: TirExpr) -> Result<TirExpr> {

@@ -2,6 +2,7 @@ use anyhow::Result;
 use pyo3::prelude::*;
 
 use super::unaryops::class_unary_magic;
+use crate::ast::Type;
 use crate::tir::{
     builtin, CallResult, CallTarget, IntrinsicOp, LogicalOp, TirExpr, TirExprKind, TirStmt,
     ValueType,
@@ -56,6 +57,13 @@ impl Lowering {
                     .lookup(&id)
                     .cloned()
                     .ok_or_else(|| self.name_error(line, format!("undefined variable `{}`", id)))?;
+
+                if matches!(ty, Type::Module(_)) {
+                    return Err(self.type_error(
+                        line,
+                        format!("module `{}` cannot be used as a value expression", ty),
+                    ));
+                }
 
                 let vty = self.value_type_from_type(&ty);
                 Ok(TirExpr {

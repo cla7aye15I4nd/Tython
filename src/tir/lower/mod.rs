@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyModule};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::{
@@ -43,6 +43,7 @@ pub struct Lowering {
     current_module_name: String,
     current_return_type: Option<Type>,
     scopes: Vec<HashMap<String, Type>>,
+    non_capture_scopes: Vec<HashSet<String>>,
     current_file: String,
     source_lines: Vec<String>,
     current_function_name: Option<String>,
@@ -101,6 +102,7 @@ impl Lowering {
             current_module_name: String::new(),
             current_return_type: None,
             scopes: Vec::new(),
+            non_capture_scopes: Vec::new(),
             current_file: String::new(),
             source_lines: Vec::new(),
             current_function_name: None,
@@ -146,14 +148,21 @@ impl Lowering {
 
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
+        self.non_capture_scopes.push(HashSet::new());
     }
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
+        self.non_capture_scopes.pop();
     }
 
     fn declare(&mut self, name: String, ty: Type) {
         self.scopes.last_mut().unwrap().insert(name, ty);
+    }
+
+    fn declare_non_capture_symbol(&mut self, name: String, ty: Type) {
+        self.declare(name.clone(), ty);
+        self.non_capture_scopes.last_mut().unwrap().insert(name);
     }
 
     fn fresh_internal(&mut self, prefix: &str) -> String {
@@ -471,6 +480,7 @@ impl Lowering {
         imports: &HashMap<String, Type>,
     ) -> Result<TirModule> {
         self.scopes.clear();
+        self.non_capture_scopes.clear();
         self.current_return_type = None;
         self.current_module_name = module_name.to_string();
         self.current_file = canonical_path.display().to_string();

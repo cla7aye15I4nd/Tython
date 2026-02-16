@@ -83,7 +83,7 @@ impl Lowering {
                 field_map: HashMap::new(),
             },
         );
-        self.declare(raw_name, Type::Class(qualified.clone()));
+        self.declare_non_capture_symbol(raw_name, Type::Class(qualified.clone()));
 
         let body = ast_get_list!(node, "body");
         self.discover_classes(&body, &qualified)?;
@@ -157,16 +157,18 @@ impl Lowering {
         // Capture visible outer variables as hidden parameters for this lifted function.
         let mut captures: Vec<(String, Type)> = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for scope in self.scopes.iter().rev() {
+        for (scope_idx, scope) in self.scopes.iter().enumerate().rev() {
+            let non_capture = &self.non_capture_scopes[scope_idx];
             for (k, v) in scope {
-                if seen.contains(k) || explicit_param_name_set.contains(k) || k == &name {
+                if non_capture.contains(k)
+                    || seen.contains(k)
+                    || explicit_param_name_set.contains(k)
+                    || k == &name
+                {
                     continue;
                 }
-                // Skip function and class types - these are not runtime values that need capturing
-                if matches!(
-                    v,
-                    crate::ast::Type::Function { .. } | crate::ast::Type::Class(_)
-                ) {
+                // Skip function types - these are not runtime values that need capturing.
+                if matches!(v, crate::ast::Type::Function { .. }) {
                     continue;
                 }
                 // Only capture actual runtime variables

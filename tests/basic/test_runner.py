@@ -53,9 +53,12 @@ import basic.test_function_call_args as test_function_call_args
 import basic.test_fstring as test_fstring
 import basic.test_call_paths as test_call_paths
 import basic.test_pass_ellipsis_docstring as test_pass_ellipsis_docstring
+import basic.test_class_pass_body as test_class_pass_body
 import basic.test_iteration_no_exceptions as test_iteration_no_exceptions
 import basic.test_iteration_performance as test_iteration_performance
 import basic.test_iteration_edge_cases as test_iteration_edge_cases
+import basic.test_builtin_iter_next as test_builtin_iter_next
+import basic.test_builtin_magic_dispatch as test_builtin_magic_dispatch
 
 
 def run_all_tests() -> None:
@@ -114,6 +117,9 @@ def run_all_tests() -> None:
     test_fstring.run_tests()
     test_call_paths.run_tests()
     test_pass_ellipsis_docstring.run_tests()
+    test_class_pass_body.run_tests()
     test_iteration_no_exceptions.run_tests()
     test_iteration_performance.run_tests()
     test_iteration_edge_cases.run_tests()
+    test_builtin_iter_next.run_tests()
+    test_builtin_magic_dispatch.run_tests()
