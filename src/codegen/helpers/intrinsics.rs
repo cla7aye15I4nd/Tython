@@ -2,7 +2,9 @@ use inkwell::values::BasicValueEnum;
 use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::tir::builtin::BuiltinFn;
-use crate::tir::{intrinsic_tag, IntrinsicInstance, IntrinsicOp, TirExpr, ValueType};
+use crate::tir::{
+    intrinsic_tag, CmpIntrinsicOp, IntrinsicInstance, IntrinsicOp, TirExpr, ValueType,
+};
 
 use super::super::Codegen;
 
@@ -31,7 +33,7 @@ impl<'ctx> Codegen<'ctx> {
 
     pub(crate) fn codegen_intrinsic_cmp(
         &mut self,
-        op: IntrinsicOp,
+        op: CmpIntrinsicOp,
         lhs: &TirExpr,
         rhs: &TirExpr,
     ) -> BasicValueEnum<'ctx> {
@@ -39,11 +41,10 @@ impl<'ctx> Codegen<'ctx> {
         let rhs_val = self.codegen_expr(rhs);
         let lhs_slot = self.bitcast_to_i64(lhs_val, &lhs.ty);
         let rhs_slot = self.bitcast_to_i64(rhs_val, &rhs.ty);
-        let tag = intrinsic_tag(op, &lhs.ty);
+        let tag = intrinsic_tag(op.into(), &lhs.ty);
         let symbol = match op {
-            IntrinsicOp::Eq => "__tython_intrinsic_eq",
-            IntrinsicOp::Lt => "__tython_intrinsic_lt",
-            IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
+            CmpIntrinsicOp::Eq => "__tython_intrinsic_eq",
+            CmpIntrinsicOp::Lt => "__tython_intrinsic_lt",
         };
         let f = self.get_or_declare_function(
             symbol,
@@ -71,7 +72,7 @@ impl<'ctx> Codegen<'ctx> {
 
     fn emit_intrinsic_compare_dispatcher(
         &mut self,
-        op: IntrinsicOp,
+        op: CmpIntrinsicOp,
         symbol: &str,
         cases: &[(i64, ValueType)],
     ) {
@@ -138,8 +139,16 @@ impl<'ctx> Codegen<'ctx> {
             .map(|(tag, ty)| (*tag, ty.clone()))
             .collect::<Vec<_>>();
         str_cases.sort_by_key(|(tag, _)| *tag);
-        self.emit_intrinsic_compare_dispatcher(IntrinsicOp::Eq, "__tython_intrinsic_eq", &eq_cases);
-        self.emit_intrinsic_compare_dispatcher(IntrinsicOp::Lt, "__tython_intrinsic_lt", &lt_cases);
+        self.emit_intrinsic_compare_dispatcher(
+            CmpIntrinsicOp::Eq,
+            "__tython_intrinsic_eq",
+            &eq_cases,
+        );
+        self.emit_intrinsic_compare_dispatcher(
+            CmpIntrinsicOp::Lt,
+            "__tython_intrinsic_lt",
+            &lt_cases,
+        );
         // Hash dispatcher uses the same eq_tag values — needed by set/dict by_tag operations
         self.emit_intrinsic_hash_dispatcher("__tython_intrinsic_hash", &eq_cases);
         self.emit_intrinsic_str_dispatcher("__tython_intrinsic_str", &str_cases);
@@ -225,7 +234,7 @@ impl<'ctx> Codegen<'ctx> {
 
     fn intrinsic_compare_slots(
         &mut self,
-        op: IntrinsicOp,
+        op: CmpIntrinsicOp,
         ty: &ValueType,
         lhs_slot: inkwell::values::IntValue<'ctx>,
         rhs_slot: inkwell::values::IntValue<'ctx>,
@@ -233,9 +242,8 @@ impl<'ctx> Codegen<'ctx> {
         match ty {
             ValueType::Int | ValueType::Bool => {
                 let pred = match op {
-                    IntrinsicOp::Eq => IntPredicate::EQ,
-                    IntrinsicOp::Lt => IntPredicate::SLT,
-                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
+                    CmpIntrinsicOp::Eq => IntPredicate::EQ,
+                    CmpIntrinsicOp::Lt => IntPredicate::SLT,
                 };
                 emit!(self.build_int_compare(pred, lhs_slot, rhs_slot, "intrinsic_int_cmp"))
             }
@@ -245,14 +253,13 @@ impl<'ctx> Codegen<'ctx> {
                 let rhs = emit!(self.build_bit_cast(rhs_slot, self.f64_type(), "rhs_f"))
                     .into_float_value();
                 let pred = match op {
-                    IntrinsicOp::Eq => FloatPredicate::OEQ,
-                    IntrinsicOp::Lt => FloatPredicate::OLT,
-                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
+                    CmpIntrinsicOp::Eq => FloatPredicate::OEQ,
+                    CmpIntrinsicOp::Lt => FloatPredicate::OLT,
                 };
                 emit!(self.build_float_compare(pred, lhs, rhs, "intrinsic_float_cmp"))
             }
             ValueType::Str => match op {
-                IntrinsicOp::Eq => {
+                CmpIntrinsicOp::Eq => {
                     let lhs = self.bitcast_from_i64(lhs_slot, &ValueType::Str);
                     let rhs = self.bitcast_from_i64(rhs_slot, &ValueType::Str);
                     let eq_fn = self.get_builtin(BuiltinFn::StrEq);
@@ -269,7 +276,7 @@ impl<'ctx> Codegen<'ctx> {
                         "intrinsic_str_eq_b"
                     ))
                 }
-                IntrinsicOp::Lt => {
+                CmpIntrinsicOp::Lt => {
                     let lhs = self.bitcast_from_i64(lhs_slot, &ValueType::Str);
                     let rhs = self.bitcast_from_i64(rhs_slot, &ValueType::Str);
                     let cmp_fn = self.get_builtin(BuiltinFn::StrCmp);
@@ -286,10 +293,9 @@ impl<'ctx> Codegen<'ctx> {
                         "intrinsic_str_lt"
                     ))
                 }
-                IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
             },
             ValueType::Bytes => match op {
-                IntrinsicOp::Eq => {
+                CmpIntrinsicOp::Eq => {
                     let lhs = self.bitcast_from_i64(lhs_slot, &ValueType::Bytes);
                     let rhs = self.bitcast_from_i64(rhs_slot, &ValueType::Bytes);
                     let eq_fn = self.get_builtin(BuiltinFn::BytesEq);
@@ -306,7 +312,7 @@ impl<'ctx> Codegen<'ctx> {
                         "intrinsic_bytes_eq_b"
                     ))
                 }
-                IntrinsicOp::Lt => {
+                CmpIntrinsicOp::Lt => {
                     let lhs = self.bitcast_from_i64(lhs_slot, &ValueType::Bytes);
                     let rhs = self.bitcast_from_i64(rhs_slot, &ValueType::Bytes);
                     let cmp_fn = self.get_builtin(BuiltinFn::BytesCmp);
@@ -323,10 +329,9 @@ impl<'ctx> Codegen<'ctx> {
                         "intrinsic_bytes_lt"
                     ))
                 }
-                IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
             },
             ValueType::ByteArray => match op {
-                IntrinsicOp::Eq => {
+                CmpIntrinsicOp::Eq => {
                     let lhs = self.bitcast_from_i64(lhs_slot, &ValueType::ByteArray);
                     let rhs = self.bitcast_from_i64(rhs_slot, &ValueType::ByteArray);
                     let eq_fn = self.get_builtin(BuiltinFn::ByteArrayEq);
@@ -340,7 +345,7 @@ impl<'ctx> Codegen<'ctx> {
                         "intrinsic_ba_eq_b"
                     ))
                 }
-                IntrinsicOp::Lt => {
+                CmpIntrinsicOp::Lt => {
                     let lhs = self.bitcast_from_i64(lhs_slot, &ValueType::ByteArray);
                     let rhs = self.bitcast_from_i64(rhs_slot, &ValueType::ByteArray);
                     let cmp_fn = self.get_builtin(BuiltinFn::ByteArrayCmp);
@@ -357,12 +362,11 @@ impl<'ctx> Codegen<'ctx> {
                         "intrinsic_ba_lt"
                     ))
                 }
-                IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
             },
             ValueType::Class(class_name) => {
                 let class_ty = ValueType::Class(class_name.clone());
                 match op {
-                    IntrinsicOp::Eq => {
+                    CmpIntrinsicOp::Eq => {
                         let eq_name = format!("{}$__eq__", class_name);
                         if let Some(eq_fn) = self.module.get_function(&eq_name) {
                             let lhs = self.bitcast_from_i64(lhs_slot, &class_ty);
@@ -383,7 +387,7 @@ impl<'ctx> Codegen<'ctx> {
                             ))
                         }
                     }
-                    IntrinsicOp::Lt => {
+                    CmpIntrinsicOp::Lt => {
                         let lhs = self.bitcast_from_i64(lhs_slot, &class_ty);
                         let rhs = self.bitcast_from_i64(rhs_slot, &class_ty);
                         let lt_name = format!("{}$__lt__", class_name);
@@ -399,18 +403,16 @@ impl<'ctx> Codegen<'ctx> {
                         ));
                         self.extract_call_value(call).into_int_value()
                     }
-                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
                 }
             }
             ValueType::List(inner) => {
                 let list_ty = ValueType::List(Box::new((**inner).clone()));
                 let lhs = self.bitcast_from_i64(lhs_slot, &list_ty);
                 let rhs = self.bitcast_from_i64(rhs_slot, &list_ty);
-                let child_tag = intrinsic_tag(op, inner);
+                let child_tag = intrinsic_tag(op.into(), inner);
                 let f = self.get_builtin(match op {
-                    IntrinsicOp::Eq => BuiltinFn::ListEqByTag,
-                    IntrinsicOp::Lt => BuiltinFn::ListLtByTag,
-                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
+                    CmpIntrinsicOp::Eq => BuiltinFn::ListEqByTag,
+                    CmpIntrinsicOp::Lt => BuiltinFn::ListLtByTag,
                 });
                 let call = emit!(self.build_call(
                     f,
@@ -431,9 +433,8 @@ impl<'ctx> Codegen<'ctx> {
             }
             _ => {
                 let pred = match op {
-                    IntrinsicOp::Eq => IntPredicate::EQ,
-                    IntrinsicOp::Lt => IntPredicate::SLT,
-                    IntrinsicOp::Str => unreachable!("IntrinsicOp::Str is not a comparison"),
+                    CmpIntrinsicOp::Eq => IntPredicate::EQ,
+                    CmpIntrinsicOp::Lt => IntPredicate::SLT,
                 };
                 emit!(self.build_int_compare(pred, lhs_slot, rhs_slot, "intrinsic_ptr_cmp"))
             }

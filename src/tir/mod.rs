@@ -277,6 +277,26 @@ pub enum IntrinsicOp {
     Str,
 }
 
+/// Comparison-only subset of [`IntrinsicOp`].
+///
+/// Used in contexts that are inherently binary comparisons (e.g. `IntrinsicCmp`,
+/// `codegen_intrinsic_cmp`) so the type system prevents `Str` from ever
+/// reaching comparison codegen paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CmpIntrinsicOp {
+    Eq,
+    Lt,
+}
+
+impl From<CmpIntrinsicOp> for IntrinsicOp {
+    fn from(op: CmpIntrinsicOp) -> Self {
+        match op {
+            CmpIntrinsicOp::Eq => IntrinsicOp::Eq,
+            CmpIntrinsicOp::Lt => IntrinsicOp::Lt,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct IntrinsicInstance {
     pub op: IntrinsicOp,
@@ -627,7 +647,7 @@ pub enum TirExprKind {
         args: Vec<TirExpr>,
     },
     IntrinsicCmp {
-        op: IntrinsicOp,
+        op: CmpIntrinsicOp,
         lhs: Box<TirExpr>,
         rhs: Box<TirExpr>,
     },

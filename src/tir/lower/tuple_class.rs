@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::ast::{ClassField, ClassInfo, ClassMethod, Type};
 use crate::tir::{
-    builtin, FunctionParam, IntrinsicOp, TirExpr, TirExprKind, TirFunction, TirStmt, ValueType,
+    builtin, CmpIntrinsicOp, FunctionParam, IntrinsicOp, TirExpr, TirExprKind, TirFunction,
+    TirStmt, ValueType,
 };
 
 use super::Lowering;
@@ -510,7 +511,7 @@ impl Lowering {
                 self.register_intrinsic_instance(IntrinsicOp::Eq, ty);
                 TirExpr {
                     kind: TirExprKind::IntrinsicCmp {
-                        op: IntrinsicOp::Eq,
+                        op: CmpIntrinsicOp::Eq,
                         lhs: Box::new(left),
                         rhs: Box::new(right),
                     },
@@ -522,7 +523,7 @@ impl Lowering {
                 self.register_intrinsic_instance(IntrinsicOp::Eq, ty);
                 TirExpr {
                     kind: TirExprKind::IntrinsicCmp {
-                        op: IntrinsicOp::Eq,
+                        op: CmpIntrinsicOp::Eq,
                         lhs: Box::new(left),
                         rhs: Box::new(right),
                     },
