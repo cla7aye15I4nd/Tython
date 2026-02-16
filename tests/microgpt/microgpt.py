@@ -6,7 +6,7 @@ Everything else is just efficiency.
 """
 
 import math     # math.log, math.exp
-import random   # random.seed, random.choices, random.gauss, random.shuffle
+import random   # random.Random, random.choices, random.gauss, random.shuffle
 
 # Let there be Autograd, to recursively apply the chain rule through a computation graph
 class Value:
@@ -72,11 +72,11 @@ def rmsnorm(x: list[Value]) -> list[Value]:
     return [xi * scale for xi in x]
 
 if __name__ == '__main__':
-    random.seed(42) # Let there be order among chaos
+    rng: random.Random = random.Random(42) # Let there be order among chaos
 
     # Let there be an input dataset `docs`: list[str] of documents (e.g. a dataset of names)
     docs: list[str] = [l.strip() for l in open('input.txt').read().strip().split('\n') if l.strip()]
-    random.shuffle(docs)
+    rng.shuffle(docs)
     print(f"num docs: {len(docs)}")
 
     # Let there be a Tokenizer to translate strings to discrete symbols and back
@@ -92,7 +92,7 @@ if __name__ == '__main__':
     block_size: int = 16 # maximum sequence length
     head_dim: int = n_embd // n_head # dimension of each head
     def matrix(nout: int, nin: int, std: float = 0.08) -> list[list[Value]]:
-        return [[Value(random.gauss(0, std)) for _ in range(nin)] for _ in range(nout)]
+        return [[Value(rng.gauss(0, std)) for _ in range(nin)] for _ in range(nout)]
     state_dict: dict[str, list[list[Value]]] = {'wte': matrix(vocab_size, n_embd), 'wpe': matrix(block_size, n_embd), 'lm_head': matrix(vocab_size, n_embd)}
     for i in range(n_layer):
         state_dict[f'layer{i}.attn_wq'] = matrix(n_embd, n_embd)
@@ -199,7 +199,7 @@ if __name__ == '__main__':
         for pos_id in range(block_size):
             logits = gpt(token_id, pos_id, keys, values)
             probs = softmax([l / Value(temperature) for l in logits])
-            token_id = random.choices(range(vocab_size), weights=[p.data for p in probs])[0]
+            token_id = rng.choices(range(vocab_size), weights=[p.data for p in probs])[0]
             if token_id == BOS:
                 break
             sample.append(uchars[token_id])

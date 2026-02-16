@@ -97,6 +97,28 @@ def test_tuple_bytes_compare_and_comprehension_filters() -> None:
     assert three_arg == [1, 4, 7]
 
 
+def test_dict_bool_key_items_and_popitem() -> None:
+    d: dict[bool, int] = {True: 1, False: 2}
+    items: list[tuple[bool, int]] = d.items()
+    print('CHECK test_coverage_edges lhs:', len(items))
+    print('CHECK test_coverage_edges rhs:', 2)
+    assert len(items) == 2
+
+    d2: dict[bool, int] = {True: 10}
+    item: tuple[bool, int] = d2.popitem()
+    print('CHECK test_coverage_edges lhs:', item)
+    print('CHECK test_coverage_edges rhs:', (True, 10))
+    assert item == (True, 10)
+
+
+def test_str_dunder_str() -> None:
+    s: str = "hello"
+    out: str = s.__str__()
+    print('CHECK test_coverage_edges lhs:', out)
+    print('CHECK test_coverage_edges rhs:', "hello")
+    assert out == "hello"
+
+
 def run_tests() -> None:
     test_no_return_annotation_and_nested_import()
     test_attribute_annotation_nested_class_valid()
@@ -104,3 +126,5 @@ def run_tests() -> None:
     test_assert_tuple_truthiness()
     test_chained_compare_and_print_list()
     test_tuple_bytes_compare_and_comprehension_filters()
+    test_dict_bool_key_items_and_popitem()
+    test_str_dunder_str()
