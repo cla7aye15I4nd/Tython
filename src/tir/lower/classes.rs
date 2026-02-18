@@ -347,7 +347,7 @@ impl Lowering {
             return Err(self.type_error(
                 line,
                 format!(
-                    "class constant `{}` must have type int, float, bool, str, or bytes; got `{}`",
+                    "class constant `{}` must have type int, float, bool, str, bytes, or list[...] of those; got `{}`",
                     name, const_expr.ty
                 ),
             ));

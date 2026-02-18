@@ -15,6 +15,7 @@ def read_later() -> int:
 
 
 LATER: int = 7
+VALUES: list[int] = [1, 2, 3]
 
 
 def run_tests() -> None:
@@ -25,6 +26,9 @@ def run_tests() -> None:
     print(ENABLED)
     print(BYTES_LABEL)
     print(read_later())
+    print(len(VALUES))
+    print(VALUES[0])
+    print(VALUES[2])
 
 
 if __name__ == "__main__":

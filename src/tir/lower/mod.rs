@@ -766,10 +766,15 @@ impl Lowering {
     }
 
     fn is_supported_global_constant_type(ty: &ValueType) -> bool {
-        matches!(
-            ty,
-            ValueType::Int | ValueType::Float | ValueType::Bool | ValueType::Str | ValueType::Bytes
-        )
+        match ty {
+            ValueType::Int
+            | ValueType::Float
+            | ValueType::Bool
+            | ValueType::Str
+            | ValueType::Bytes => true,
+            ValueType::List(inner) => Self::is_supported_global_constant_type(inner),
+            _ => false,
+        }
     }
 
     fn collect_module_constant_decl(&mut self, node: &Bound<PyAny>) -> Result<()> {
@@ -866,7 +871,7 @@ impl Lowering {
             return Err(self.type_error(
                 line,
                 format!(
-                    "global constant `{}` must have type int, float, bool, str, or bytes; got `{}`",
+                    "global constant `{}` must have type int, float, bool, str, bytes, or list[...] of those; got `{}`",
                     name, const_expr.ty
                 ),
             ));

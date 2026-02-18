@@ -1,2 +1,2 @@
 class Foo:
-    x: list[int] = [5]
+    x = undefined_symbol

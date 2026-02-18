@@ -4,6 +4,7 @@ class Refl:
     LABEL: str = "spec"
     ENABLED: bool = True
     TAG: bytes = b"ok"
+    VALUES: list[int] = [1, 2, 3]
 
 
 class Outer:
@@ -31,6 +32,14 @@ def test_class_constants() -> None:
     print('CHECK test_class_constant lhs:', Refl.TAG)
     print('CHECK test_class_constant rhs:', b"ok")
     assert Refl.TAG == b"ok"
+
+    print('CHECK test_class_constant lhs:', len(Refl.VALUES))
+    print('CHECK test_class_constant rhs:', 3)
+    assert len(Refl.VALUES) == 3
+
+    print('CHECK test_class_constant lhs:', Refl.VALUES[1])
+    print('CHECK test_class_constant rhs:', 2)
+    assert Refl.VALUES[1] == 2
 
     print('CHECK test_class_constant lhs:', Outer.Inner.VALUE)
     print('CHECK test_class_constant rhs:', 7)
