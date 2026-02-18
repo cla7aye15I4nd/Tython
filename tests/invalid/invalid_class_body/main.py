@@ -1,2 +1,2 @@
 class Foo:
-    x = 5
+    x: list[int] = [5]

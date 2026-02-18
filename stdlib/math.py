@@ -1,21 +1,16 @@
-def pi() -> float:
-    return 3.141592653589793
+pi: float = 3.141592653589793
 
 
-def e() -> float:
-    return 2.718281828459045
+e: float = 2.718281828459045
 
 
-def inf() -> float:
-    return 1.0e308 * 10.0
+inf: float = 1.0e308 * 10.0
 
 
-def nan() -> float:
-    return 0.0 / 0.0
+nan: float = 0.0 / 0.0
 
 
-def tau() -> float:
-    return 6.283185307179586
+tau: float = 6.283185307179586
 
 
 def sqrt(x: float) -> float:
@@ -174,4 +169,4 @@ def isnan(x: float) -> bool:
 
 
 def isinf(x: float) -> bool:
-    return x == 1.0e308 * 10.0 or x == 0.0 - 1.0e308 * 10.0
+    return x == inf or x == 0.0 - inf

@@ -66,6 +66,8 @@ import basic.test_tuple_unary_index as test_tuple_unary_index
 import basic.test_tuple_index_extract_paths as test_tuple_index_extract_paths
 import basic.test_sorted_builtin_edges as test_sorted_builtin_edges
 import basic.test_file_io as test_file_io
+import basic.test_global_constant as test_global_constant
+import basic.test_class_constant as test_class_constant
 
 
 def run_all_tests() -> None:
@@ -137,3 +139,5 @@ def run_all_tests() -> None:
     test_tuple_index_extract_paths.run_tests()
     test_sorted_builtin_edges.run_tests()
     test_file_io.run_tests()
+    test_global_constant.run_tests()
+    test_class_constant.run_tests()

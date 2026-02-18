@@ -65,12 +65,17 @@ impl Lowering {
 
             "Name" => {
                 let id = ast_get_string!(node, "id");
-                let ty = self
-                    .lookup(&id)
-                    .cloned()
-                    .ok_or_else(|| self.name_error(line, format!("undefined variable `{}`", id)))?;
+                let Some(ty) = self.lookup(&id).cloned() else {
+                    if let Some(const_expr) = self.global_constants.get(&id).cloned() {
+                        return Ok(const_expr);
+                    }
+                    return Err(self.name_error(line, format!("undefined variable `{}`", id)));
+                };
 
-                if matches!(ty, Type::Module(_)) {
+                if let Type::Module(module_symbol) = &ty {
+                    if let Some(const_expr) = self.module_constants.get(module_symbol).cloned() {
+                        return Ok(const_expr);
+                    }
                     return Err(self.type_error(
                         line,
                         format!("module `{}` cannot be used as a value expression", ty),
@@ -267,6 +272,24 @@ impl Lowering {
             "Attribute" => {
                 let value_node = ast_getattr!(node, "value");
                 let attr_name = ast_get_string!(node, "attr");
+
+                if let Some(qualified_class) = self.try_resolve_class_path(&value_node) {
+                    let class_symbol = Self::mangle_class_symbol(&qualified_class, &attr_name);
+                    if let Some(const_expr) = self.class_constants.get(&class_symbol).cloned() {
+                        return Ok(const_expr);
+                    }
+                }
+
+                if ast_type_name!(value_node) == "Name" {
+                    let base_name = ast_get_string!(value_node, "id");
+                    if let Some(Type::Module(module_path)) = self.lookup(&base_name).cloned() {
+                        let symbol = format!("{}${}", module_path, attr_name);
+                        if let Some(const_expr) = self.module_constants.get(&symbol).cloned() {
+                            return Ok(const_expr);
+                        }
+                    }
+                }
+
                 let obj_expr = self.lower_expr(&value_node)?;
 
                 let class_name = match &obj_expr.ty {

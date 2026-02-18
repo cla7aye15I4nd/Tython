@@ -1,5 +1,6 @@
 import random
 import math
+from math import pi as imported_pi
 
 
 def add3(a: int, b: int = 10, c: int = 100) -> int:
@@ -74,6 +75,20 @@ def test_math_native_calls() -> None:
     print('CHECK test_call_paths rhs:', 2061)
     assert exp_neg20_scaled == 2061
 
+def test_math_constants() -> None:
+    pi_scaled: int = int(math.pi * 1000.0)
+    tau_scaled: int = int(math.tau * 1000.0)
+    imported_pi_scaled: int = int(imported_pi * 1000.0)
+    print('CHECK test_call_paths lhs:', pi_scaled)
+    print('CHECK test_call_paths rhs:', 3141)
+    assert pi_scaled == 3141
+    print('CHECK test_call_paths lhs:', tau_scaled)
+    print('CHECK test_call_paths rhs:', 6283)
+    assert tau_scaled == 6283
+    print('CHECK test_call_paths lhs:', imported_pi_scaled)
+    print('CHECK test_call_paths rhs:', 3141)
+    assert imported_pi_scaled == 3141
+
 def test_sum_generator_fast_path() -> None:
     total: int = sum((i for i in [1, 2, 3, 4]), 10)
     print('CHECK test_call_paths lhs:', total)
@@ -113,6 +128,7 @@ def run_tests() -> None:
     test_random_class_calls()
     test_keyword_binding_still_works()
     test_math_native_calls()
+    test_math_constants()
     test_sum_generator_fast_path()
     test_sum_class_list_special_case()
     test_class_right_magic_binop_path()

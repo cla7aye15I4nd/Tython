@@ -104,6 +104,16 @@ impl Lowering {
         let name = ast_get_string!(node, "name");
         let line = Self::get_line(node);
 
+        if self.global_constants.contains_key(&name) {
+            return Err(self.syntax_error(
+                line,
+                format!(
+                    "function `{}` conflicts with a global constant of the same name",
+                    name
+                ),
+            ));
+        }
+
         let args_node = ast_getattr!(node, "args");
         let py_args = ast_get_list!(&args_node, "args");
 

@@ -39,6 +39,9 @@ macro_rules! define_error_helpers {
 
 pub struct Lowering {
     symbol_table: HashMap<String, Type>,
+    module_constants: HashMap<String, TirExpr>,
+    class_constants: HashMap<String, TirExpr>,
+    global_constants: HashMap<String, TirExpr>,
 
     current_module_name: String,
     current_return_type: Option<Type>,
@@ -99,6 +102,9 @@ impl Lowering {
     pub fn new() -> Self {
         Self {
             symbol_table: HashMap::new(),
+            module_constants: HashMap::new(),
+            class_constants: HashMap::new(),
+            global_constants: HashMap::new(),
             current_module_name: String::new(),
             current_return_type: None,
             scopes: Vec::new(),
@@ -492,6 +498,7 @@ impl Lowering {
         self.internal_tmp_counter = 0;
         self.function_mangled_names.clear();
         self.intrinsic_instances.clear();
+        self.global_constants.clear();
 
         self.push_scope();
 
@@ -519,6 +526,14 @@ impl Lowering {
         self.discover_classes(&body_list, &self.current_module_name.clone())?;
         // Phase 1b: Fill in fields and methods, recursing into nested
         self.collect_classes(&body_list, &self.current_module_name.clone())?;
+
+        // Pass 1c: Collect module-level global constants.
+        for node in body_list.iter() {
+            match ast_type_name!(node).as_str() {
+                "AnnAssign" | "Assign" => self.collect_module_constant_decl(&node)?,
+                _ => {}
+            }
+        }
 
         // Pass 2: Collect function signatures
         for node in body_list.iter() {
@@ -549,6 +564,9 @@ impl Lowering {
                 "FunctionDef" => {
                     let tir_func = self.lower_function(&node)?;
                     functions.insert(tir_func.name.clone(), tir_func);
+                }
+                "AnnAssign" | "Assign" => {
+                    // Module-level global constants are compile-time only.
                 }
                 "Import" | "ImportFrom" => {}
                 "Pass" => {
@@ -637,6 +655,12 @@ impl Lowering {
                 ),
             };
             self.symbol_table.insert(func.name.clone(), func_type);
+        }
+        for (name, expr) in &self.global_constants {
+            let qualified = self.mangle_name(name);
+            self.symbol_table
+                .insert(qualified.clone(), expr.ty.to_type());
+            self.module_constants.insert(qualified, expr.clone());
         }
 
         let mut intrinsic_instances = self
@@ -737,6 +761,121 @@ impl Lowering {
         format!("{}${}", self.current_module_name, name)
     }
 
+    fn mangle_class_symbol(class_name: &str, symbol: &str) -> String {
+        format!("{}${}", class_name, symbol)
+    }
+
+    fn is_supported_global_constant_type(ty: &ValueType) -> bool {
+        matches!(
+            ty,
+            ValueType::Int | ValueType::Float | ValueType::Bool | ValueType::Str | ValueType::Bytes
+        )
+    }
+
+    fn collect_module_constant_decl(&mut self, node: &Bound<PyAny>) -> Result<()> {
+        let line = Self::get_line(node);
+        let node_type = ast_type_name!(node);
+
+        let (name, annotated_ty, value_node) =
+            match node_type.as_str() {
+                "AnnAssign" => {
+                    let target_node = ast_getattr!(node, "target");
+                    if ast_type_name!(target_node) != "Name" {
+                        return Err(self
+                            .syntax_error(line, "only simple variable assignments are supported"));
+                    }
+                    let name = ast_get_string!(target_node, "id");
+                    let value_node = ast_getattr!(node, "value");
+                    if value_node.is_none() {
+                        return Err(
+                            self.syntax_error(line, "global constant declaration requires a value")
+                        );
+                    }
+                    let annotation = ast_getattr!(node, "annotation");
+                    let annotated_ty = if annotation.is_none() {
+                        None
+                    } else {
+                        Some(self.convert_type_annotation(&annotation)?)
+                    };
+                    (name, annotated_ty, value_node)
+                }
+                "Assign" => {
+                    let targets_list = ast_get_list!(node, "targets");
+                    if targets_list.len() != 1 {
+                        return Err(self
+                            .syntax_error(line, "multiple assignment targets are not supported"));
+                    }
+                    let target_node = targets_list.get_item(0)?;
+                    if ast_type_name!(target_node) != "Name" {
+                        return Err(self
+                            .syntax_error(line, "only simple variable assignments are supported"));
+                    }
+                    let name = ast_get_string!(target_node, "id");
+                    let value_node = ast_getattr!(node, "value");
+                    (name, None, value_node)
+                }
+                _ => unreachable!("collect_module_constant_decl only handles Assign/AnnAssign"),
+            };
+
+        if self.global_constants.contains_key(&name) {
+            return Err(self.syntax_error(
+                line,
+                format!("duplicate global constant declaration for `{}`", name),
+            ));
+        }
+
+        if self.lookup(&name).is_some() {
+            return Err(self.syntax_error(
+                line,
+                format!(
+                    "global constant `{}` conflicts with an existing symbol",
+                    name
+                ),
+            ));
+        }
+
+        let pre_len = self.pre_stmts.len();
+        let const_expr = self.lower_expr(&value_node)?;
+        if self.pre_stmts.len() != pre_len {
+            self.pre_stmts.truncate(pre_len);
+            return Err(
+                self.syntax_error(line, "global constant value must be a constant expression")
+            );
+        }
+
+        self.ensure_supported_default_expr(line, &const_expr)
+            .map_err(|_| {
+                self.syntax_error(line, "global constant value must be a constant expression")
+            })?;
+
+        if let Some(ref ann_ty) = annotated_ty {
+            let ann_vty = self.value_type_from_type(ann_ty);
+            if ann_vty != const_expr.ty {
+                return Err(self.type_error(
+                    line,
+                    format!(
+                        "type mismatch: expected `{}`, got `{}`",
+                        ann_ty,
+                        const_expr.ty.to_type()
+                    ),
+                ));
+            }
+        }
+
+        if !Self::is_supported_global_constant_type(&const_expr.ty) {
+            return Err(self.type_error(
+                line,
+                format!(
+                    "global constant `{}` must have type int, float, bool, str, or bytes; got `{}`",
+                    name, const_expr.ty
+                ),
+            ));
+        }
+
+        self.global_constants.insert(name, const_expr);
+        Ok(())
+    }
+
     fn register_function_signature(
         &mut self,
         mangled_name: String,
@@ -758,6 +897,7 @@ impl Lowering {
         match &expr.kind {
             TirExprKind::IntLiteral(_)
             | TirExprKind::FloatLiteral(_)
+            | TirExprKind::BoolLiteral(_)
             | TirExprKind::StrLiteral(_)
             | TirExprKind::BytesLiteral(_) => Ok(()),
 
