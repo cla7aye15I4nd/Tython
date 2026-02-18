@@ -1,5 +1,5 @@
 def run_case() -> None:
-    data: str = open("a.txt", "r")
+    data = open("a.txt", "r", "extra")
 
 
 if __name__ == "__main__":

@@ -65,6 +65,7 @@ import basic.test_builtin_magic_dispatch as test_builtin_magic_dispatch
 import basic.test_tuple_unary_index as test_tuple_unary_index
 import basic.test_tuple_index_extract_paths as test_tuple_index_extract_paths
 import basic.test_sorted_builtin_edges as test_sorted_builtin_edges
+import basic.test_file_io as test_file_io
 
 
 def run_all_tests() -> None:
@@ -135,3 +136,4 @@ def run_all_tests() -> None:
     test_tuple_unary_index.run_tests()
     test_tuple_index_extract_paths.run_tests()
     test_sorted_builtin_edges.run_tests()
+    test_file_io.run_tests()

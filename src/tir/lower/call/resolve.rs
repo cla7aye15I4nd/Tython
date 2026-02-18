@@ -288,10 +288,13 @@ impl Lowering {
             if !args.keyword.is_empty() {
                 return Err(self.syntax_error(line, "open() does not accept keywords"));
             }
-            if args.positional.len() != 1 {
+            if args.positional.is_empty() || args.positional.len() > 2 {
                 return Err(self.type_error(
                     line,
-                    format!("open() expects 1 argument, got {}", args.positional.len()),
+                    format!(
+                        "open() expects 1 or 2 arguments, got {}",
+                        args.positional.len()
+                    ),
                 ));
             }
             let mut path_arg = args.positional.remove(0);
@@ -301,6 +304,21 @@ impl Lowering {
                     format!("open() path must be `str`, got `{}`", path_arg.ty),
                 ));
             }
+            let mode_arg = if args.positional.is_empty() {
+                TirExpr {
+                    kind: TirExprKind::StrLiteral("r".to_string()),
+                    ty: ValueType::Str,
+                }
+            } else {
+                let mode = args.positional.remove(0);
+                if mode.ty != ValueType::Str {
+                    return Err(self.type_error(
+                        line,
+                        format!("open() mode must be `str`, got `{}`", mode.ty),
+                    ));
+                }
+                mode
+            };
 
             if let TirExprKind::StrLiteral(path) = &path_arg.kind {
                 let p = Path::new(path);
@@ -318,10 +336,10 @@ impl Lowering {
 
             return Ok(CallResult::Expr(TirExpr {
                 kind: TirExprKind::ExternalCall {
-                    func: crate::tir::builtin::BuiltinFn::OpenReadAll,
-                    args: vec![path_arg],
+                    func: crate::tir::builtin::BuiltinFn::Open,
+                    args: vec![path_arg, mode_arg],
                 },
-                ty: ValueType::Str,
+                ty: ValueType::File,
             }));
         }
 

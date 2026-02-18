@@ -9,7 +9,10 @@ extern "C" {
 
 void TYTHON_BUILTIN(assert)(int64_t condition);
 void* TYTHON_BUILTIN(malloc)(int64_t size);
-void* TYTHON_BUILTIN(open_read_all)(void* path);
+void* TYTHON_BUILTIN(open)(void* path, void* mode);
+void* TYTHON_BUILTIN(file_read)(void* file);
+int64_t TYTHON_BUILTIN(file_write)(void* file, void* data);
+void TYTHON_BUILTIN(file_close)(void* file);
 
 #ifdef __cplusplus
 }

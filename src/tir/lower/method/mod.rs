@@ -10,6 +10,7 @@ use super::Lowering;
 pub mod bytearray;
 pub mod bytes;
 pub mod dict;
+pub mod file;
 pub mod list;
 pub mod set;
 pub mod r#str;
@@ -163,6 +164,9 @@ impl Lowering {
                 set::lower_set_method_call(self, line, obj_expr, method_name, args, &inner)
             }
             ValueType::Str => r#str::lower_str_method_call(self, line, obj_expr, method_name, args),
+            ValueType::File => {
+                file::lower_file_method_call(self, line, obj_expr, method_name, args)
+            }
             ValueType::Bytes => {
                 bytes::lower_bytes_method_call(self, line, obj_expr, method_name, args)
             }

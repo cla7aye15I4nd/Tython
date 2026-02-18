@@ -12,6 +12,7 @@ pub enum ValueType {
     Float,
     Bool,
     Str,
+    File,
     Bytes,
     ByteArray,
     List(Box<ValueType>),
@@ -31,6 +32,7 @@ impl ValueType {
             Type::Float => Some(ValueType::Float),
             Type::Bool => Some(ValueType::Bool),
             Type::Str => Some(ValueType::Str),
+            Type::Class(name) if name == "__tython_file" => Some(ValueType::File),
             Type::Bytes => Some(ValueType::Bytes),
             Type::ByteArray => Some(ValueType::ByteArray),
             Type::List(inner) => Some(ValueType::List(Box::new(ValueType::from_type(inner)?))),
@@ -68,6 +70,7 @@ impl ValueType {
             ValueType::Float => Type::Float,
             ValueType::Bool => Type::Bool,
             ValueType::Str => Type::Str,
+            ValueType::File => Type::Class("__tython_file".to_string()),
             ValueType::Bytes => Type::Bytes,
             ValueType::ByteArray => Type::ByteArray,
             ValueType::List(inner) => Type::List(Box::new(inner.to_type())),
@@ -109,6 +112,7 @@ impl ValueType {
         matches!(
             self,
             ValueType::Str
+                | ValueType::File
                 | ValueType::Bytes
                 | ValueType::ByteArray
                 | ValueType::List(_)
@@ -126,6 +130,7 @@ impl std::fmt::Display for ValueType {
             ValueType::Float => write!(f, "float"),
             ValueType::Bool => write!(f, "bool"),
             ValueType::Str => write!(f, "str"),
+            ValueType::File => write!(f, "file"),
             ValueType::Bytes => write!(f, "bytes"),
             ValueType::ByteArray => write!(f, "bytearray"),
             ValueType::List(inner) => write!(f, "list[{}]", inner),

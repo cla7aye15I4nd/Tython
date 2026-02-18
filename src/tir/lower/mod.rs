@@ -465,6 +465,10 @@ impl Lowering {
                 kind: TirExprKind::BoolLiteral(true),
                 ty: ValueType::Bool,
             }),
+            ValueType::File => Ok(TirExpr {
+                kind: TirExprKind::BoolLiteral(true),
+                ty: ValueType::Bool,
+            }),
             ValueType::Function { .. } => {
                 Err(self.type_error(line, format!("cannot use `{}` in {}", expr.ty, context)))
             }

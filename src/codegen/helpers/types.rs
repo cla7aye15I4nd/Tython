@@ -26,6 +26,7 @@ impl<'ctx> Codegen<'ctx> {
             ValueType::Bool => self.context.bool_type().into(),
             ValueType::Float => self.context.f64_type().into(),
             ValueType::Str
+            | ValueType::File
             | ValueType::Bytes
             | ValueType::ByteArray
             | ValueType::List(_)

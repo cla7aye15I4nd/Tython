@@ -39,7 +39,10 @@ define_builtins! {
     PrintSpace    => "__tython_print_space",    params: [],                                        ret: None;
     PrintNewline  => "__tython_print_newline",  params: [],                                        ret: None;
     Assert        => "__tython_assert",         params: [ValueType::Bool],                         ret: None;
-    OpenReadAll   => "__tython_open_read_all",  params: [ValueType::Str],                          ret: Some(ValueType::Str);
+    Open          => "__tython_open",           params: [ValueType::Str, ValueType::Str],          ret: Some(ValueType::File);
+    FileRead      => "__tython_file_read",      params: [ValueType::File],                         ret: Some(ValueType::Str);
+    FileWrite     => "__tython_file_write",     params: [ValueType::File, ValueType::Str],         ret: Some(ValueType::Int);
+    FileClose     => "__tython_file_close",     params: [ValueType::File],                         ret: None;
     PowInt        => "__tython_pow_int",        params: [ValueType::Int, ValueType::Int],           ret: Some(ValueType::Int);
     AbsInt        => "__tython_abs_int",        params: [ValueType::Int],                          ret: Some(ValueType::Int);
     AbsFloat      => "__tython_abs_float",      params: [ValueType::Float],                        ret: Some(ValueType::Float);
